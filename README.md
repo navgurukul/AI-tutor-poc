@@ -1,12 +1,14 @@
 # AI Tutor POC
 
-Proof of concept for an AI tutor that runs **entirely offline**. All inference happens
-locally through [Ollama](https://ollama.com) with `qwen2.5:1.5b` — no cloud API, no internet
-needed once the model is pulled.
+Proof of concept for an AI tutor that runs **entirely offline**. Speak or type a question
+and get an answer back: inference happens locally through [Ollama](https://ollama.com) with
+`qwen2.5:1.5b` on the backend, with on-device speech-to-text and Piper TTS on the frontend.
+No cloud API, no internet needed once the model and voice assets are downloaded.
 
 ```
-backend/      FastAPI service wrapping the local Ollama model  (ready)
-frontend/     Web client                                       (in progress)
+apps/backend/     FastAPI service wrapping the local Ollama model    (ready)
+apps/frontend/    React/Vite web client (STT/TTS tutor flow)         (ready)
+apps/desktop/     Borderless desktop launcher for the frontend       (ready)
 ```
 
 ## Backend
@@ -14,7 +16,7 @@ frontend/     Web client                                       (in progress)
 ```bash
 ollama pull qwen2.5:1.5b     # one-time, ~1 GB, needs internet ONCE
 ollama serve                 # skip if it already runs as a service
-cd backend && ./run.sh
+cd apps/backend && ./run.sh
 ```
 
 Runs on `http://localhost:8000`. Interactive API docs at `/docs`, OpenAPI schema at
@@ -23,19 +25,40 @@ Runs on `http://localhost:8000`. Interactive API docs at `/docs`, OpenAPI schema
 Verify the whole stack end to end:
 
 ```bash
-cd backend && ./.venv/bin/python smoke_test.py
+cd apps/backend && ./.venv/bin/python smoke_test.py
 ```
 
-See [backend/README.md](backend/README.md) for the full API contract — endpoints, the SSE
-streaming format, error codes, configuration, and the known limits of a 1.5B model.
+See [apps/backend/README.md](apps/backend/README.md) for the full API contract — endpoints,
+the SSE streaming format, error codes, configuration, and the known limits of a 1.5B model.
 
 ## Frontend
 
-Not started yet. It should talk to the backend over HTTP on port 8000; CORS is open by
-default (`CORS_ORIGINS=*`) so any dev server origin works out of the box.
+**Prerequisites:** Node.js 18+, npm, and Google Chrome or Microsoft Edge installed.
 
-The two endpoints to build against first:
+From the repo root, on Windows:
 
-- `POST /api/chat/stream` — the chat UI, token-by-token over Server-Sent Events.
-- `GET /health` — returns 200 even when Ollama is down, reporting `status: "degraded"` plus
-  a fix hint, so the app can show an "offline model ready" indicator on boot.
+```powershell
+powershell -File scripts\setup.ps1
+```
+
+This installs dependencies for `apps/frontend` and `apps/desktop`, creates
+`apps/frontend/.env` (mock API mode on, so no backend is needed to try it), and downloads
+the Piper voice model files. Safe to re-run — each step is skipped if already done.
+
+Run it:
+
+```bash
+cd apps/desktop
+npm start
+```
+
+Opens the AI Tutor in a borderless window. Rebuild after code changes with:
+
+```powershell
+powershell -File scripts\build.ps1
+```
+
+See [apps/frontend/README.md](apps/frontend/README.md) for the full frontend overview and
+architecture. To talk to a real backend instead of the mock data, set
+`VITE_USE_MOCK_API=false` in `apps/frontend/.env` (see `apps/frontend/.env.example`) — CORS
+is open by default (`CORS_ORIGINS=*`) so the dev server works out of the box.

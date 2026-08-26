@@ -1,0 +1,11 @@
+{
+  "name": "desktop",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Borderless Chrome/Edge launcher for the AI Tutor frontend — no Electron, keeps things light.",
+  "scripts": {
+    "start": "node launch.mjs",
+    "dev": "node launch.mjs --dev"
+  }
+}

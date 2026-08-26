@@ -7,8 +7,8 @@ API calls, no internet needed at request time.
 Frontend developers: the full interactive API reference is at **http://localhost:8000/docs**
 once the server is running, and the OpenAPI schema at `/openapi.json` can generate types.
 
-> Every command and path in this document is relative to this `backend/` directory.
-> The frontend lives alongside it in `frontend/`.
+> Every command and path in this document is relative to this `apps/backend/` directory.
+> The frontend lives alongside it in `apps/frontend/`.
 
 ---
 
@@ -22,7 +22,7 @@ ollama pull qwen2.5:1.5b
 ollama serve          # skip if it already runs as a service
 
 # 3. Start the backend (creates the venv and installs deps on first run)
-cd backend && ./run.sh
+cd apps/backend && ./run.sh
 ```
 
 The API is then on `http://localhost:8000`, docs on `/docs`.
@@ -281,7 +281,7 @@ above at the cost of speed and RAM.
 ## Project layout
 
 ```
-backend/
+apps/backend/
   app/
     main.py                  FastAPI app, CORS, lifespan, error handlers
     config.py                Settings (env / .env)
@@ -297,7 +297,7 @@ backend/
       tutor.py               Prompts and JSON schemas for structured output
   smoke_test.py              End-to-end check of every endpoint
   run.sh                     Starts the server, bootstrapping the venv
-frontend/                    Web client (other developers)
+apps/frontend/                Web client (other developers)
 ```
 
 **Implementation note:** the structured endpoints constrain Ollama's decoder with a JSON
