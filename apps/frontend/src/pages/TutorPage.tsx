@@ -31,7 +31,7 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
     browserSupportsSpeechRecognition,
     startTurn,
     cancelTurn,
-  } = useTutorSession({ classId: schoolClass.id, subjectId: subject.id });
+  } = useTutorSession({ subjectName: subject.name, level: schoolClass.name });
 
   const logRef = useRef<HTMLDivElement>(null);
 

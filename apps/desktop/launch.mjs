@@ -6,8 +6,7 @@
 //   node launch.mjs         Production mode: build (if needed) + serve dist/ + launch window
 //   node launch.mjs --dev   Development mode: run the Vite dev server (HMR) + launch window
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -87,7 +86,15 @@ async function main() {
 
   await waitForServer();
 
-  const profileDir = mkdtempSync(path.join(tmpdir(), "ai-tutor-app-"));
+  // A named profile under Chrome's *default* User Data root, not a separate
+  // --user-data-dir. --user-data-dir points at an entirely independent User
+  // Data root, which isolates not just cookies/permissions but also Chrome's
+  // installation-level component downloads (the on-device speech recognition
+  // model among them) - so offline STT worked in a regular browser tab
+  // (using the real profile, which already had that model) but not in the
+  // app window (a from-scratch data root that could never get it without
+  // re-downloading it independently). --profile-directory instead creates an
+  // isolated profile *inside* the default root, sharing those downloads.
   console.log(`Launching borderless window via ${browser}`);
   const chrome = spawn(
     browser,
@@ -95,7 +102,7 @@ async function main() {
       `--app=${url}`,
       "--new-window",
       "--window-size=1280,800",
-      `--user-data-dir=${profileDir}`,
+      `--profile-directory=AI Tutor POC`,
       "--no-first-run",
       "--no-default-browser-check",
       "--disable-extensions",

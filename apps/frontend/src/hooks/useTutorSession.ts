@@ -7,19 +7,36 @@ import type { ChatMessage } from "../types";
 export type TutorStage = "idle" | "listening" | "thinking" | "speaking" | "error";
 
 interface UseTutorSessionArgs {
-  classId: string;
-  subjectId: string;
+  subjectName: string;
+  level: string;
   lang?: string;
 }
 
 let messageId = 0;
 const nextId = () => `msg-${++messageId}`;
 
-export function useTutorSession({ classId, subjectId, lang = "en-US" }: UseTutorSessionArgs) {
+// Piper synthesizes each speak() call as one WASM pass before any of it plays,
+// so speaking a whole multi-sentence reply in one call means silence until the
+// entire thing is synthesized. Splitting into sentences and calling speak() per
+// sentence lets Piper's own queue play the first one while later ones are still
+// being synthesized, cutting time-to-first-audio down to a single sentence.
+function splitIntoSpeechChunks(text: string): string[] {
+  const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) ?? [text];
+  return sentences.map((s) => s.trim()).filter(Boolean);
+}
+
+export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutorSessionArgs) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stage, setStage] = useState<TutorStage>("idle");
   const [error, setError] = useState<string | null>(null);
   const wasListening = useRef(false);
+  const sessionIdRef = useRef<string | undefined>(undefined);
+
+  // Pipeline timing: voice captured -> backend reply -> first audio -> speech done.
+  const turnStartRef = useRef<number | null>(null);
+  const speakQueueStartRef = useRef<number | null>(null);
+  const firstAudioLoggedRef = useRef(false);
+  const allChunksQueuedRef = useRef(false);
 
   const {
     startListening,
@@ -46,21 +63,62 @@ export function useTutorSession({ classId, subjectId, lang = "en-US" }: UseTutor
 
   const askAndSpeak = useCallback(
     async (question: string) => {
+      const turnStart = performance.now();
+      turnStartRef.current = turnStart;
+      firstAudioLoggedRef.current = false;
+      allChunksQueuedRef.current = false;
+
       setStage("thinking");
       setMessages((prev) => [...prev, { id: nextId(), role: "user", text: question }]);
       try {
-        const { answer } = await askTutor({ classId, subjectId, question });
+        const { sessionId, answer } = await askTutor({
+          message: question,
+          sessionId: sessionIdRef.current,
+          profile: { subject: subjectName, level },
+        });
+        const backendMs = performance.now() - turnStart;
+        console.log(`[timing] voice -> backend reply: ${backendMs.toFixed(0)}ms`);
+
+        sessionIdRef.current = sessionId;
         setMessages((prev) => [...prev, { id: nextId(), role: "tutor", text: answer }]);
         setStage("speaking");
-        await speak(answer);
+
+        speakQueueStartRef.current = performance.now();
+        for (const chunk of splitIntoSpeechChunks(answer)) {
+          await speak(chunk);
+        }
+        allChunksQueuedRef.current = true;
         setStage("idle");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
         setStage("error");
       }
     },
-    [classId, subjectId, speak]
+    [subjectName, level, speak]
   );
+
+  // Logs time-to-first-audio and total voice->fully-spoken duration by watching
+  // Piper's isPlaying flag, since speak() itself resolves as soon as text is
+  // queued rather than when audio actually starts/stops.
+  useEffect(() => {
+    const turnStart = turnStartRef.current;
+    if (turnStart === null) return;
+
+    if (isPlaying && !firstAudioLoggedRef.current && speakQueueStartRef.current !== null) {
+      firstAudioLoggedRef.current = true;
+      const now = performance.now();
+      console.log(
+        `[timing] backend reply -> first audio: ${(now - speakQueueStartRef.current).toFixed(0)}ms ` +
+          `(voice -> first audio total: ${(now - turnStart).toFixed(0)}ms)`
+      );
+    }
+
+    if (!isPlaying && firstAudioLoggedRef.current && allChunksQueuedRef.current) {
+      const now = performance.now();
+      console.log(`[timing] voice -> fully spoken total: ${(now - turnStart).toFixed(0)}ms`);
+      turnStartRef.current = null;
+    }
+  }, [isPlaying]);
 
   // Auto-send once the mic stops listening and picked up a final transcript.
   useEffect(() => {

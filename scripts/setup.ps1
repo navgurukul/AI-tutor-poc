@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-  One-shot setup for the AI Tutor POC: installs dependencies, creates a local
-  .env, and downloads the Piper voice model files.
+  One-shot setup for the AI Tutor POC: installs frontend, desktop, and backend
+  dependencies, creates local .env files, and downloads the Piper voice model
+  files.
 
 .USAGE
   From the repo root:  powershell -File scripts\setup.ps1
@@ -9,9 +10,12 @@
   failed or was interrupted partway (e.g. a dropped download) is detected and
   retried rather than falsely treated as complete.
 
-  After this finishes, launch the app with:
-    cd apps\desktop
-    npm start
+  Requires Python 3 on PATH for the backend virtualenv (the Microsoft Store's
+  "python" shim doesn't count - install a real one, e.g.
+  'winget install Python.Python.3.12').
+
+  After this finishes, start everything with:
+    powershell -File scripts\start.ps1
 #>
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +24,7 @@ $ProgressPreference = "SilentlyContinue"   # Invoke-WebRequest's progress bar is
 $repoRoot    = Split-Path -Parent $PSScriptRoot
 $frontendDir = Join-Path $repoRoot "apps\frontend"
 $desktopDir  = Join-Path $repoRoot "apps\desktop"
+$backendDir  = Join-Path $repoRoot "apps\backend"
 $modelsDir   = Join-Path $frontendDir "public\models"
 
 function Step($message) {
@@ -48,6 +53,21 @@ function Get-FileSafely($uri, $outFile) {
         if (Test-Path $tempFile) { Remove-Item $tempFile -Force }
         throw "Download failed: $uri`n$($_.Exception.Message)"
     }
+}
+
+# The Microsoft Store's "python"/"python3" shims answer to Get-Command but
+# fail as soon as they're run (they only exist to open the Store), so a real
+# install has to be confirmed by actually running --version, not just found.
+function Find-Python {
+    foreach ($cmd in @("python", "py")) {
+        $exe = Get-Command $cmd -ErrorAction SilentlyContinue
+        if (-not $exe) { continue }
+        try {
+            $verOutput = & $exe.Source --version 2>&1
+            if ($LASTEXITCODE -eq 0 -and $verOutput -match "Python 3") { return $exe.Source }
+        } catch {}
+    }
+    return $null
 }
 
 # 1. Frontend dependencies. In theory npm's postinstall hooks handle the
@@ -100,7 +120,41 @@ try {
     Pop-Location
 }
 
-# 3. .env - not committed to git, so create it from the template if missing.
+# 3. Backend virtualenv + Python packages. Windows venvs put executables in
+#    .venv\Scripts, not .venv\bin - that's a real (not cosmetic) difference
+#    from apps/backend/run.sh, which is written for macOS/Linux and won't run
+#    natively here, so this replicates its steps for Windows instead of
+#    calling it.
+$backendVenv   = Join-Path $backendDir ".venv"
+$backendPython = Join-Path $backendVenv "Scripts\python.exe"
+
+if (-not (Test-Path $backendPython)) {
+    Step "Creating backend virtualenv..."
+    $systemPython = Find-Python
+    if (-not $systemPython) {
+        throw "Python 3 not found. Install it (e.g. 'winget install Python.Python.3.12') and re-run this script."
+    }
+    & $systemPython -m venv $backendVenv
+    if ($LASTEXITCODE -ne 0) { throw "Failed to create virtualenv at $backendVenv" }
+} else {
+    Step "Backend virtualenv already exists - skipping creation."
+}
+
+Step "Installing backend Python packages..."
+& $backendPython -m pip install --quiet --upgrade pip
+& $backendPython -m pip install --quiet -r (Join-Path $backendDir "requirements.txt")
+if ($LASTEXITCODE -ne 0) { throw "pip install failed in apps/backend" }
+
+$backendEnvPath = Join-Path $backendDir ".env"
+$backendEnvExamplePath = Join-Path $backendDir ".env.example"
+if (-not (Test-Path $backendEnvPath)) {
+    Step "Creating apps/backend/.env from template..."
+    Copy-Item $backendEnvExamplePath $backendEnvPath
+} else {
+    Step "apps/backend/.env already exists - leaving it as-is."
+}
+
+# 4. .env - not committed to git, so create it from the template if missing.
 #    Defaults to mock API mode so the app is usable with no backend running.
 $envPath = Join-Path $frontendDir ".env"
 $envExamplePath = Join-Path $frontendDir ".env.example"
@@ -114,7 +168,7 @@ if (-not (Test-Path $envPath)) {
     Step "apps/frontend/.env already exists - leaving it as-is."
 }
 
-# 4. Piper voice model files - not an npm dependency, so nothing else fetches
+# 5. Piper voice model files - not an npm dependency, so nothing else fetches
 #    these. Downloaded once from the official rhasspy/piper-voices repo.
 #    Size-checked the same way as step 1b, and downloaded via Get-FileSafely
 #    so an interrupted download can't masquerade as a completed one.
@@ -142,5 +196,5 @@ if (-not (Test-ValidFile $jsonPath 100)) {
 
 Write-Host ""
 Write-Host "Setup complete." -ForegroundColor Green
-Write-Host "Next: cd apps\desktop; npm start" -ForegroundColor Green
-Write-Host "  (opens the AI Tutor in a borderless window)"
+Write-Host "Next: powershell -File scripts\start.ps1" -ForegroundColor Green
+Write-Host "  (starts the backend, then opens the AI Tutor in a borderless window)"

@@ -11,16 +11,51 @@ apps/frontend/    React/Vite web client (STT/TTS tutor flow)         (ready)
 apps/desktop/     Borderless desktop launcher for the frontend       (ready)
 ```
 
-## Backend
+## Quickstart (Windows)
 
-```bash
+**Prerequisites** — install these first, then the commands below set up and run everything
+else:
+- [Ollama](https://ollama.com) (the local LLM runtime)
+- Python 3.9+ on PATH (the Microsoft Store's `python`/`python3` shims look present but fail
+  on first run — install a real one, e.g. `winget install Python.Python.3.12`)
+- Node.js 18+ and npm
+- Google Chrome or Microsoft Edge
+
+```powershell
 ollama pull qwen2.5:1.5b     # one-time, ~1 GB, needs internet ONCE
 ollama serve                 # skip if it already runs as a service
-cd apps/backend && ./run.sh
+
+powershell -File scripts\setup.ps1   # install: backend + frontend + desktop deps, voice model
+powershell -File scripts\start.ps1   # run: starts the backend, then opens the borderless window
 ```
+
+`setup.ps1` installs everything (backend Python venv, frontend/desktop npm packages, Piper
+voice model files) and creates each app's `.env` from its template. Safe to re-run — every
+step is skipped if already done.
+
+`start.ps1` starts the backend, waits for `/health`, then launches the desktop app in dev
+mode (Vite + HMR) and opens the borderless window. Closing the window, or Ctrl+C in the
+terminal, stops both. Re-run `start.ps1` any time you restart your machine or the backend/
+frontend aren't already running — frontend **code** changes apply live without it, since dev
+mode has hot-reload.
+
+`apps/frontend/.env` controls `VITE_USE_MOCK_API` — `setup.ps1` defaults it to `true` (a
+self-contained UI with no backend needed, handy for a first look); set it to `false` to talk
+to the real backend that `start.ps1` brings up.
+
+## Backend
 
 Runs on `http://localhost:8000`. Interactive API docs at `/docs`, OpenAPI schema at
 `/openapi.json` (usable for generating client types).
+
+See [apps/backend/README.md](apps/backend/README.md) for the full API contract — endpoints,
+the SSE streaming format, error codes, configuration, and the known limits of a 1.5B model.
+
+On macOS/Linux, run it directly instead of through the PowerShell scripts above:
+
+```bash
+cd apps/backend && ./run.sh
+```
 
 Verify the whole stack end to end:
 
@@ -28,37 +63,12 @@ Verify the whole stack end to end:
 cd apps/backend && ./.venv/bin/python smoke_test.py
 ```
 
-See [apps/backend/README.md](apps/backend/README.md) for the full API contract — endpoints,
-the SSE streaming format, error codes, configuration, and the known limits of a 1.5B model.
-
 ## Frontend
 
-**Prerequisites:** Node.js 18+, npm, and Google Chrome or Microsoft Edge installed.
-
-From the repo root, on Windows:
-
-```powershell
-powershell -File scripts\setup.ps1
-```
-
-This installs dependencies for `apps/frontend` and `apps/desktop`, creates
-`apps/frontend/.env` (mock API mode on, so no backend is needed to try it), and downloads
-the Piper voice model files. Safe to re-run — each step is skipped if already done.
-
-Run it:
-
-```bash
-cd apps/desktop
-npm start
-```
-
-Opens the AI Tutor in a borderless window. Rebuild after code changes with:
-
-```powershell
-powershell -File scripts\build.ps1
-```
-
 See [apps/frontend/README.md](apps/frontend/README.md) for the full frontend overview and
-architecture. To talk to a real backend instead of the mock data, set
-`VITE_USE_MOCK_API=false` in `apps/frontend/.env` (see `apps/frontend/.env.example`) — CORS
-is open by default (`CORS_ORIGINS=*`) so the dev server works out of the box.
+architecture.
+
+`apps/desktop`'s `npm start` (no `--dev`) serves a production build (`apps/frontend/dist`)
+instead of the dev server — rebuild it first with `scripts\build.ps1` (or delete `dist/`)
+after any code change, since it's only rebuilt automatically when `dist/` is missing, not
+when it's outdated.

@@ -16,12 +16,23 @@ export interface ChatMessage {
   text: string;
 }
 
+export type TeachingStyle = "socratic" | "direct" | "exam_prep";
+
+export interface TutorProfile {
+  subject?: string;
+  level?: string;
+  style?: TeachingStyle;
+  language?: string;
+  studentName?: string;
+}
+
 export interface AskTutorRequest {
-  classId: string;
-  subjectId: string;
-  question: string;
+  message: string;
+  sessionId?: string;
+  profile?: TutorProfile;
 }
 
 export interface AskTutorResponse {
+  sessionId: string;
   answer: string;
 }

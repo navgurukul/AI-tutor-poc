@@ -9,10 +9,23 @@ const MOCK_DELAY_MS = 400;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...init,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      ...init,
+    });
+  } catch {
+    // fetch() rejects (rather than resolving with a bad status) when there's
+    // nothing to connect to at all - e.g. the backend process isn't running.
+    // That's unrelated to internet access (this URL is localhost), but the
+    // raw "Failed to fetch" TypeError reads like a generic network error, so
+    // spell out the actual, actionable cause instead.
+    throw new Error(
+      `Can't reach the tutor backend at ${API_BASE_URL}. Make sure it's running ` +
+        `(scripts\\start.ps1, or apps/backend/run.sh) - this doesn't require internet.`,
+    );
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -24,7 +37,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** POST /tutor/ask { classId, subjectId, question } -> { answer } */
+interface ChatApiResponse {
+  session_id: string;
+  reply: string;
+  model: string;
+  usage: unknown;
+  created_at: string;
+}
+
+/** POST /api/chat { message, session_id?, profile? } -> { session_id, reply, ... } */
 export async function askTutor(
   payload: AskTutorRequest,
 ): Promise<AskTutorResponse> {
@@ -33,13 +54,27 @@ export async function askTutor(
   let response: AskTutorResponse;
   if (USE_MOCK_API) {
     await delay(MOCK_DELAY_MS);
-    response = { answer: mockAnswerFor(payload.question) };
+    response = {
+      sessionId: payload.sessionId ?? "mock-session",
+      answer: mockAnswerFor(payload.message),
+    };
   } else {
     console.log("[askTutor] calling backend API:", payload);
-    response = await request<AskTutorResponse>("/tutor/ask", {
+    const data = await request<ChatApiResponse>("/api/chat", {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        message: payload.message,
+        session_id: payload.sessionId,
+        profile: payload.profile && {
+          subject: payload.profile.subject,
+          level: payload.profile.level,
+          style: payload.profile.style,
+          language: payload.profile.language,
+          student_name: payload.profile.studentName,
+        },
+      }),
     });
+    response = { sessionId: data.session_id, answer: data.reply };
   }
 
   console.log("[askTutor] response:", response);
