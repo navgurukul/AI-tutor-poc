@@ -4,6 +4,8 @@ import { useTutorSession } from "../hooks/useTutorSession";
 import { ChatBubble } from "../components/ChatBubble";
 import { MicButton } from "../components/MicButton";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { StopSpeechButton } from "../components/StopSpeechButton";
+import { VoiceToggle } from "../components/VoiceToggle";
 
 interface TutorPageProps {
   schoolClass: SchoolClass;
@@ -29,8 +31,12 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
     isVoiceLoading,
     voiceDownloadProgress,
     browserSupportsSpeechRecognition,
+    isPlaying,
+    isVoiceEnabled,
     startTurn,
     cancelTurn,
+    stopSpeaking,
+    toggleVoice,
   } = useTutorSession({ subjectName: subject.name, level: schoolClass.name });
 
   const logRef = useRef<HTMLDivElement>(null);
@@ -66,10 +72,13 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
             </span>
           </div>
         </div>
-        <span className={`status-pill status-pill--${voiceStatus.tone}`}>
-          <span className="status-dot" aria-hidden="true" />
-          {voiceStatus.label}
-        </span>
+        <div className="app-bar-actions">
+          <VoiceToggle enabled={isVoiceEnabled} onToggle={toggleVoice} />
+          <span className={`status-pill status-pill--${voiceStatus.tone}`}>
+            <span className="status-dot" aria-hidden="true" />
+            {voiceStatus.label}
+          </span>
+        </div>
       </header>
 
       <main className="screen tutor-screen">
@@ -118,7 +127,11 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
             onStart={startTurn}
             onCancel={cancelTurn}
           />
-          <p className="tutor-caption">{STAGE_CAPTION[stage]}</p>
+          {isPlaying && <StopSpeechButton onStop={stopSpeaking} />}
+          <p className="tutor-caption">
+            {isPlaying ? "Speaking the answer…" : STAGE_CAPTION[stage]}
+            {!isVoiceEnabled && stage === "idle" && !isPlaying && " · voice off"}
+          </p>
         </div>
       </main>
     </div>

@@ -342,6 +342,72 @@ button {
   padding-top: 20px;
 }
 
+.app-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.voice-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.voice-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.voice-toggle--off {
+  color: var(--text-muted);
+  background: var(--surface-2);
+}
+
+.voice-toggle--off:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.stop-speech-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.stop-speech-button:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.stop-speech-button:active {
+  transform: scale(0.97);
+}
+
 .tutor-caption {
   font-size: 13px;
   color: var(--text-muted);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSpeechToText, usePiper } from "react-sts-hooks";
 import { askTutorStream } from "../services/api";
 import { VOICE_MODEL_URL, VOICE_CONFIG_URL } from "../config/voice";
+import { allowSpeech, installSpeechInterceptor, stopSpeech } from "../utils/stopSpeech";
 import type { ChatMessage } from "../types";
 
 export type TutorStage = "idle" | "listening" | "thinking" | "speaking" | "error";
@@ -11,6 +12,8 @@ interface UseTutorSessionArgs {
   level: string;
   lang?: string;
 }
+
+installSpeechInterceptor();
 
 let messageId = 0;
 const nextId = () => `msg-${++messageId}`;
@@ -64,8 +67,13 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stage, setStage] = useState<TutorStage>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
+  const voiceEnabledRef = useRef(true);
   const wasListening = useRef(false);
   const sessionIdRef = useRef<string | undefined>(undefined);
+  // Lets Stop tear down an in-flight generation, which also stops the model
+  // decoding server-side instead of burning CPU on an answer nobody will hear.
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   // Pipeline timing: voice captured -> first token -> first audio -> speech done.
   const turnStartRef = useRef<number | null>(null);
@@ -86,6 +94,7 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
 
   const {
     speak,
+    resetTTS,
     isReady: isVoiceReady,
     isLoading: isVoiceLoading,
     isPlaying,
@@ -108,6 +117,8 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
       setMessages((prev) => [...prev, { id: nextId(), role: "user", text: question }]);
 
       const replyId = nextId();
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
 
       let answer = "";
       let unspoken = "";
@@ -117,8 +128,12 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
       let speechChain: Promise<unknown> = Promise.resolve();
 
       const enqueueSpeech = (text: string) => {
+        if (!voiceEnabledRef.current) return;
         if (speakQueueStartRef.current === null) {
           speakQueueStartRef.current = performance.now();
+          // Re-arm playback only once the first sentence is actually ready, so a
+          // previous turn's Stop stays in force right up to this moment.
+          allowSpeech();
           console.log(
             `[timing] voice -> first sentence queued: ${(speakQueueStartRef.current - turnStart).toFixed(0)}ms`,
           );
@@ -178,6 +193,7 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
               });
             },
           },
+          controller.signal,
         );
 
         console.log(
@@ -191,10 +207,21 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
 
         allChunksQueuedRef.current = true;
         setStage("idle");
+
+        // Voice off: the answer was still streamed into the transcript above,
+        // it just never went to Piper.
+        if (!voiceEnabledRef.current) turnStartRef.current = null;
       } catch (err) {
+        // Stop was pressed — the partial answer stays on screen, no error shown.
+        if ((err as Error)?.name === "AbortError") {
+          turnStartRef.current = null;
+          return;
+        }
         setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
         setStage("error");
         turnStartRef.current = null;
+      } finally {
+        if (streamAbortRef.current === controller) streamAbortRef.current = null;
       }
     },
     [subjectName, level, speak],
@@ -254,6 +281,40 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     setStage("idle");
   }, [stopListening, resetTranscript]);
 
+  // resetTTS() clears what is queued; stopSpeech() silences the sentence already
+  // playing and blocks any chunk still mid-synthesis. Both are needed for Stop
+  // to actually stop.
+  const silenceSpeech = useCallback(() => {
+    resetTTS();
+    stopSpeech();
+    // Drop the pending timing measurement — this turn never finished speaking.
+    turnStartRef.current = null;
+  }, [resetTTS]);
+
+  /**
+   * Stop: silences playback *and* aborts the generation still streaming in, so
+   * no further sentences are produced to speak.
+   */
+  const stopSpeaking = useCallback(() => {
+    streamAbortRef.current?.abort();
+    silenceSpeech();
+    setStage("idle");
+  }, [silenceSpeech]);
+
+  /**
+   * Persistent on/off for spoken answers. Turning it off also silences whatever
+   * is playing right now, so one tap always ends the audio — but it lets the
+   * answer finish streaming into the transcript.
+   */
+  const toggleVoice = useCallback(() => {
+    // Read from the ref, not state, so the side effect stays outside the
+    // setState updater (which React may invoke twice under StrictMode).
+    const nowEnabled = !voiceEnabledRef.current;
+    voiceEnabledRef.current = nowEnabled;
+    setIsVoiceEnabled(nowEnabled);
+    if (!nowEnabled) silenceSpeech();
+  }, [silenceSpeech]);
+
   return {
     messages,
     stage,
@@ -266,7 +327,10 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     isVoiceLoading,
     voiceDownloadProgress: downloadProgress,
     browserSupportsSpeechRecognition,
+    isVoiceEnabled,
     startTurn,
     cancelTurn,
+    stopSpeaking,
+    toggleVoice,
   };
 }
