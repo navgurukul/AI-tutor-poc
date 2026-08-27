@@ -27,6 +27,8 @@ ollama serve                 # skip if it already runs as a service
 
 powershell -File scripts\setup.ps1   # install: backend + frontend + desktop deps, voice model
 powershell -File scripts\start.ps1   # run: starts the backend, then opens the borderless window
+
+powershell -File scripts\create-shortcut.ps1   # optional: "AI Tutor" icon on the desktop
 ```
 
 `setup.ps1` installs everything (backend Python venv, frontend/desktop npm packages, Piper
@@ -42,6 +44,39 @@ mode has hot-reload.
 `apps/frontend/.env` controls `VITE_USE_MOCK_API` — `setup.ps1` defaults it to `true` (a
 self-contained UI with no backend needed, handy for a first look); set it to `false` to talk
 to the real backend that `start.ps1` brings up.
+
+## Desktop shortcut
+
+For the target device, where nobody should have to open a terminal: this puts an **AI Tutor**
+icon on the desktop that starts the backend, the frontend and the tutor window with one
+double-click.
+
+```powershell
+powershell -File scripts\create-shortcut.ps1              # Windows: %USERPROFILE%\Desktop\AI Tutor.lnk
+powershell -File scripts\create-shortcut.ps1 -StartMenu   # ...and a searchable Start Menu entry
+```
+
+```bash
+./scripts/create-shortcut.sh          # macOS: ~/Desktop/AI Tutor.app
+./scripts/create-shortcut.sh ~/Applications
+```
+
+Run `setup.ps1` (or the macOS steps below) first — the shortcut only launches the stack, it
+doesn't install it. Both scripts write an **absolute** path to this repo into the shortcut,
+so re-run the script after moving or renaming the project folder. Re-running replaces the
+shortcut it made previously, and refuses to touch a same-named shortcut it didn't create.
+
+Closing the tutor window leaves the backend and dev server running, which is what makes the
+next double-click open instantly. To shut them down: close the minimised PowerShell window
+in the taskbar (Windows), or run `./scripts/stop.sh` (macOS/Linux).
+
+If a launch fails there's no console to read on macOS, so the shortcut reports the error in a
+dialog and writes the full output to `desktop-launcher.log` in the repo root.
+
+The icon is generated from `apps/desktop/assets/app-icon.svg` — the app's own accent gradient
+and favicon bolt, so the desktop icon matches the tutor window. `AI-Tutor.ico` and
+`AI-Tutor.icns` are committed, so creating a shortcut needs no image tooling; after editing
+the SVGs, regenerate them on macOS with `node scripts/generate-icons.mjs`.
 
 ## Backend
 
