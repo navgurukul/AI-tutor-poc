@@ -17,16 +17,35 @@ const isDev = process.argv.includes("--dev");
 const port = isDev ? 5180 : 4173;
 const url = `http://localhost:${port}`;
 
-const BROWSER_CANDIDATES = [
-  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-  "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-  path.join(process.env.LOCALAPPDATA ?? "", "Google\\Chrome\\Application\\chrome.exe"),
-  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-  "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-];
+// Chromium-family only: the borderless window relies on --app, and the shared
+// speech model relies on --profile-directory. Both are Chrome/Edge features.
+const BROWSER_CANDIDATES_BY_PLATFORM = {
+  win32: [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    path.join(process.env.LOCALAPPDATA ?? "", "Google\\Chrome\\Application\\chrome.exe"),
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+  ],
+  darwin: [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    path.join(process.env.HOME ?? "", "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  ],
+  linux: [
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/microsoft-edge",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/snap/bin/chromium",
+  ],
+};
 
 function findBrowser() {
-  return BROWSER_CANDIDATES.find((candidate) => candidate && existsSync(candidate)) ?? null;
+  const candidates = BROWSER_CANDIDATES_BY_PLATFORM[process.platform] ?? [];
+  return candidates.find((candidate) => candidate && existsSync(candidate)) ?? null;
 }
 
 async function isServerUp() {
@@ -47,15 +66,26 @@ async function waitForServer(timeoutMs = 60000) {
 }
 
 async function main() {
-  const browser = findBrowser();
+  // BROWSER lets someone point at an install outside the standard locations.
+  const browser = process.env.BROWSER || findBrowser();
   if (!browser) {
-    console.error("Could not find Chrome or Edge installed. Install one of them and try again.");
+    console.error(
+      `Could not find Chrome or Edge in the usual ${process.platform} locations. ` +
+        "Install one of them, or set BROWSER to its full path and re-run."
+    );
     process.exit(1);
   }
 
   let serverProcess = null;
 
-  if (isDev) {
+  // A desktop shortcut gets double-clicked again while the stack is still up
+  // (closing the borderless window doesn't stop the server behind it), and
+  // --strictPort makes that second `npm run dev` exit immediately. Reuse the
+  // running server instead and go straight to opening a window, so relaunching
+  // is instant rather than broken.
+  if (await isServerUp()) {
+    console.log(`Server already running on ${url} — reusing it.`);
+  } else if (isDev) {
     console.log(`Starting Vite dev server on ${url} ...`);
     serverProcess = spawn(
       "npm",

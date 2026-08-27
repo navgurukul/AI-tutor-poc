@@ -57,6 +57,9 @@ On macOS/Linux, run it directly instead of through the PowerShell scripts above:
 cd apps/backend && ./run.sh
 ```
 
+`scripts/start.sh` is the macOS/Linux equivalent of `start.ps1` — the backend plus the tutor
+window in one command, with `scripts/stop.sh` to shut both down again.
+
 Verify the whole stack end to end:
 
 ```bash
