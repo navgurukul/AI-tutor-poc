@@ -28,13 +28,12 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
     transcript,
     interimTranscript,
     isVoiceReady,
-    isVoiceLoading,
-    voiceDownloadProgress,
+    isModelWarm,
     browserSupportsSpeechRecognition,
     isPlaying,
     isVoiceEnabled,
     startTurn,
-    cancelTurn,
+    finishTurn,
     stopSpeaking,
     toggleVoice,
   } = useTutorSession({ subjectName: subject.name, level: schoolClass.name });
@@ -45,19 +44,18 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, interimTranscript]);
 
-  const micDisabled = !browserSupportsSpeechRecognition || !isVoiceReady;
-  const progressPct =
-    voiceDownloadProgress && voiceDownloadProgress.total > 0
-      ? Math.min(100, Math.round((voiceDownloadProgress.loaded / voiceDownloadProgress.total) * 100))
-      : null;
+  // "Ready" = the LLM warm-up has settled (the browser voice is available
+  // instantly, no download). Until then the first question pays the cold start.
+  const isReady = isVoiceReady && isModelWarm;
+  const micDisabled = !browserSupportsSpeechRecognition || !isReady;
 
   let voiceStatus: { label: string; tone: "ready" | "loading" | "error" };
   if (!browserSupportsSpeechRecognition) {
     voiceStatus = { label: "Mic unsupported", tone: "error" };
-  } else if (isVoiceReady) {
+  } else if (isReady) {
     voiceStatus = { label: "Ready", tone: "ready" };
   } else {
-    voiceStatus = { label: `Preparing voice${progressPct !== null ? ` · ${progressPct}%` : ""}`, tone: "loading" };
+    voiceStatus = { label: "Warming up the tutor…", tone: "loading" };
   }
 
   return (
@@ -86,17 +84,14 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
           <ErrorBanner message="This browser doesn't support speech recognition. Try Chrome or Edge." />
         )}
 
-        {isVoiceLoading && !isVoiceReady && (
+        {!isReady && browserSupportsSpeechRecognition && (
           <div className="voice-progress">
             <div className="voice-progress-header">
-              <span>Preparing voice model</span>
-              <span>{progressPct !== null ? `${progressPct}%` : "…"}</span>
+              <span>Warming up the tutor model</span>
+              <span>…</span>
             </div>
             <div className="voice-progress-track">
-              <div
-                className="voice-progress-fill"
-                style={{ width: `${progressPct ?? 6}%` }}
-              />
+              <div className="voice-progress-fill voice-progress-fill--indeterminate" />
             </div>
           </div>
         )}
@@ -125,7 +120,7 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
             stage={stage}
             disabled={micDisabled}
             onStart={startTurn}
-            onCancel={cancelTurn}
+            onFinish={finishTurn}
           />
           {isPlaying && <StopSpeechButton onStop={stopSpeaking} />}
           <p className="tutor-caption">

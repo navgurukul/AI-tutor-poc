@@ -78,7 +78,10 @@ button {
 
 /* App shell */
 .app-shell {
-  min-height: 100vh;
+  /* Pin to the viewport so the chat log scrolls inside it, rather than growing
+     and pushing the mic controls off-screen once the thread is long. */
+  height: 100vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -268,6 +271,23 @@ button {
   transition: width 0.3s ease;
 }
 
+/* No percentage to show (cache hit, or the WASM init after the download):
+   sweep a short bar across the track so it reads as "working", not "stuck". */
+.voice-progress-fill--indeterminate {
+  width: 40%;
+  transition: none;
+  animation: voice-progress-sweep 1.3s ease-in-out infinite;
+}
+
+@keyframes voice-progress-sweep {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(360%);
+  }
+}
+
 /* Tutor screen */
 .tutor-screen {
   flex: 1;
@@ -275,6 +295,9 @@ button {
 
 .chat-log {
   flex: 1;
+  /* Without this, a flex item's min-height:auto holds it at content height, so
+     overflow-y never triggers and the whole page grows instead. */
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;

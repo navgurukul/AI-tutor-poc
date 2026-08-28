@@ -92,6 +92,47 @@ export async function askTutor(
   return { sessionId: data.session_id, answer: data.reply };
 }
 
+export interface WarmupResult {
+  model: string;
+  /** Ollama's reported model-load time; ~0 when it was already resident. */
+  loadDurationMs: number;
+}
+
+/**
+ * Warm the tutor model on page load: a throwaway `POST /api/chat` with a 1-token
+ * cap and the session profile. It pulls the model into memory (~10s cold-start,
+ * weights off disk) and lets Ollama cache the system-prompt prefix, so the
+ * student's first real question is fast. No dedicated endpoint — just a normal
+ * chat call whose reply is discarded. Fire-and-forget: any failure is swallowed
+ * and the first answer is simply as slow as it used to be.
+ */
+export async function warmupTutor(
+  profile?: { subject?: string; level?: string },
+  signal?: AbortSignal,
+): Promise<WarmupResult | null> {
+  if (USE_MOCK_API) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: "warm up",
+        max_tokens: 1,
+        profile: profile && { subject: profile.subject, level: profile.level },
+      }),
+      signal,
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      model: string;
+      usage?: { load_duration_ms?: number };
+    };
+    return { model: data.model, loadDurationMs: data.usage?.load_duration_ms ?? 0 };
+  } catch {
+    return null;
+  }
+}
+
 export interface TutorStreamHandlers {
   /** Fired once, before the first token, with the (possibly new) session id. */
   onStart?: (sessionId: string) => void;

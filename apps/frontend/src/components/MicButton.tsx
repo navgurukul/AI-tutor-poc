@@ -5,12 +5,12 @@ interface MicButtonProps {
   stage: TutorStage;
   disabled: boolean;
   onStart: () => void;
-  onCancel: () => void;
+  onFinish: () => void;
 }
 
 const LABELS: Record<TutorStage, string> = {
   idle: "Speak",
-  listening: "Stop",
+  listening: "Send",
   thinking: "Thinking…",
   speaking: "Speaking…",
   error: "Speak",
@@ -53,7 +53,7 @@ const ICONS: Record<TutorStage, ComponentType> = {
   error: MicIcon,
 };
 
-export function MicButton({ stage, disabled, onStart, onCancel }: MicButtonProps) {
+export function MicButton({ stage, disabled, onStart, onFinish }: MicButtonProps) {
   const isListening = stage === "listening";
   const isBusy = stage === "thinking" || stage === "speaking";
   const Icon = ICONS[stage];
@@ -65,7 +65,7 @@ export function MicButton({ stage, disabled, onStart, onCancel }: MicButtonProps
         type="button"
         className={`mic-button mic-button--${stage}`}
         disabled={disabled || isBusy}
-        onClick={isListening ? onCancel : onStart}
+        onClick={isListening ? onFinish : onStart}
       >
         <Icon />
         <span>{LABELS[stage]}</span>

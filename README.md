@@ -2,8 +2,9 @@
 
 Proof of concept for an AI tutor that runs **entirely offline**. Speak or type a question
 and get an answer back: inference happens locally through [Ollama](https://ollama.com) with
-`qwen2.5:1.5b` on the backend, with on-device speech-to-text and Piper TTS on the frontend.
-No cloud API, no internet needed once the model and voice assets are downloaded.
+`qwen2.5:1.5b` on the backend; the frontend does on-device speech-to-text and speaks the
+answer with the browser's built-in speech synthesis. No cloud API, no internet needed once
+the model is downloaded.
 
 ```
 apps/backend/     FastAPI service wrapping the local Ollama model    (ready)
@@ -25,15 +26,16 @@ else:
 ollama pull qwen2.5:1.5b     # one-time, ~1 GB, needs internet ONCE
 ollama serve                 # skip if it already runs as a service
 
-powershell -File scripts\setup.ps1   # install: backend + frontend + desktop deps, voice model
+powershell -File scripts\setup.ps1   # install: backend + frontend + desktop deps
 powershell -File scripts\start.ps1   # run: starts the backend, then opens the borderless window
 
 powershell -File scripts\create-shortcut.ps1   # optional: "AI Tutor" icon on the desktop
 ```
 
-`setup.ps1` installs everything (backend Python venv, frontend/desktop npm packages, Piper
-voice model files) and creates each app's `.env` from its template. Safe to re-run — every
-step is skipped if already done.
+`setup.ps1` installs everything (backend Python venv, frontend/desktop npm packages) and
+creates each app's `.env` from its template. Safe to re-run — every step is skipped if
+already done. (It still downloads the old Piper voice model + WASM assets; nothing uses
+them now — the frontend speaks with the browser's built-in speech synthesis.)
 
 `start.ps1` starts the backend, waits for `/health`, then launches the desktop app in dev
 mode (Vite + HMR) and opens the borderless window. Closing the window, or Ctrl+C in the

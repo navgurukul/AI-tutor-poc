@@ -21,10 +21,11 @@ App opens (borderless window)
    Question sent to backend (POST /tutor/ask)
         │
         ▼
-   Answer text comes back
+   Answer streams back token by token
         │
         ▼
-   Answer spoken aloud (Piper TTS) + shown in chat
+   Text fills the chat bubble live; each finished sentence is
+   spoken by the browser's built-in speech synthesis
 ```
 
 **Scope of this repo right now:** the frontend POC and a desktop launcher only. The
@@ -41,9 +42,8 @@ Easy to reinstate or swap for a different static pair later.
 | Piece | What / Why |
 |---|---|
 | React 19 + TypeScript + Vite | UI, build tooling, dev server with HMR |
-| [`react-sts-hooks`](https://www.npmjs.com/package/react-sts-hooks) | `useSpeechToText` (Web Speech API wrapper) + `usePiper` (Piper neural TTS running in a Web Worker) |
-| `onnxruntime-web` | Runs the Piper `.onnx` voice model in-browser. Required by the Piper worker but **not** bundled by `react-sts-hooks` itself — we vendor it in via `scripts/copy-ort-assets.mjs` (see §4) |
-| Piper voice model (`en_US-amy-medium`) | The actual TTS voice — `.onnx` + `.json`, downloaded separately, not committed (large binary) |
+| [`react-sts-hooks`](https://www.npmjs.com/package/react-sts-hooks) | `useSpeechToText` only — a thin wrapper over the browser's `SpeechRecognition`. (`usePiper` from the same package is no longer used — see §3.) |
+| `useSpeechSynthesis` (`src/hooks/`) | ~50-line wrapper over the browser's built-in `window.speechSynthesis`. Speaks the answer a sentence at a time; the OS synthesizes faster than real time, so playback is gapless. Replaced WASM Piper. |
 | Hand-written CSS | No UI framework; light/dark theme via `prefers-color-scheme` |
 | `apps/desktop/launch.mjs` | Plain Node script that opens the built frontend in a **borderless Chrome/Edge window** (`--app` mode) — deliberately not Electron, to stay light |
 | Python backend (planned) | Not in this repo yet. Contract in §6 |
@@ -65,17 +65,19 @@ listening once you go quiet.
 > As currently wired, STT likely requires network connectivity. This needs to be
 > patched (or upstreamed to the package) before the "offline" claim is accurate.
 
-**Text-to-speech:** fully offline once the model is cached. `usePiper` spins up a Web
-Worker that:
-1. Downloads the Piper voice model (`.onnx` + `.json`, ~60MB) and caches it in the
-   browser's Cache Storage API (`piper-models-cache-v1`) — only re-downloaded if the
-   cache is empty or gets purged.
-2. Loads `onnxruntime-web` and runs the ONNX model entirely in-WASM to synthesize
-   speech from text — no server round-trip.
-3. Plays the resulting audio via the standard `Audio` element.
+**Text-to-speech:** the browser's built-in `window.speechSynthesis` (`useSpeechSynthesis`
+in `src/hooks/`). As the answer streams in, each completed sentence is queued with
+`speechSynthesis.speak(...)`; the browser plays queued utterances back-to-back. On
+Windows/macOS the voices are local (SAPI / AVSpeechSynthesis), so it works offline and
+needs no download.
 
-No network calls happen during actual TTS synthesis or playback — only during the
-one-time model download.
+Why not Piper (`usePiper`)? Piper runs a ~25 M-parameter neural vocoder in single-threaded
+WASM. On the ~4 GB target device that synthesizes *slower than real time* (~1.5 s fixed
+overhead + ~60 ms/char), so playback repeatedly caught up to the synthesizer and stuttered
+between sentences, and first audio landed ~5–7 s in. `speechSynthesis` synthesizes faster
+than it speaks, so first audio is under a second and there are no gaps. The trade is a
+less natural system voice. The Piper code path is still in `react-sts-hooks` if a nicer
+voice is ever worth the latency — re-add `usePiper` and the assets in §4.
 
 ## 4. Installation / Setup
 
@@ -89,10 +91,13 @@ powershell -File scripts\setup.ps1
 ```
 
 This runs every step below for you — `npm install` in both `apps/frontend` and
-`apps/desktop`, creates `apps/frontend/.env` (mock mode on, so it works with no
-backend), and downloads the Piper voice model files into
-`apps/frontend/public/models/`. It's safe to re-run any time: each step checks first
-and skips if it's already done, so re-running just fills in whatever's missing.
+`apps/desktop`, and creates `apps/frontend/.env` (mock mode on, so it works with no
+backend). It's safe to re-run any time: each step checks first and skips if it's already
+done, so re-running just fills in whatever's missing.
+
+> The script still fetches the old Piper voice model + WASM assets (~110 MB into
+> `public/`). Nothing loads them any more (see §3); they're harmless dead weight until
+> that step is trimmed.
 
 Once it finishes:
 ```bash
@@ -117,28 +122,10 @@ cd apps/frontend
 npm install
 ```
 
-`npm install` triggers two setup steps automatically via `postinstall`:
-
-1. `react-sts-hooks`'s own setup script — copies Piper's WASM worker files and
-   downloads `piper_phonemize.data` (~18MB) into `public/piper-wasm/`.
-   If it doesn't run (e.g. blocked by an install-script allowlist), run it by hand:
-   ```bash
-   npx react-sts-setup
-   ```
-2. Our own `scripts/copy-ort-assets.mjs` — copies `onnxruntime-web`'s runtime
-   (`ort.min.js` + the wasm/mjs pair it needs, ~28MB) from `node_modules` into
-   `public/`. Re-run manually any time with:
-   ```bash
-   node scripts/copy-ort-assets.mjs
-   ```
-
-**Voice model files (not included — must be added manually):**
-
-Download `en_US-amy-medium.onnx` and `en_US-amy-medium.json` from
-[Piper's voice samples](https://rhasspy.github.io/piper-samples/) (or directly from
-the [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices) model repo
-on Hugging Face — note the config there is named `<voice>.onnx.json`, rename it to
-`<voice>.json`) and place both files in `apps/frontend/public/models/`.
+Text-to-speech now uses the browser's built-in `speechSynthesis`, so there is **no
+voice model, WASM runtime, or phonemizer to download** — `npm install` is all the
+frontend needs. (`npm install` still runs `react-sts-hooks`'s `postinstall`, which
+copies Piper worker assets into `public/piper-wasm/`; they're unused now.)
 
 **Environment config:**
 
@@ -149,8 +136,6 @@ cp .env.example .env
 ```ini
 VITE_API_BASE_URL=http://localhost:8000       # your backend's URL
 VITE_USE_MOCK_API=true                        # true = canned tutor replies, no backend needed
-VITE_VOICE_MODEL_URL=/models/en_US-amy-medium.onnx
-VITE_VOICE_CONFIG_URL=/models/en_US-amy-medium.json
 ```
 
 Set `VITE_USE_MOCK_API=false` once the real backend from §6 is up and reachable at
@@ -184,8 +169,8 @@ npm run dev       # development: same borderless window, but backed by the Vite 
 - Opens it with `--app=<url>` — no address bar, no tabs, just the app.
 - Uses a fresh, isolated browser profile (`--user-data-dir`), so it won't touch your
   normal browser's tabs, history, or login.
-- Fully offline after the first build + model download — the only network calls at
-  runtime go to your configured backend (or none at all, in mock mode).
+- Fully offline after the first build — the only network calls at runtime go to your
+  configured backend (or none at all, in mock mode).
 
 **Lint:**
 ```bash
@@ -225,7 +210,7 @@ implement to receive real questions instead of the mock.
 
 | Field | Type | Notes |
 |---|---|---|
-| `answer` | `string` | Plain text only — no markdown/HTML. This is spoken aloud verbatim by Piper TTS *and* shown as a chat bubble, so avoid symbols/formatting the voice model can't pronounce sensibly (e.g. write "56" or "fifty-six", not `**56**`). |
+| `answer` | `string` | Plain text only — no markdown/HTML. It's spoken aloud verbatim by the browser's speech synthesis *and* shown as a chat bubble, so avoid symbols/formatting a voice can't pronounce sensibly (e.g. write "56" or "fifty-six", not `**56**`). |
 
 **Errors:** any non-2xx response is shown to the user as `"{status} {statusText}: {body}"`.
 No special error JSON shape is required — just return a short, human-readable message
@@ -244,10 +229,71 @@ interface AskTutorResponse {
 }
 ```
 
-## 7. Known Gaps
+## 7. Latency Work — What Changed & Why
+
+The whole point of this POC is a fast spoken answer on a slow device. These are the
+optimizations, in the order they matter, and what each buys.
+
+### Streaming, not buffering
+`POST /api/chat/stream` (SSE) delivers the answer token by token. The bubble text
+updates on every token; complete sentences are handed to the speech engine as they
+arrive. Nothing waits for the full answer. This is the single biggest win — a buffered
+1.5 B-model reply feels slow, a streamed one feels instant.
+
+### Model warm-up on page load — `warmupTutor()` in `services/api.ts`
+The moment the tutor screen mounts, the frontend fires one throwaway
+`POST /api/chat` (`max_tokens: 1`, with the session profile) and discards the reply.
+That:
+- pulls `qwen2.5:1.5b` into Ollama's memory (~10 s cold-start, weights off disk) while
+  the student is still reading the screen, instead of on their first question;
+- makes Ollama cache the **system-prompt prefix**, so the first real question only has
+  to process the question itself.
+
+Measured on this hardware: first question **~3.3 s → ~1.1 s**. No dedicated backend
+endpoint — it's just a normal chat call. Cost: one throwaway session per page load,
+evicted by TTL/LRU. The mic stays disabled (`isModelWarm`) until this settles.
+
+### Browser speech synthesis instead of Piper — `hooks/useSpeechSynthesis.ts`
+See §3. Piper's WASM neural TTS synthesizes slower than real time on the ~4 GB target,
+so audio stuttered and first sound was 5–7 s in. `window.speechSynthesis` synthesizes
+faster than it speaks: **first audio < 1 s, no gaps**, still offline. Removed with it:
+the ~63 MB voice model, ~28 MB ONNX runtime, ~18 MB phonemizer, the Piper Web Worker,
+and the audio-interceptor that existed only to stop Piper mid-utterance. Bundle
+−5 KB gzip; page no longer fetches ~110 MB of assets.
+
+### Sentence-at-a-time playback — `drainSentences()` in `hooks/useTutorSession.ts`
+Tokens are buffered until a sentence boundary (terminator + whitespace, so "3.14"
+stays intact), then that sentence is queued to speak. Fragments under 12 chars merge
+into the next sentence. The browser plays queued sentences gaplessly, so the voice
+tracks the streaming text closely without any explicit sync logic.
+
+### "Send" button — `finishTurn()` + `MicButton`
+While listening, the mic button reads **Send** and submits the captured transcript
+immediately, instead of forcing a wait for the 1 s silence timeout (which is still the
+fallback if you don't tap).
+
+### Stable message ids — `nextId()`
+`crypto.randomUUID()` instead of a module-level counter. The counter reset on every
+HMR reload while the message list survived, colliding ids so a streamed reply
+rendered into an earlier bubble.
+
+### Tried and reverted
+- **Multi-threaded ONNX** (COOP/COEP + `numThreads > 1` in the Piper worker) — thread
+  pool overhead made it *worse* on this CPU.
+- **`en_US-amy-low`** — same 63 MB network as `-medium` for this voice; no speed gain.
+  No English Piper `x_low` exists.
+- **Pacing on-screen text to playback** (`currentlyPlayingIndex`) — made the text
+  crawl sluggishly to match choppy audio; not worth it once audio was smooth.
+
+## 8. Known Gaps
 
 - **STT offline claim unverified** — see the caveat in §3; `processLocally` isn't set,
   so recognition may currently depend on network access.
-- **Backend not implemented** — mock mode (§4) is the only working Q&A path today.
+- **Backend contract section (§6) is stale** — it describes an unbuilt `POST /tutor/ask`.
+  The backend exists now; the real contract is `POST /api/chat/stream` (SSE) — see
+  `apps/backend/README.md` and `src/services/api.ts`.
+- **Piper assets still downloaded by `setup.ps1`** — ~110 MB fetched into `public/` and
+  copied into `dist/`, loaded by nothing. Trim the model-download + `react-sts-setup`
+  steps, and the `onnxruntime-web` dependency, when convenient.
 - **Class/subject selection** — built once, then removed for simplicity; static values
   are used instead. Revisit if per-class/subject content is needed.
