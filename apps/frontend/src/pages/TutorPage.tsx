@@ -28,6 +28,7 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
     transcript,
     interimTranscript,
     isVoiceReady,
+    voiceDownloadProgress,
     isModelWarm,
     browserSupportsSpeechRecognition,
     isPlaying,
@@ -44,10 +45,22 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, interimTranscript]);
 
-  // "Ready" = the LLM warm-up has settled (the browser voice is available
-  // instantly, no download). Until then the first question pays the cold start.
+  // "Ready" = the Piper voice model has downloaded and the LLM warm-up has
+  // settled. Until then the mic stays disabled.
   const isReady = isVoiceReady && isModelWarm;
   const micDisabled = !browserSupportsSpeechRecognition || !isReady;
+
+  const progressPct =
+    voiceDownloadProgress && voiceDownloadProgress.total > 0
+      ? Math.min(
+          100,
+          Math.round((voiceDownloadProgress.loaded / voiceDownloadProgress.total) * 100),
+        )
+      : null;
+
+  // Voice model first, then the LLM warm-up.
+  const prepLabel = !isVoiceReady ? "Preparing voice model" : "Warming up the tutor model";
+  const showDeterminate = !isVoiceReady && progressPct !== null;
 
   let voiceStatus: { label: string; tone: "ready" | "loading" | "error" };
   if (!browserSupportsSpeechRecognition) {
@@ -55,7 +68,10 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
   } else if (isReady) {
     voiceStatus = { label: "Ready", tone: "ready" };
   } else {
-    voiceStatus = { label: "Warming up the tutor…", tone: "loading" };
+    voiceStatus = {
+      label: showDeterminate ? `${prepLabel} · ${progressPct}%` : `${prepLabel}…`,
+      tone: "loading",
+    };
   }
 
   return (
@@ -87,11 +103,18 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
         {!isReady && browserSupportsSpeechRecognition && (
           <div className="voice-progress">
             <div className="voice-progress-header">
-              <span>Warming up the tutor model</span>
-              <span>…</span>
+              <span>{prepLabel}</span>
+              <span>{showDeterminate ? `${progressPct}%` : "…"}</span>
             </div>
             <div className="voice-progress-track">
-              <div className="voice-progress-fill voice-progress-fill--indeterminate" />
+              <div
+                className={
+                  showDeterminate
+                    ? "voice-progress-fill"
+                    : "voice-progress-fill voice-progress-fill--indeterminate"
+                }
+                style={showDeterminate ? { width: `${progressPct}%` } : undefined}
+              />
             </div>
           </div>
         )}

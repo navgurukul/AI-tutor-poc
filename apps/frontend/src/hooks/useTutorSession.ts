@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSpeechToText } from "react-sts-hooks";
+import { useSpeechToText, usePiper } from "react-sts-hooks";
 import { askTutorStream, warmupTutor } from "../services/api";
-import { useSpeechSynthesis } from "./useSpeechSynthesis";
+import { VOICE_MODEL_URL, VOICE_CONFIG_URL } from "../config/voice";
+import { allowSpeech, installSpeechInterceptor, stopSpeech } from "../utils/stopSpeech";
 import type { ChatMessage } from "../types";
 
 export type TutorStage = "idle" | "listening" | "thinking" | "speaking" | "error";
@@ -11,6 +12,8 @@ interface UseTutorSessionArgs {
   level: string;
   lang?: string;
 }
+
+installSpeechInterceptor();
 
 // Unique per message and stable across HMR reloads. A module-level counter
 // resets on hot-reload while the `messages` state survives, so ids collide and a
@@ -23,10 +26,11 @@ const nextId = (): string =>
 // and can gather doubles where an interim tail is appended.
 const collapseSpaces = (s: string) => s.replace(/\s+/g, " ").trim();
 
-// The backend streams tokens, so the reply is spoken one sentence at a time as
-// it decodes — the first sentence starts playing while the model is still
-// writing the rest. The browser's speech queue plays them back-to-back with no
-// gaps. Fragments shorter than this are merged into the sentence that follows.
+// Piper synthesizes each speak() call as one WASM pass before any of it plays,
+// so the reply is handed over one sentence at a time as the backend streams
+// tokens: the first sentence starts playing while the model is still decoding
+// the rest. Fragments shorter than this are merged into the sentence that
+// follows so they aren't their own synthesis pass.
 const MIN_SPEECH_CHARS = 12;
 
 /**
@@ -108,11 +112,16 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
 
   const {
     speak,
-    cancel: cancelSpeech,
-    isSupported: isSpeechSupported,
+    resetTTS,
     isReady: isVoiceReady,
-    isSpeaking: isPlaying,
-  } = useSpeechSynthesis(lang);
+    isLoading: isVoiceLoading,
+    isPlaying,
+    downloadProgress,
+    error: ttsError,
+  } = usePiper({
+    voiceModelUrl: VOICE_MODEL_URL,
+    voiceConfigUrl: VOICE_CONFIG_URL,
+  });
 
   // The id of the tutor bubble for the turn in flight, so the streaming update
   // always targets the right message.
@@ -130,9 +139,10 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     });
   }, []);
 
-  // Warm-load the LLM the moment the session mounts. Ollama otherwise loads the
-  // weights lazily on the first question (~10s of silence on CPU); this pays that
-  // cost while the student is still reading the screen and reaching for the mic.
+  // Warm-load the LLM the moment the session mounts, in parallel with the Piper
+  // voice model downloading above. Ollama otherwise loads the weights lazily on
+  // the first question (~10s of silence on CPU); this pays that cost while the
+  // student is still reading the screen and reaching for the mic.
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -164,8 +174,10 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
       allChunksQueuedRef.current = false;
       speechStoppedRef.current = false;
 
-      // Stop any speech still playing from a previous turn.
-      cancelSpeech();
+      // Clear anything still queued in Piper and silence a sentence still
+      // playing from a previous turn; suppress until this turn starts speaking.
+      resetTTS();
+      stopSpeech();
 
       setStage("thinking");
       setMessages((prev) => [...prev, { id: nextId(), role: "user", text: question }]);
@@ -178,18 +190,23 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
       let answer = "";
       let unspoken = "";
       let firstTokenAt: number | null = null;
+      // speak() resolves when the phrase is queued, not when it finishes
+      // playing; chaining keeps sentences in order without blocking the reader.
+      let speechChain: Promise<unknown> = Promise.resolve();
 
       const enqueueSpeech = (text: string) => {
         if (!voiceEnabledRef.current || speechStoppedRef.current) return;
         if (speakQueueStartRef.current === null) {
           speakQueueStartRef.current = performance.now();
+          // Re-arm playback only once the first sentence is actually ready, so a
+          // previous turn's Stop stays in force right up to this moment.
+          allowSpeech();
           console.log(
             `[timing] voice -> first sentence queued: ${(speakQueueStartRef.current - turnStart).toFixed(0)}ms ` +
               `(${text.length} chars: "${text.slice(0, 60)}${text.length > 60 ? "…" : ""}")`,
           );
         }
-        // The browser's speech queue plays phrases in order, gaplessly.
-        speak(text);
+        speechChain = speechChain.then(() => speak(text)).catch(() => undefined);
       };
 
       try {
@@ -246,8 +263,8 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
         allChunksQueuedRef.current = true;
         setStage("idle");
 
-        // Voice off: nothing was ever queued, so no "fully spoken" event coming.
-        if (!voiceEnabledRef.current) turnStartRef.current = null;
+        // Voice off / nothing queued: no "fully spoken" event is coming.
+        if (speakQueueStartRef.current === null) turnStartRef.current = null;
       } catch (err) {
         // Stop was pressed — the partial answer stays on screen, no error shown.
         if ((err as Error)?.name === "AbortError") {
@@ -262,7 +279,7 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
         submittingRef.current = false;
       }
     },
-    [subjectName, level, speak, cancelSpeech, setReplyText],
+    [subjectName, level, speak, resetTTS, setReplyText],
   );
 
   // The single path from a captured question to a turn. Guarded so the mic's
@@ -278,7 +295,8 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
   );
 
   // Logs time-to-first-audio and total voice->fully-spoken duration by watching
-  // the isSpeaking flag, since speak() returns as soon as the phrase is queued.
+  // Piper's isPlaying flag, since speak() resolves as soon as the phrase is
+  // queued rather than when audio actually starts/stops.
   useEffect(() => {
     const turnStart = turnStartRef.current;
     if (turnStart === null) return;
@@ -311,7 +329,8 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
 
   useEffect(() => {
     if (sttError) setError(sttError);
-  }, [sttError]);
+    if (ttsError) setError(ttsError);
+  }, [sttError, ttsError]);
 
   useEffect(() => {
     if (isListening) setStage("listening");
@@ -349,11 +368,14 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     }
   }, [transcript, interimTranscript, stopListening, resetTranscript, submitQuestion]);
 
+  // resetTTS() clears what is queued; stopSpeech() silences the sentence already
+  // playing and blocks any chunk still mid-synthesis. Both are needed to stop.
   const silenceSpeech = useCallback(() => {
-    cancelSpeech();
+    resetTTS();
+    stopSpeech();
     // Drop the pending timing measurement — this turn never finished speaking.
     turnStartRef.current = null;
-  }, [cancelSpeech]);
+  }, [resetTTS]);
 
   /**
    * "Stop audio": silences the voice for the rest of this answer and blocks any
@@ -362,8 +384,8 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
    */
   const stopSpeaking = useCallback(() => {
     speechStoppedRef.current = true;
-    cancelSpeech();
-  }, [cancelSpeech]);
+    silenceSpeech();
+  }, [silenceSpeech]);
 
   /**
    * Persistent on/off for spoken answers. Turning it off also silences whatever
@@ -388,7 +410,8 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     interimTranscript,
     isPlaying,
     isVoiceReady,
-    isSpeechSupported,
+    isVoiceLoading,
+    voiceDownloadProgress: downloadProgress,
     isModelWarm,
     browserSupportsSpeechRecognition,
     isVoiceEnabled,
