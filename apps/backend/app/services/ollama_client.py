@@ -25,6 +25,18 @@ class OllamaError(Exception):
         self.hint = hint
 
 
+def _keep_alive() -> Any:
+    """Ollama takes `keep_alive` as either seconds (a number) or a duration
+    string. Settings arrive as strings via env vars, so send whichever form the
+    configured value actually is -- "-1" must go as the number -1, not the text.
+    """
+    raw = str(settings.ollama_keep_alive).strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
+
+
 class OllamaClient:
     def __init__(
         self,
@@ -114,6 +126,9 @@ class OllamaClient:
             "model": model or settings.ollama_model,
             "messages": messages,
             "stream": stream,
+            # Without this Ollama unloads the model after 5 idle minutes and the
+            # next question pays a ~2s reload.
+            "keep_alive": _keep_alive(),
             "options": {
                 "temperature": (
                     settings.temperature if temperature is None else temperature
@@ -127,6 +142,32 @@ class OllamaClient:
             # getting reliable structured output out of a 1.5B model.
             payload["format"] = response_format
         return payload
+
+    async def warm(self, model: Optional[str] = None) -> Dict[str, Any]:
+        """Load the model into memory without generating anything.
+
+        An empty `messages` list makes Ollama load the weights and return
+        straight away (`done_reason: "load"`), so this costs the load time and
+        no decoding at all.
+
+        `num_ctx` has to match what real requests send: Ollama keys a resident
+        model by its options, so warming at one context size and then asking at
+        another silently reloads the model and wastes the whole exercise.
+        """
+        payload: Dict[str, Any] = {
+            "model": model or settings.ollama_model,
+            "messages": [],
+            "keep_alive": _keep_alive(),
+            "options": {"num_ctx": settings.num_ctx},
+        }
+        try:
+            response = await self.client.post("/api/chat", json=payload)
+            self._raise_for_response(response, payload["model"])
+            return response.json()
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            raise self._unreachable(exc)
+        except httpx.HTTPError as exc:
+            raise OllamaError("Failed to warm the model: {}".format(exc))
 
     async def chat(
         self,

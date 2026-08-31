@@ -27,6 +27,15 @@ class Settings(BaseSettings):
     ollama_timeout_seconds: float = 180.0
     ollama_connect_timeout_seconds: float = 5.0
 
+    # Ollama unloads an idle model after 5 minutes by default, and reloading
+    # this one costs ~2s -- a student who pauses between questions would pay it
+    # every time. Accepts Ollama's own forms: a number of seconds ("-1" never
+    # unloads, "0" unloads immediately) or a duration ("30m", "1h").
+    ollama_keep_alive: str = "-1"
+    # Load the model at boot so the first question of the session doesn't pay
+    # the load cost. Runs in the background; startup never waits on it.
+    warm_model_on_startup: bool = True
+
     # --- Generation defaults ---------------------------------------------
     temperature: float = 0.7
     max_tokens: int = 800

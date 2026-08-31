@@ -4,8 +4,11 @@ Run with:  uvicorn app.main:app --reload --port 8000
 Docs at:   http://localhost:8000/docs
 """
 
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+import time
+from contextlib import asynccontextmanager, suppress
+from typing import Optional
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +22,34 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s"
 )
 logger = logging.getLogger("ai-tutor")
+
+
+async def _warm_model() -> None:
+    """Load the model into RAM so the first question doesn't pay for it.
+
+    Deliberately fire-and-forget: the server starts serving immediately while
+    the weights load in the background, which overlaps neatly with the frontend
+    still downloading its Piper voice model.
+    """
+    started = time.perf_counter()
+    try:
+        await client.warm()
+        # Timed here rather than from the response: Ollama reports
+        # `load_duration: 0` on a load-only call, so wall time is the real cost.
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        logger.info(
+            "Warmed '%s' in %dms (keep_alive=%s, num_ctx=%d)",
+            settings.ollama_model,
+            elapsed_ms,
+            settings.ollama_keep_alive,
+            settings.num_ctx,
+        )
+    except OllamaError as exc:
+        # Same reasoning as startup: a cold model is a slow first answer, not a
+        # broken server.
+        logger.warning("Model warm-up skipped: %s", exc.detail)
+    except Exception:  # noqa: BLE001 - a background task must never die silently
+        logger.exception("Unexpected failure warming the model")
 
 
 @asynccontextmanager
@@ -39,7 +70,18 @@ async def lifespan(app: FastAPI):
         # Never block startup: /health reports the problem and the frontend can
         # render a 'model unavailable' state instead of failing to connect.
         logger.warning("Ollama unavailable at startup: %s %s", exc.detail, exc.hint or "")
+
+    warm_task: Optional[asyncio.Task] = None
+    if settings.warm_model_on_startup:
+        warm_task = asyncio.create_task(_warm_model())
+
     yield
+
+    # Stop the warm-up before closing the HTTP client it is using.
+    if warm_task is not None and not warm_task.done():
+        warm_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await warm_task
     await client.shutdown()
 
 
