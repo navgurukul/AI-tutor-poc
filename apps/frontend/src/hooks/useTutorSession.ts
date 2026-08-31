@@ -68,6 +68,25 @@ function drainSentences(buffer: string): { sentences: string[]; rest: string } {
   return { sentences, rest };
 }
 
+// The very first thing sent to Piper is a short phrase, not a whole sentence:
+// synthesis is ~1.5s fixed overhead + ~60ms/char, so a ~20-char opener is
+// audible several seconds sooner than a full first sentence. Only used while
+// drainSentences has no complete sentence yet; every chunk after it is a full
+// sentence.
+//   1. a clause boundary (comma/semicolon/colon/dash) once ~14+ chars in, or
+//   2. once ~22+ chars have arrived, the next word end.
+// Trailing whitespace is required so "3,000" and mid-word hyphens stay whole.
+const OPENING_CLAUSE = /^[\s\S]{14,}?[,;:—-](?=\s)/;
+const OPENING_WORDS = /^[\s\S]{22,}?\S(?=\s)/;
+
+function takeFirstFragment(
+  buffer: string,
+): { fragment: string; rest: string } | null {
+  const match = OPENING_CLAUSE.exec(buffer) ?? OPENING_WORDS.exec(buffer);
+  if (!match) return null;
+  return { fragment: match[0].trim(), rest: buffer.slice(match[0].length) };
+}
+
 export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutorSessionArgs) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stage, setStage] = useState<TutorStage>("idle");
@@ -77,6 +96,7 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
   // attempt failed and the first question pays the cold start as it used to.
   const [isModelWarm, setIsModelWarm] = useState(false);
   const voiceEnabledRef = useRef(true);
+  const didWarmVoiceRef = useRef(false);
   const wasListening = useRef(false);
   // finishTurn (the mic's "Send") owns the outcome of a listening session, so the
   // silence-timeout effect must stay out of it; the timeout path leaves this
@@ -165,6 +185,19 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     };
   }, [subjectName, level]);
 
+  // Piper's *first* real speak() after load still spends several seconds warming
+  // its ONNX inference graph. Push one sentence through the moment the voice is
+  // ready — suppressed via stopSpeech() so it's silent — so the graph is hot by
+  // the time the student finishes tapping the mic and speaking. Best-effort
+  // background heating, not a gate; a real turn re-arms playback via allowSpeech().
+  useEffect(() => {
+    if (!isVoiceReady || didWarmVoiceRef.current) return;
+    didWarmVoiceRef.current = true;
+    console.log("[timing] voice warm-up: synthesis kicked off");
+    stopSpeech();
+    void speak("Let's get started with today's lesson.");
+  }, [isVoiceReady, speak]);
+
   const askAndSpeak = useCallback(
     async (question: string) => {
       const turnStart = performance.now();
@@ -239,6 +272,17 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
               const { sentences, rest } = drainSentences(unspoken);
               unspoken = rest;
               for (const sentence of sentences) enqueueSpeech(sentence);
+
+              // Nothing queued yet and still no complete sentence — start the
+              // voice on a short opening phrase so audio doesn't wait for a
+              // whole first sentence (and then Piper's slow first pass on top).
+              if (speakQueueStartRef.current === null && sentences.length === 0) {
+                const frag = takeFirstFragment(unspoken);
+                if (frag) {
+                  unspoken = frag.rest;
+                  enqueueSpeech(frag.fragment);
+                }
+              }
             },
             onDone: ({ sessionId, answer: finalAnswer }) => {
               sessionIdRef.current = sessionId;
