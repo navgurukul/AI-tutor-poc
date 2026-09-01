@@ -1,8 +1,9 @@
 # AI Tutor POC — Offline LLM Backend
 
 FastAPI backend for an AI tutor that runs **entirely offline**. Every completion is
-generated locally by [Ollama](https://ollama.com) using `qwen2.5:1.5b` — no external
-API calls, no internet needed at request time.
+generated locally by [Ollama](https://ollama.com) using `gemma2:2b` (one model for
+every language — see the `OLLAMA_MODEL` note below) — no external API calls, no
+internet needed at request time.
 
 Frontend developers: the full interactive API reference is at **http://localhost:8000/docs**
 once the server is running, and the OpenAPI schema at `/openapi.json` can generate types.
@@ -15,8 +16,8 @@ once the server is running, and the OpenAPI schema at `/openapi.json` can genera
 ## Quickstart
 
 ```bash
-# 1. One-time: install the model (needs internet ONCE, ~1 GB)
-ollama pull qwen2.5:1.5b
+# 1. One-time: install the model (needs internet ONCE, ~1.6 GB)
+ollama pull gemma2:2b
 
 # 2. Make sure the Ollama daemon is running
 ollama serve          # skip if it already runs as a service
@@ -44,6 +45,8 @@ Verify the whole stack end to end:
 | `POST` | `/api/chat` | Send a message, get the whole reply. |
 | `POST` | `/api/chat/stream` | Same, streamed token by token (SSE). |
 | `GET` | `/api/chat/stream` | Stream variant for native `EventSource`. |
+| `GET` | `/api/stt` | Is offline speech-to-text ready? Also triggers the lazy model load. |
+| `POST` | `/api/stt` | Transcribe a short 16 kHz mono WAV (raw body) → `{ "text": ... }`. Indian languages only. |
 | `POST` | `/api/tutor/explain` | Structured explainer card for a topic. |
 | `POST` | `/api/tutor/quiz` | Generate multiple-choice questions. |
 | `POST` | `/api/tutor/evaluate` | Grade a student's answer. |
@@ -108,6 +111,13 @@ back, and send it with every subsequent message. Conversation history is replaye
 model, so follow-ups like "explain that more simply" work. An unknown or expired
 `session_id` silently starts a fresh session rather than erroring, so a stale id in
 `localStorage` after a server restart won't break the UI.
+
+> **Warm-up:** the frontend fires one throwaway `POST /api/chat` with `max_tokens: 1` and
+> the session profile as soon as its page loads, then discards the reply. That loads the
+> model (~10 s cold-start) and lets Ollama cache the system-prompt prefix, so the
+> student's first real question is fast. It's just a normal chat call — no special
+> endpoint — so expect one extra 1-token generation and one throwaway session per page
+> load (evicted by TTL/LRU).
 
 ### `POST /api/chat/stream` — SSE
 
@@ -202,6 +212,28 @@ an `explanation`. `num_questions` and `num_options` are honoured exactly.
 Returns `verdict` (`correct` | `partially_correct` | `incorrect`), `score` (0-100),
 `feedback` (addressed to the student) and `hint`.
 
+### `POST /api/stt` — offline speech-to-text (Indian languages)
+
+Send a short **16 kHz mono 16-bit WAV** as the raw request body
+(`Content-Type: audio/wav`); get `{ "text": "..." }` back. Used by the frontend
+for **Hindi / Gujarati / Kannada / Marathi** — English speech input is recognised
+on-device by the browser and never reaches the backend.
+
+Runs [`sherpa-onnx`](https://pypi.org/project/sherpa-onnx/) (a prebuilt wheel,
+installed with the other requirements — no compiler) with AI4Bharat's
+**IndicConformer** CTC model, int8. One ~188 MB multilingual model handles all
+four languages and emits the correct native script — no language auto-detect, so
+no Hindi/Urdu confusion. A clip decodes in ~0.5–2 s on CPU (≈0.1× real-time,
+batch, no live partials).
+
+- Model files: `apps/backend/models/indicconformer/{model.int8.onnx,tokens.txt}`,
+  downloaded by `scripts/setup.ps1`. Override the folder with `STT_MODEL_DIR`.
+- Loaded lazily on the first `/api/stt` call (or `GET /api/stt`), so an
+  English-only session pays nothing. Adds ~270 MB RSS once loaded.
+- Missing model / wheel → `503` with a "run setup" hint, not a crash.
+- Accuracy: strong on everyday vocabulary (WER ~8–12% on clean speech); proper
+  nouns and English loanwords still slip.
+
 ---
 
 ## Errors
@@ -236,13 +268,19 @@ Copy `.env.example` to `.env` to override any of these:
 | Variable | Default | Notes |
 |---|---|---|
 | `OLLAMA_HOST` | `http://localhost:11434` | |
-| `OLLAMA_MODEL` | `qwen2.5:1.5b` | Any model shown by `ollama list`. |
+| `OLLAMA_MODEL` | `gemma2:2b` | One model for every language. `qwen2.5:1.5b` is faster but can't do coherent Hindi/Marathi; a per-language split reloaded a model on every switch (slower on 4 GB). Any model from `ollama list`. |
+| `OLLAMA_KEEP_ALIVE` | `-1` | How long Ollama keeps the model in RAM after a request. `-1` = never unload. Biggest felt-latency fix on 4 GB — the default unloads after 5 min idle and the reload is ~10-20 s. |
+| `WARM_MODEL_ON_STARTUP` | `true` | On boot, the backend fires a 1-token generation (background task) to load the model into RAM, so the first student's first question doesn't pay the cold start. |
 | `TEMPERATURE` | `0.7` | |
-| `MAX_TOKENS` | `800` | Per-reply cap (`num_predict`). |
-| `NUM_CTX` | `4096` | Context window. Well under the model's 32k, for speed. |
-| `MAX_HISTORY_MESSAGES` | `20` | Messages replayed to the model per turn. |
+| `TEMPERATURE_NON_ENGLISH` | `0.6` | Slightly lower for non-English turns (less script drift); not lower, or a small model loops phrases. |
+| `REPEAT_PENALTY` / `REPEAT_LAST_N` | `1.15` / `128` | Mild anti-repetition over Ollama's 1.1/64 defaults. Don't raise much — high values garble Devanagari. |
+| `MAX_TOKENS` | `220` | Per-reply cap (`num_predict`). Low on purpose — a Socratic answer is 2-3 sentences, and it's the biggest CPU-latency lever (Hindi ≈ 2-4x tokens/word). |
+| `NUM_CTX` | `3072` | Context window. Small = faster prompt processing on CPU. |
+| `MAX_HISTORY_MESSAGES` | `10` | Messages replayed per turn. Short — each replayed turn is re-processed on CPU. |
 | `SESSION_TTL_MINUTES` | `180` | Idle sessions are evicted. |
 | `CORS_ORIGINS` | `*` | Comma-separated, or `*`. |
+| `STT_MODEL_DIR` | `models/indicconformer` | IndicConformer model folder (relative to `apps/backend/`). |
+| `STT_NUM_THREADS` | `2` | Threads for STT inference. |
 
 ---
 

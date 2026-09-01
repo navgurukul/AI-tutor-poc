@@ -14,10 +14,11 @@ STYLE_RULES = {
     # Abstract phrasing like "guide with questions" is ignored by small models;
     # a hard length limit plus a worked example is what actually lands.
     "socratic": (
-        "Do NOT explain the whole concept at once. Reply in at most 3 "
-        "sentences: give one small hint, then end with a question that makes "
-        "the student think. Your reply MUST end with a question mark. Give the "
-        "full answer only if the student asks for it directly."
+        "Give a short, correct answer to what was asked (1-2 sentences), then "
+        "end with exactly ONE short question that nudges the student one step "
+        "further. Your reply MUST end with that question mark. Never offer a "
+        "menu of options ('do you want A or B?'); ask one focused question. "
+        "Do not pad with encouragement or emoji."
     ),
     "direct": (
         "Answer clearly and immediately, then add one short worked example."
@@ -32,27 +33,69 @@ STYLE_RULES = {
 def build_system_prompt(profile: Optional[TutorProfile]) -> str:
     profile = profile or TutorProfile()
     lines: List[str] = [
-        "You are a patient, encouraging tutor running entirely offline on the "
-        "student's own device.",
+        "You are a knowledgeable tutor running offline on the student's device. "
+        "Always answer the question the student actually asked, on its own "
+        "terms — do not force it into a preset subject.",
     ]
     if profile.subject:
-        lines.append("Subject: {}.".format(profile.subject))
+        lines.append(
+            "Today's focus is {}, but still answer other questions directly.".format(
+                profile.subject
+            )
+        )
     if profile.level:
-        lines.append("The student's level is: {}. Match your vocabulary to it.".format(profile.level))
+        lines.append(
+            "Pitch the explanation so a {} student can follow it — plain wording, "
+            "but keep the real substance; do not oversimplify into baby talk.".format(
+                profile.level
+            )
+        )
     if profile.student_name:
         lines.append("The student's name is {}.".format(profile.student_name))
 
+    language = profile.language or "English"
+    # Hindi and Marathi are both written in Devanagari; naming the script beats
+    # "the <language> script", which a small model reads loosely.
+    script = {"hindi": "Devanagari", "marathi": "Devanagari"}.get(
+        language.strip().lower()
+    )
     lines.extend(
         [
             "Keep answers under 200 words unless asked for more.",
             "Use simple language and a concrete example. Never invent facts; if "
             "you are unsure, say so plainly.",
-            "Reply in {}.".format(profile.language or "English"),
+            "Reply in {}.".format(language),
         ]
     )
-    # Trailing position is deliberate: a 1.5B model follows the last
+    # Trailing position is deliberate: a small model follows the last
     # instruction most closely, and mid-prompt style rules got ignored.
     lines.append("Most important rule: " + STYLE_RULES.get(profile.style, STYLE_RULES["socratic"]))
+
+    # ...but "reply in <language>" then loses to that last line, so for a
+    # non-English language repeat it *after* it, as hard as possible — small
+    # models otherwise drift straight back to English.
+    if language.strip().lower() != "english":
+        script_clause = (
+            "using the {} script".format(script)
+            if script
+            else "using the native {} script".format(language)
+        )
+        lines.append(
+            "Write your ENTIRE reply in {0}, and only {0}, {1}. Every sentence "
+            "must be in {0}. Do not use English or any other script. Do NOT "
+            "repeat a word or phrase — make each point once, then stop.".format(
+                language, script_clause
+            )
+        )
+        # One short worked example keeps a 2B model terse and correct in
+        # Devanagari instead of padding with vague filler.
+        if script == "Devanagari":
+            lines.append(
+                "उदाहरण — छात्र: \"संज्ञा क्या होती है?\" "
+                "उत्तर: \"किसी व्यक्ति, वस्तु, स्थान या भाव के नाम को संज्ञा कहते हैं, "
+                "जैसे 'राम', 'किताब', 'दिल्ली'। क्या तुम अपने आसपास की तीन चीज़ों "
+                "के नाम बता सकते हो?\""
+            )
     return " ".join(lines)
 
 

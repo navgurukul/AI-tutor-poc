@@ -1,7 +1,7 @@
 import type { AskTutorRequest, AskTutorResponse } from "../types";
 import { mockAnswerFor } from "./mockData";
 
-const API_BASE_URL =
+export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API === "true";
 const MOCK_DELAY_MS = 400;
@@ -107,7 +107,7 @@ export interface WarmupResult {
  * and the first answer is simply as slow as it used to be.
  */
 export async function warmupTutor(
-  profile?: { subject?: string; level?: string },
+  profile?: { subject?: string; level?: string; language?: string },
   signal?: AbortSignal,
 ): Promise<WarmupResult | null> {
   if (USE_MOCK_API) return null;
@@ -118,7 +118,14 @@ export async function warmupTutor(
       body: JSON.stringify({
         message: "warm up",
         max_tokens: 1,
-        profile: profile && { subject: profile.subject, level: profile.level },
+        // Same profile (incl. default socratic style) as real turns, so Ollama
+        // caches the exact system-prompt prefix the first question will reuse.
+        // The backend skips the socratic re-ask for a 1-token reply.
+        profile: profile && {
+          subject: profile.subject,
+          level: profile.level,
+          language: profile.language,
+        },
       }),
       signal,
     });

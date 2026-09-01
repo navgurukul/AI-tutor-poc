@@ -15,6 +15,17 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _keep_alive() -> Any:
+    """Ollama's `keep_alive` wants an int (seconds; -1 = never unload) OR a
+    duration string *with a unit* ("30m"). The bare string "-1" is rejected
+    ("missing unit in duration"), so coerce a plain number to int."""
+    raw = str(settings.ollama_keep_alive).strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
+
+
 class OllamaError(Exception):
     """Raised for any failure talking to Ollama, carrying an HTTP status to surface."""
 
@@ -100,6 +111,26 @@ class OllamaClient:
         except httpx.HTTPError as exc:
             raise OllamaError("Failed to list Ollama models: {}".format(exc))
 
+    async def warm(self, model: Optional[str] = None) -> float:
+        """Load the model into RAM with a 1-token no-op generation, so the first
+        real request doesn't pay the cold start (~8-20s for a 2B model on a
+        4 GB CPU). With keep_alive=-1 it then stays resident. Returns Ollama's
+        reported load_duration in ms; best-effort, swallows failures."""
+        payload = {
+            "model": model or settings.ollama_model,
+            "messages": [{"role": "user", "content": "ok"}],
+            "stream": False,
+            "keep_alive": _keep_alive(),
+            "options": {"num_predict": 1},
+        }
+        try:
+            response = await self.client.post("/api/chat", json=payload)
+            response.raise_for_status()
+            return response.json().get("load_duration", 0) / 1e6
+        except httpx.HTTPError as exc:
+            logger.warning("Model warm-up failed (non-fatal): %s", exc)
+            return 0.0
+
     # -- chat --------------------------------------------------------------
     def _payload(
         self,
@@ -114,12 +145,19 @@ class OllamaClient:
             "model": model or settings.ollama_model,
             "messages": messages,
             "stream": stream,
+            # Keep the model loaded between turns; a cold reload on a 4 GB CPU is
+            # ~10-20s and Ollama otherwise unloads after 5 min idle.
+            "keep_alive": _keep_alive(),
             "options": {
                 "temperature": (
                     settings.temperature if temperature is None else temperature
                 ),
                 "num_predict": settings.max_tokens if max_tokens is None else max_tokens,
                 "num_ctx": settings.num_ctx,
+                # Stops a small model looping a phrase, which it does badly in
+                # Hindi; Ollama's own defaults (1.1 / 64) are too weak here.
+                "repeat_penalty": settings.repeat_penalty,
+                "repeat_last_n": settings.repeat_last_n,
             },
         }
         if response_format is not None:

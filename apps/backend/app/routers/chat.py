@@ -33,6 +33,18 @@ def _sse(payload: Dict[str, Any]) -> str:
     return "data: {}\n\n".format(json.dumps(payload, ensure_ascii=False))
 
 
+def _effective_temperature(requested: Optional[float], profile) -> Optional[float]:
+    """Small models hold the target language and script better at a lower
+    temperature, so a non-English turn defaults lower. An explicit request wins;
+    None lets ollama_client fall back to settings.temperature."""
+    if requested is not None:
+        return requested
+    language = ((getattr(profile, "language", None) or "English")).strip().lower()
+    if language and language != "english":
+        return settings.temperature_non_english
+    return None
+
+
 @router.post("/chat", response_model=ChatResponse, summary="Send a message (buffered)")
 async def chat(request: ChatRequest) -> ChatResponse:
     """Full reply in one response. Simple to integrate; use /chat/stream for
@@ -40,6 +52,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
     session = await store.get_or_create(request.session_id, request.profile)
     session.add("user", request.message)
 
+    temperature = _effective_temperature(request.temperature, session.profile)
     messages = build_chat_messages(
         session.history(settings.max_history_messages), session.profile
     )
@@ -47,19 +60,22 @@ async def chat(request: ChatRequest) -> ChatResponse:
         response = await client.chat(
             messages,
             model=request.model,
-            temperature=request.temperature,
+            temperature=temperature,
             max_tokens=request.max_tokens,
         )
 
         reply = (response.get("message") or {}).get("content", "").strip()
 
-        # Socratic mode drifts into lecturing on this model; re-ask once when it does.
-        if needs_socratic_retry(reply, session.profile):
+        # Socratic mode drifts into lecturing on this model; re-ask once when it
+        # does. Skip it for a warm-up call (max_tokens 1) -- the 1-token reply
+        # can't end with "?" but there's nothing to re-ask.
+        warming_up = (request.max_tokens or settings.max_tokens) <= 2
+        if not warming_up and needs_socratic_retry(reply, session.profile):
             logger.info("Socratic reply drifted into an explanation; re-asking once.")
             retry = await client.chat(
                 socratic_retry_messages(messages, reply, request.message),
                 model=request.model,
-                temperature=request.temperature,
+                temperature=temperature,
                 max_tokens=request.max_tokens,
             )
             retry_reply = (retry.get("message") or {}).get("content", "").strip()
@@ -96,6 +112,7 @@ async def _stream_events(
     """
     session = await store.get_or_create(session_id, profile)
     session.add("user", message)
+    temperature = _effective_temperature(temperature, session.profile)
     yield _sse(
         {
             "type": "start",

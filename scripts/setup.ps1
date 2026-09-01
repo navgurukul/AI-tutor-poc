@@ -194,6 +194,34 @@ if (-not (Test-ValidFile $jsonPath 100)) {
     Step "Voice model config already present - skipping download."
 }
 
+# 6. Offline speech-to-text model for the Indian languages: AI4Bharat's
+#    IndicConformer (CTC, int8), run by the backend via sherpa-onnx (the wheel
+#    is installed with the other Python packages in step 3 - prebuilt, no
+#    compiler). One ~188MB multilingual model covers Hindi/Gujarati/Kannada/
+#    Marathi. English speech input is handled on-device by the browser.
+$indicDir    = Join-Path $backendDir "models\indicconformer"
+$indicModel  = Join-Path $indicDir "model.int8.onnx"
+$indicTokens = Join-Path $indicDir "tokens.txt"
+$indicBase   = "https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main"
+
+if (-not (Test-Path $indicDir)) {
+    New-Item -ItemType Directory -Force -Path $indicDir | Out-Null
+}
+
+if (-not (Test-ValidFile $indicModel (100MB))) {
+    Step "Downloading IndicConformer STT model (~188MB, one-time)..."
+    Get-FileSafely "$indicBase/model.int8.onnx?download=true" $indicModel
+} else {
+    Step "IndicConformer STT model already present - skipping download."
+}
+
+if (-not (Test-ValidFile $indicTokens 10000)) {
+    Step "Downloading IndicConformer STT tokens..."
+    Get-FileSafely "$indicBase/tokens.txt?download=true" $indicTokens
+} else {
+    Step "IndicConformer STT tokens already present - skipping."
+}
+
 Write-Host ""
 Write-Host "Setup complete." -ForegroundColor Green
 Write-Host "Next: powershell -File scripts\start.ps1" -ForegroundColor Green

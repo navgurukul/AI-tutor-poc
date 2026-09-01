@@ -6,3 +6,7 @@ httpx==0.28.1
 pydantic==2.10.4
 pydantic-settings==2.7.0
 python-dotenv==1.0.1
+
+# Offline speech-to-text for the Indian languages: sherpa-onnx running
+# AI4Bharat's IndicConformer (CTC, int8). Prebuilt wheel, no compiler.
+sherpa-onnx==1.13.6

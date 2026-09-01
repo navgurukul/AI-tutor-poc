@@ -1,0 +1,104 @@
+"""Offline speech-to-text for the Indian languages, using sherpa-onnx +
+AI4Bharat's IndicConformer (CTC), int8.
+
+The frontend routes Hindi / Gujarati / Kannada / Marathi speech input here
+(`/api/stt`); English is recognised on-device by the browser and never hits
+this. One ~188 MB multilingual model covers all of them and emits the correct
+native script (no language auto-detect / Hindi-Urdu confusion).
+
+Everything loads lazily on the first request (or an explicit `warm()`), so an
+English-only session pays nothing.
+"""
+
+from __future__ import annotations
+
+import array
+import io
+import logging
+import wave
+from functools import lru_cache
+from pathlib import Path
+from threading import Lock
+
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+# apps/backend/ — settings.stt_model_dir is resolved against this when relative.
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
+_MODEL_FILE = "model.int8.onnx"
+_TOKENS_FILE = "tokens.txt"
+
+_lock = Lock()
+
+
+class SttUnavailable(RuntimeError):
+    """The model files or the sherpa-onnx wheel aren't present. Surfaced as 503
+    so the UI can say "run setup" rather than showing a generic error."""
+
+
+def _model_dir() -> Path:
+    base = Path(settings.stt_model_dir)
+    if not base.is_absolute():
+        base = _BACKEND_ROOT / base
+    return base
+
+
+@lru_cache(maxsize=1)
+def _recognizer():
+    d = _model_dir()
+    model, tokens = d / _MODEL_FILE, d / _TOKENS_FILE
+    if not model.exists() or not tokens.exists():
+        raise SttUnavailable(
+            "IndicConformer model not found at {}. Run scripts/setup.ps1.".format(d)
+        )
+    try:
+        import sherpa_onnx
+    except ImportError as exc:  # pragma: no cover - depends on install state
+        raise SttUnavailable(
+            "sherpa-onnx isn't installed. Run: pip install -r apps/backend/requirements.txt"
+        ) from exc
+
+    logger.info("Loading IndicConformer STT model from %s", d)
+    rec = sherpa_onnx.OfflineRecognizer.from_nemo_ctc(
+        model=str(model),
+        tokens=str(tokens),
+        num_threads=settings.stt_num_threads,
+    )
+    logger.info("IndicConformer STT model ready")
+    return rec
+
+
+def warm() -> bool:
+    """Load the model up front so the first real request doesn't pay for it.
+    Returns False (not raises) when it can't, so the readiness endpoint can
+    report a plain boolean."""
+    try:
+        _recognizer()
+        return True
+    except SttUnavailable as exc:
+        logger.warning("STT unavailable: %s", exc)
+        return False
+
+
+def transcribe(wav_bytes: bytes) -> str:
+    """Blocking — call via run_in_threadpool. Expects a 16-bit mono PCM WAV."""
+    with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+        if wf.getsampwidth() != 2 or wf.getnchannels() != 1:
+            raise ValueError("expected 16-bit mono PCM WAV")
+        sample_rate = wf.getframerate()
+        pcm = array.array("h")
+        pcm.frombytes(wf.readframes(wf.getnframes()))
+
+    if not pcm:
+        return ""
+    samples = [s / 32768.0 for s in pcm]
+
+    rec = _recognizer()
+    # OfflineRecognizer is thread-safe for decode, but keep one turn at a time.
+    with _lock:
+        stream = rec.create_stream()
+        stream.accept_waveform(sample_rate, samples)
+        rec.decode_stream(stream)
+        return (stream.result.text or "").strip()

@@ -4,7 +4,9 @@ Run with:  uvicorn app.main:app --reload --port 8000
 Docs at:   http://localhost:8000/docs
 """
 
+import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -12,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.routers import chat, health, sessions, tutor
+from app.routers import chat, health, sessions, stt, tutor
 from app.services.ollama_client import OllamaError, client
 
 logging.basicConfig(
@@ -21,25 +23,48 @@ logging.basicConfig(
 logger = logging.getLogger("ai-tutor")
 
 
+async def _warm_model() -> None:
+    """Load the model into RAM at server boot so the first student's first
+    question doesn't pay the ~8-20s cold start. Runs as a background task so it
+    never delays startup; keep_alive=-1 then keeps it resident."""
+    started = time.monotonic()
+    logger.info("Warming up model '%s' in the background...", settings.ollama_model)
+    load_ms = await client.warm()
+    logger.info(
+        "Model warm-up done in %.1fs (ollama load_duration %.0fms). Model is resident.",
+        time.monotonic() - started,
+        load_ms,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await client.startup()
-    logger.info("Ollama host: %s | default model: %s", settings.ollama_host, settings.ollama_model)
+    logger.info("Ollama host: %s | model: %s", settings.ollama_host, settings.ollama_model)
+    warm_task = None
     try:
         version = await client.version()
         names = [m.get("name", "") for m in await client.list_models()]
         logger.info("Connected to Ollama %s | local models: %s", version, ", ".join(names) or "none")
-        if not any(n == settings.ollama_model or n.split(":")[0] == settings.ollama_model for n in names):
+        model_present = any(
+            n == settings.ollama_model or n.split(":")[0] == settings.ollama_model
+            for n in names
+        )
+        if not model_present:
             logger.warning(
                 "Model '%s' is not installed. Run: ollama pull %s",
                 settings.ollama_model,
                 settings.ollama_model,
             )
+        elif settings.warm_model_on_startup:
+            warm_task = asyncio.create_task(_warm_model())
     except OllamaError as exc:
         # Never block startup: /health reports the problem and the frontend can
         # render a 'model unavailable' state instead of failing to connect.
         logger.warning("Ollama unavailable at startup: %s %s", exc.detail, exc.hint or "")
     yield
+    if warm_task is not None and not warm_task.done():
+        warm_task.cancel()
     await client.shutdown()
 
 
@@ -74,6 +99,7 @@ async def ollama_error_handler(request: Request, exc: OllamaError) -> JSONRespon
 app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(sessions.router)
+app.include_router(stt.router)
 app.include_router(tutor.router)
 
 

@@ -1,78 +1,95 @@
 import { useEffect, useRef } from "react";
 import type { SchoolClass, Subject } from "../types";
+import type { TutorLanguage } from "../config/languages";
 import { useTutorSession } from "../hooks/useTutorSession";
 import { ChatBubble } from "../components/ChatBubble";
 import { MicButton } from "../components/MicButton";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StopSpeechButton } from "../components/StopSpeechButton";
 import { VoiceToggle } from "../components/VoiceToggle";
+import { LanguageSelect } from "../components/LanguageSelect";
 
 interface TutorPageProps {
   schoolClass: SchoolClass;
   subject: Subject;
+  language: TutorLanguage;
+  onLanguageChange: (code: string) => void;
 }
 
 const STAGE_CAPTION: Record<string, string> = {
   idle: "Tap the mic and ask a question",
-  listening: "Listening — tap to stop",
+  listening: "Listening — tap to send",
   thinking: "Thinking…",
   speaking: "Speaking the answer…",
   error: "Tap the mic and ask a question",
 };
 
-export function TutorPage({ schoolClass, subject }: TutorPageProps) {
+export function TutorPage({ schoolClass, subject, language, onLanguageChange }: TutorPageProps) {
   const {
     messages,
     stage,
     error,
     transcript,
     interimTranscript,
+    isTranscribing,
     isVoiceReady,
-    voiceDownloadProgress,
     isModelWarm,
-    browserSupportsSpeechRecognition,
+    voiceMissing,
+    sttSupported,
+    sttLoading,
+    sttDownloadProgress,
     isPlaying,
     isVoiceEnabled,
     startTurn,
     finishTurn,
     stopSpeaking,
     toggleVoice,
-  } = useTutorSession({ subjectName: subject.name, level: schoolClass.name });
+  } = useTutorSession({
+    subjectName: subject.name,
+    level: schoolClass.name,
+    language,
+  });
 
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, interimTranscript]);
+  }, [messages, interimTranscript, isTranscribing]);
 
-  // "Ready" = the Piper voice model has downloaded and the LLM warm-up has
-  // settled. Until then the mic stays disabled.
-  const isReady = isVoiceReady && isModelWarm;
-  const micDisabled = !browserSupportsSpeechRecognition || !isReady;
+  // "Ready" = the LLM warm-up has settled, the STT engine for this language is
+  // prepared (instant for the browser recognizer; a one-time model load the
+  // first time an offline language is picked), and a voice has been selected
+  // (near-instant — the OS synthesizer needs no download).
+  const isReady = isModelWarm && !sttLoading && isVoiceReady;
+  const micDisabled = !sttSupported || !isReady;
 
-  const progressPct =
-    voiceDownloadProgress && voiceDownloadProgress.total > 0
-      ? Math.min(
-          100,
-          Math.round((voiceDownloadProgress.loaded / voiceDownloadProgress.total) * 100),
-        )
-      : null;
+  // The offline speech models report a real percentage while streaming in; on a
+  // cache hit there's no signal, so fall back to an indeterminate bar.
+  const dl = sttLoading ? sttDownloadProgress : null;
+  const isDownloading = !!dl && dl.total > 0 && dl.loaded > 0 && dl.loaded < dl.total;
+  const prepPct = isDownloading
+    ? Math.min(99, Math.round((dl!.loaded / dl!.total) * 100))
+    : null;
 
-  // Voice model first, then the LLM warm-up.
-  const prepLabel = !isVoiceReady ? "Preparing voice model" : "Warming up the tutor model";
-  const showDeterminate = !isVoiceReady && progressPct !== null;
+  const prepLabel = sttLoading
+    ? isDownloading
+      ? "Downloading speech model"
+      : "Preparing speech model"
+    : "Warming up the tutor model";
 
   let voiceStatus: { label: string; tone: "ready" | "loading" | "error" };
-  if (!browserSupportsSpeechRecognition) {
-    voiceStatus = { label: "Mic unsupported", tone: "error" };
+  if (!sttSupported) {
+    voiceStatus = { label: "Speech unavailable", tone: "error" };
   } else if (isReady) {
     voiceStatus = { label: "Ready", tone: "ready" };
   } else {
     voiceStatus = {
-      label: showDeterminate ? `${prepLabel} · ${progressPct}%` : `${prepLabel}…`,
+      label: prepPct !== null ? `${prepLabel} · ${prepPct}%` : `${prepLabel}…`,
       tone: "loading",
     };
   }
+
+  const pendingSpeech = interimTranscript || transcript;
 
   return (
     <div className="app-shell">
@@ -82,11 +99,17 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
           <div className="app-titles">
             <span className="app-name">AI Tutor POC</span>
             <span className="app-context">
-              {schoolClass.name} · {subject.name}
+              {[schoolClass.name, subject.name].filter(Boolean).join(" · ") ||
+                "Ask a question in any subject"}
             </span>
           </div>
         </div>
         <div className="app-bar-actions">
+          <LanguageSelect
+            code={language.code}
+            onChange={onLanguageChange}
+            disabled={stage === "thinking" || stage === "speaking"}
+          />
           <VoiceToggle enabled={isVoiceEnabled} onToggle={toggleVoice} />
           <span className={`status-pill status-pill--${voiceStatus.tone}`}>
             <span className="status-dot" aria-hidden="true" />
@@ -96,24 +119,36 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
       </header>
 
       <main className="screen tutor-screen">
-        {!browserSupportsSpeechRecognition && (
-          <ErrorBanner message="This browser doesn't support speech recognition. Try Chrome or Edge." />
+        {!sttSupported && (
+          <ErrorBanner
+            message={
+              language.stt.engine === "indic"
+                ? "The offline speech model isn't ready. Re-run scripts/setup.ps1 and make sure the backend is running, or pick English."
+                : "This browser doesn't support speech recognition. Try Chrome or Edge."
+            }
+          />
         )}
 
-        {!isReady && browserSupportsSpeechRecognition && (
+        {sttSupported && isVoiceEnabled && voiceMissing && (
+          <ErrorBanner
+            message={`No offline ${language.name} voice is installed, so answers are read aloud with another voice. On Windows, add it under Settings → Time & Language → Speech, or turn the voice off.`}
+          />
+        )}
+
+        {!isReady && sttSupported && (
           <div className="voice-progress">
             <div className="voice-progress-header">
               <span>{prepLabel}</span>
-              <span>{showDeterminate ? `${progressPct}%` : "…"}</span>
+              <span>{prepPct !== null ? `${prepPct}%` : "…"}</span>
             </div>
             <div className="voice-progress-track">
               <div
                 className={
-                  showDeterminate
+                  prepPct !== null
                     ? "voice-progress-fill"
                     : "voice-progress-fill voice-progress-fill--indeterminate"
                 }
-                style={showDeterminate ? { width: `${progressPct}%` } : undefined}
+                style={prepPct !== null ? { width: `${prepPct}%` } : undefined}
               />
             </div>
           </div>
@@ -131,10 +166,16 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
           {messages.map((m) => (
             <ChatBubble key={m.id} {...m} />
           ))}
-          {stage === "listening" && (interimTranscript || transcript) && (
-            <div className="chat-bubble chat-bubble--user chat-bubble--interim">
+          {/* The recognized speech shows straight in the chat as a faint user
+              bubble — live for English, once decoded for the offline engine —
+              then becomes the real message when it's sent. */}
+          {stage === "listening" && pendingSpeech && (
+            <div className="chat-bubble chat-bubble--user chat-bubble--interim" dir="auto">
               {transcript} {interimTranscript}
             </div>
+          )}
+          {isTranscribing && (
+            <div className="chat-bubble chat-bubble--user chat-bubble--interim">…</div>
           )}
         </div>
 
@@ -147,8 +188,12 @@ export function TutorPage({ schoolClass, subject }: TutorPageProps) {
           />
           {isPlaying && <StopSpeechButton onStop={stopSpeaking} />}
           <p className="tutor-caption">
-            {isPlaying ? "Speaking the answer…" : STAGE_CAPTION[stage]}
-            {!isVoiceEnabled && stage === "idle" && !isPlaying && " · voice off"}
+            {isTranscribing
+              ? "Transcribing…"
+              : isPlaying
+                ? "Speaking the answer…"
+                : STAGE_CAPTION[stage]}
+            {!isVoiceEnabled && stage === "idle" && !isPlaying && !isTranscribing && " · voice off"}
           </p>
         </div>
       </main>

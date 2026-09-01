@@ -7,6 +7,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
+# Offline STT model (~104MB), downloaded by scripts/setup.ps1
+apps/backend/models/
+
 # Node / frontend
 node_modules/
 dist/
