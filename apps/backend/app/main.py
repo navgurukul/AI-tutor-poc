@@ -15,8 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.routers import chat, health, sessions, tutor
+from app.routers import chat, health, library, sessions, tutor
 from app.services.ollama_client import OllamaError, client
+from app.services.rag import service as rag_service
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s"
@@ -55,6 +56,9 @@ async def _warm_model() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await client.startup()
+    # Opening the library never raises: an unavailable corpus degrades the
+    # tutor to model-only answers, and /health explains why.
+    rag_service.open_store()
     logger.info("Ollama host: %s | default model: %s", settings.ollama_host, settings.ollama_model)
     try:
         version = await client.version()
@@ -83,6 +87,7 @@ async def lifespan(app: FastAPI):
         with suppress(asyncio.CancelledError):
             await warm_task
     await client.shutdown()
+    rag_service.close_store()
 
 
 app = FastAPI(
@@ -117,6 +122,7 @@ app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(sessions.router)
 app.include_router(tutor.router)
+app.include_router(library.router)
 
 
 @app.get("/", tags=["health"], summary="API index")

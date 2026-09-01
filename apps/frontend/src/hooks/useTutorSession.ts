@@ -3,7 +3,7 @@ import { useSpeechToText, usePiper } from "react-sts-hooks";
 import { askTutorStream, warmupTutor } from "../services/api";
 import { VOICE_MODEL_URL, VOICE_CONFIG_URL } from "../config/voice";
 import { allowSpeech, installSpeechInterceptor, stopSpeech } from "../utils/stopSpeech";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, Citation } from "../types";
 
 export type TutorStage = "idle" | "listening" | "thinking" | "speaking" | "error";
 
@@ -147,14 +147,21 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
   // always targets the right message.
   const replyIdRef = useRef<string | null>(null);
 
+  // The backend sends its sources frame *before* the first token, so the reply
+  // bubble does not exist yet when they arrive. Parking them here and attaching
+  // them as the bubble is created avoids rendering an empty bubble that shows
+  // citations for an answer that has not started.
+  const pendingSourcesRef = useRef<Citation[] | undefined>(undefined);
+
   const setReplyText = useCallback((text: string) => {
     const id = replyIdRef.current;
     if (!id) return;
     setMessages((prev) => {
       const index = prev.findIndex((m) => m.id === id);
-      if (index === -1) return [...prev, { id, role: "tutor", text }];
+      if (index === -1)
+        return [...prev, { id, role: "tutor", text, sources: pendingSourcesRef.current }];
       const next = [...prev];
-      next[index] = { ...next[index], text };
+      next[index] = { ...next[index], text, sources: pendingSourcesRef.current };
       return next;
     });
   }, []);
@@ -206,6 +213,7 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
       firstAudioLoggedRef.current = false;
       allChunksQueuedRef.current = false;
       speechStoppedRef.current = false;
+      pendingSourcesRef.current = undefined;
 
       // Clear anything still queued in Piper and silence a sentence still
       // playing from a previous turn; suppress until this turn starts speaking.
@@ -252,6 +260,9 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
           {
             onStart: (sessionId) => {
               sessionIdRef.current = sessionId;
+            },
+            onSources: (sources) => {
+              pendingSourcesRef.current = sources;
             },
             onToken: (token) => {
               if (firstTokenAt === null) {

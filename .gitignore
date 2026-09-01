@@ -38,3 +38,10 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# The textbook corpus: device data, not source. Built by ingestion, or copied
+# in prebuilt -- either way it is large and machine-specific.
+apps/backend/data/
+*.db
+*.db-wal
+*.db-shm

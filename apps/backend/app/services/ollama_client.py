@@ -112,6 +112,41 @@ class OllamaClient:
         except httpx.HTTPError as exc:
             raise OllamaError("Failed to list Ollama models: {}".format(exc))
 
+    # -- embeddings --------------------------------------------------------
+    async def embed(
+        self, inputs: List[str], model: Optional[str] = None
+    ) -> List[List[float]]:
+        """Embed a batch of strings with the retrieval model.
+
+        Ollama's /api/embed takes a list and returns vectors in the same order,
+        so ingestion sends batches rather than paying HTTP overhead per chunk.
+        The embedding model is a different model from the chat one, and asking
+        for it keeps it resident alongside -- both are small enough that this
+        is cheaper than reloading either.
+        """
+        if not inputs:
+            return []
+        target = model or settings.rag_embedding_model
+        try:
+            response = await self.client.post(
+                "/api/embed",
+                json={"model": target, "input": inputs, "keep_alive": _keep_alive()},
+            )
+            self._raise_for_response(response, target)
+            vectors = response.json().get("embeddings") or []
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            raise self._unreachable(exc)
+        except httpx.HTTPError as exc:
+            raise OllamaError("Embedding request failed: {}".format(exc))
+
+        if len(vectors) != len(inputs):
+            raise OllamaError(
+                "Ollama returned {} embeddings for {} inputs.".format(
+                    len(vectors), len(inputs)
+                )
+            )
+        return vectors
+
     # -- chat --------------------------------------------------------------
     def _payload(
         self,
