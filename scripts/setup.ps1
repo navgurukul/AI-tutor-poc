@@ -223,6 +223,25 @@ if (-not (Test-ValidFile $indicTokens 10000)) {
     Step "IndicConformer STT tokens already present - skipping."
 }
 
+# 7. Offline text-to-speech voice for non-English answers: a Piper VITS voice
+#    (hi_IN-priyamvada, female), run by the backend through the same sherpa-onnx
+#    wheel - no extra package. English answers use the browser's own voice.
+$ttsName    = "vits-piper-hi_IN-priyamvada-medium"
+$ttsDir     = Join-Path $backendDir "models\tts\$ttsName"
+$ttsArchive = Join-Path $backendDir "models\tts\$ttsName.tar.bz2"
+$ttsUrl     = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/$ttsName.tar.bz2"
+
+if (-not (Test-Path (Join-Path $ttsDir "tokens.txt"))) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $ttsDir) | Out-Null
+    Step "Downloading Piper TTS voice ($ttsName, ~60MB, one-time)..."
+    Get-FileSafely $ttsUrl $ttsArchive
+    Step "Extracting Piper TTS voice..."
+    & tar -xf $ttsArchive -C (Split-Path $ttsDir)
+    Remove-Item $ttsArchive -ErrorAction SilentlyContinue
+} else {
+    Step "Piper TTS voice already present - skipping download."
+}
+
 Write-Host ""
 Write-Host "Setup complete." -ForegroundColor Green
 Write-Host "Next: powershell -File scripts\start.ps1" -ForegroundColor Green

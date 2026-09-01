@@ -277,7 +277,7 @@ Copy `.env.example` to `.env` to override any of these:
 | `TEMPERATURE` | `0.7` | |
 | `TEMPERATURE_NON_ENGLISH` | `0.6` | Slightly lower for non-English turns (less script drift); not lower, or a small model loops phrases. |
 | `REPEAT_PENALTY` / `REPEAT_LAST_N` | `1.15` / `128` | Mild anti-repetition over Ollama's 1.1/64 defaults. Don't raise much — high values garble Devanagari. |
-| `MAX_TOKENS` | `220` | Per-reply cap (`num_predict`). Low on purpose — a Socratic answer is 2-3 sentences, and it's the biggest CPU-latency lever (Hindi ≈ 2-4x tokens/word). |
+| `MAX_TOKENS` | `200` | Per-reply cap (`num_predict`). Low on purpose — a tutor answer is 2-3 sentences, and it's the biggest CPU-latency lever (Hindi ≈ 2-4x tokens/word). |
 | `NUM_CTX` | `3072` | Context window. Small = faster prompt processing on CPU. |
 | `MAX_HISTORY_MESSAGES` | `10` | Messages replayed per turn. Short — each replayed turn is re-processed on CPU. |
 | `SESSION_TTL_MINUTES` | `180` | Idle sessions are evicted. |

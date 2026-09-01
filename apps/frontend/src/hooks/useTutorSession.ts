@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { askTutorStream, warmupTutor } from "../services/api";
-import { useSpeechSynthesis } from "./useSpeechSynthesis";
+import { useTutorTts } from "./tts/useTutorTts";
 import { useTutorSpeechToText } from "./stt/useTutorSpeechToText";
 import type { TutorLanguage } from "../config/languages";
 import type { ChatMessage } from "../types";
@@ -25,23 +25,45 @@ const nextId = (): string =>
 // and can gather doubles where an interim tail is appended.
 const collapseSpaces = (s: string) => s.replace(/\s+/g, " ").trim();
 
+// gemma still sprinkles markdown (`* **bold:**`, `#`, backticks) into answers
+// despite the prompt. Piper's phonemizer reads those symbols aloud ("तारांकन"
+// for `*`), so scrub them before a sentence is spoken.
+const stripForSpeech = (s: string) =>
+  s
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*•]\s+/gm, "")
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(\*|_)(.*?)\1/g, "$2")
+    .replace(/[*_#>`]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 // The backend streams tokens, so the reply is spoken one sentence at a time as
 // it decodes — the first sentence starts playing while the model is still
 // writing the rest. The browser's speech queue plays them back-to-back with no
 // gaps. Fragments shorter than this are merged into the sentence that follows.
-const MIN_SPEECH_CHARS = 12;
+// Short sentences shorter than this are merged with the next one before being
+// spoken. Kept fairly high for the backend voice: a lone short opener plays out
+// in a second or two and then there's dead air while the LLM writes the next
+// sentence, so a longer first chunk hides that gap better.
+const MIN_SPEECH_CHARS = 60;
 
 /**
  * Pulls every *complete* sentence off the front of a growing token buffer.
  *
- * A terminator only counts when whitespace follows it, which is what makes the
- * sentence provably finished mid-stream — it also keeps "3.14" and the like in
- * one piece. The unterminated tail stays in `rest` until more tokens arrive, or
- * until the stream ends and the caller flushes it.
+ * A Latin terminator (.?!…) only counts when whitespace follows it, which is
+ * what makes the sentence provably finished mid-stream and keeps "3.14" in one
+ * piece. The Devanagari danda (। ॥) is unambiguous — it's only ever an
+ * end-of-sentence mark — so it terminates immediately, even with no trailing
+ * space; without this the whole Hindi/Marathi reply is one block and TTS can't
+ * start until the stream ends. The unterminated tail stays in `rest` until more
+ * tokens arrive, or until the stream ends and the caller flushes it.
  */
 function drainSentences(buffer: string): { sentences: string[]; rest: string } {
   const sentences: string[] = [];
-  const boundary = /[.!?]+["')\]]*(?=\s)/g;
+  const boundary = /(?:[.!?…]+["')\]]*(?=\s)|[।॥]+)/g;
   let rest = buffer;
   let searchFrom = 0;
 
@@ -115,11 +137,14 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
   const {
     speak,
     cancel: cancelSpeech,
+    primeAudio,
     isSupported: isSpeechSupported,
     isReady: isVoiceReady,
     isSpeaking: isPlaying,
     voiceMissing,
-  } = useSpeechSynthesis(language.speech);
+    voiceLoading,
+    voiceDownloadProgress,
+  } = useTutorTts(language);
 
   // The id of the tutor bubble for the turn in flight, so the streaming update
   // always targets the right message.
@@ -137,13 +162,17 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
     });
   }, []);
 
-  // Warm-load the LLM the moment the session mounts. Ollama otherwise loads the
-  // weights lazily on the first question (~10s of silence on CPU); this pays that
-  // cost while the student is still reading the screen and reaching for the mic.
+  // Warm-load the LLM the moment the session mounts, and again whenever the
+  // language changes. Ollama otherwise loads the weights (and, on a language
+  // switch, re-processes the whole new system prompt) lazily on the first
+  // question. Re-gating `isModelWarm` here keeps the mic disabled until Ollama
+  // has the new-language prompt prefix cached, so the first turn after a switch
+  // isn't the one that pays ~10-16s.
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
     const startedAt = performance.now();
+    setIsModelWarm(false);
     void warmupTutor({ subject: subjectName, level, language: langName }, controller.signal)
       .then((result) => {
         if (result) {
@@ -161,6 +190,24 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
       controller.abort();
     };
   }, [subjectName, level, langName]);
+
+  // A language switch is a fresh conversation: drop the cross-language history
+  // so the first turn in the new language only re-processes the system prompt
+  // (not a pile of messages in the other language), and the model isn't
+  // answering in one language with context in another.
+  const prevLangCodeRef = useRef(language.code);
+  useEffect(() => {
+    if (prevLangCodeRef.current === language.code) return;
+    prevLangCodeRef.current = language.code;
+    streamAbortRef.current?.abort();
+    cancelSpeech();
+    sessionIdRef.current = undefined;
+    submittingRef.current = false;
+    cancelledRef.current = false;
+    setMessages([]);
+    resetTranscript();
+    setStage("idle");
+  }, [language.code, resetTranscript, cancelSpeech]);
 
   const askAndSpeak = useCallback(
     async (question: string) => {
@@ -188,15 +235,17 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
 
       const enqueueSpeech = (text: string) => {
         if (!voiceEnabledRef.current || speechStoppedRef.current) return;
+        const spoken = stripForSpeech(text);
+        if (!spoken) return;
         if (speakQueueStartRef.current === null) {
           speakQueueStartRef.current = performance.now();
           console.log(
             `[timing] voice -> first sentence queued: ${(speakQueueStartRef.current - turnStart).toFixed(0)}ms ` +
-              `(${text.length} chars: "${text.slice(0, 60)}${text.length > 60 ? "…" : ""}")`,
+              `(${spoken.length} chars: "${spoken.slice(0, 60)}${spoken.length > 60 ? "…" : ""}")`,
           );
         }
-        // The browser's speech queue plays phrases in order, gaplessly.
-        speak(text);
+        // The speech queue plays phrases in order, gaplessly.
+        speak(spoken);
       };
 
       try {
@@ -356,9 +405,13 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
     setError(null);
     cancelledRef.current = false;
     submittingRef.current = false;
+    // This runs from the mic tap — the one user gesture we get — so unlock the
+    // audio pipeline now, or the browser keeps the AudioContext suspended and
+    // the MMS voice is silent.
+    primeAudio();
     resetTranscript();
     startListening();
-  }, [resetTranscript, startListening]);
+  }, [primeAudio, resetTranscript, startListening]);
 
   const cancelTurn = useCallback(() => {
     cancelledRef.current = true;
@@ -418,6 +471,8 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
     isVoiceReady,
     isSpeechSupported,
     voiceMissing,
+    voiceLoading,
+    voiceDownloadProgress,
     isModelWarm,
     sttSupported,
     sttLoading,

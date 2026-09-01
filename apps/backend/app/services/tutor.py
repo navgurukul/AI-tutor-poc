@@ -11,6 +11,16 @@ from typing import Any, Dict, List, Optional
 from app.schemas import TutorProfile
 
 STYLE_RULES = {
+    # The default. A small model left alone answers school questions with a
+    # vague one-liner; this forces a real (but short) explanation with an
+    # example — it's a voice tutor, so keep it tight.
+    "teach": (
+        "Answer in 2-3 short sentences: say what the concept is in plain words, "
+        "then give one concrete everyday example a school student would "
+        "recognise. Use simple language. Do not add a question at the end unless "
+        "it genuinely helps. Never reply with only a vague one-line definition, "
+        "and never pad it out past three sentences."
+    ),
     # Abstract phrasing like "guide with questions" is ignored by small models;
     # a hard length limit plus a worked example is what actually lands.
     "socratic": (
@@ -33,9 +43,12 @@ STYLE_RULES = {
 def build_system_prompt(profile: Optional[TutorProfile]) -> str:
     profile = profile or TutorProfile()
     lines: List[str] = [
-        "You are a knowledgeable tutor running offline on the student's device. "
-        "Always answer the question the student actually asked, on its own "
-        "terms — do not force it into a preset subject.",
+        "You are a patient tutor for a school student who is learning a topic "
+        "and preparing for exams. Explain every concept clearly enough that the "
+        "student can understand it and use it, and include a concrete example. "
+        "Never answer with just a vague one-line definition. Always answer the "
+        "question the student actually asked, on its own terms — do not force it "
+        "into a preset subject.",
     ]
     if profile.subject:
         lines.append(
@@ -61,15 +74,17 @@ def build_system_prompt(profile: Optional[TutorProfile]) -> str:
     )
     lines.extend(
         [
-            "Keep answers under 200 words unless asked for more.",
+            "Keep answers under 80 words unless asked for more.",
             "Use simple language and a concrete example. Never invent facts; if "
             "you are unsure, say so plainly.",
+            "Write plain prose only: no markdown, no bullet symbols, and never "
+            "use emojis, emoticons, or decorative symbols.",
             "Reply in {}.".format(language),
         ]
     )
     # Trailing position is deliberate: a small model follows the last
     # instruction most closely, and mid-prompt style rules got ignored.
-    lines.append("Most important rule: " + STYLE_RULES.get(profile.style, STYLE_RULES["socratic"]))
+    lines.append("Most important rule: " + STYLE_RULES.get(profile.style, STYLE_RULES["teach"]))
 
     # ...but "reply in <language>" then loses to that last line, so for a
     # non-English language repeat it *after* it, as hard as possible — small
@@ -82,19 +97,18 @@ def build_system_prompt(profile: Optional[TutorProfile]) -> str:
         )
         lines.append(
             "Write your ENTIRE reply in {0}, and only {0}, {1}. Every sentence "
-            "must be in {0}. Do not use English or any other script. Do NOT "
-            "repeat a word or phrase — make each point once, then stop.".format(
-                language, script_clause
-            )
+            "must be in {0}. Do not use English or any other script. Do not use "
+            "emojis or emoticons. Do NOT repeat a word or phrase — make each "
+            "point once, then stop.".format(language, script_clause)
         )
-        # One short worked example keeps a 2B model terse and correct in
-        # Devanagari instead of padding with vague filler.
+        # A short worked example in the target script shows the expected shape —
+        # a plain definition plus one example, then stop.
         if script == "Devanagari":
             lines.append(
                 "उदाहरण — छात्र: \"संज्ञा क्या होती है?\" "
-                "उत्तर: \"किसी व्यक्ति, वस्तु, स्थान या भाव के नाम को संज्ञा कहते हैं, "
-                "जैसे 'राम', 'किताब', 'दिल्ली'। क्या तुम अपने आसपास की तीन चीज़ों "
-                "के नाम बता सकते हो?\""
+                "उत्तर: \"किसी व्यक्ति, वस्तु, स्थान या भाव के नाम को संज्ञा कहते हैं। "
+                "जैसे वाक्य 'राम दिल्ली में रहता है' में 'राम' और 'दिल्ली' दोनों संज्ञा हैं, "
+                "क्योंकि एक व्यक्ति का नाम है और दूसरा स्थान का।\""
             )
     return " ".join(lines)
 

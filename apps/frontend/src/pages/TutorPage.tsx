@@ -35,6 +35,8 @@ export function TutorPage({ schoolClass, subject, language, onLanguageChange }: 
     isVoiceReady,
     isModelWarm,
     voiceMissing,
+    voiceLoading,
+    voiceDownloadProgress,
     sttSupported,
     sttLoading,
     sttDownloadProgress,
@@ -71,11 +73,17 @@ export function TutorPage({ schoolClass, subject, language, onLanguageChange }: 
     ? Math.min(99, Math.round((dl!.loaded / dl!.total) * 100))
     : null;
 
+  const vdl = voiceDownloadProgress;
+  const voicePct =
+    vdl && vdl.total > 0 && vdl.loaded > 0
+      ? Math.min(99, Math.round((vdl.loaded / vdl.total) * 100))
+      : null;
+
   const prepLabel = sttLoading
     ? isDownloading
       ? "Downloading speech model"
       : "Preparing speech model"
-    : "Warming up the tutor model";
+    : `Preparing the ${language.native} tutor`;
 
   let voiceStatus: { label: string; tone: "ready" | "loading" | "error" };
   if (!sttSupported) {
@@ -149,6 +157,25 @@ export function TutorPage({ schoolClass, subject, language, onLanguageChange }: 
                     : "voice-progress-fill voice-progress-fill--indeterminate"
                 }
                 style={prepPct !== null ? { width: `${prepPct}%` } : undefined}
+              />
+            </div>
+          </div>
+        )}
+
+        {voiceLoading && (
+          <div className="voice-progress">
+            <div className="voice-progress-header">
+              <span>Preparing the {language.native} voice</span>
+              <span>{voicePct !== null ? `${voicePct}%` : "…"}</span>
+            </div>
+            <div className="voice-progress-track">
+              <div
+                className={
+                  voicePct !== null
+                    ? "voice-progress-fill"
+                    : "voice-progress-fill voice-progress-fill--indeterminate"
+                }
+                style={voicePct !== null ? { width: `${voicePct}%` } : undefined}
               />
             </div>
           </div>

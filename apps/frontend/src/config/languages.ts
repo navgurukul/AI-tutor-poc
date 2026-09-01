@@ -1,21 +1,22 @@
 // The languages offered in the tutor's language selector.
 //
 //  - `name`   goes to the backend as `profile.language` ("Reply in <name>.").
-//  - `speech` is the BCP-47 tag handed to the Web Speech API for recognition.
+//  - `speech` is the BCP-47 tag handed to the Web Speech API.
 //  - `native` is the label shown in the dropdown.
-//  - `stt`    picks the speech-to-text engine (see below).
+//  - `stt`    picks the speech-to-text engine.
+//  - `tts`    "backend" routes speech output through /api/tts (sherpa-onnx +
+//             a Piper voice); omit to use the OS speechSynthesis voice.
 //
 // Speech-to-text engine is per-language:
+//   - "browser": the Chrome/Edge Web Speech API. On-device for English.
+//   - "indic":  the backend /api/stt route (sherpa-onnx + AI4Bharat
+//               IndicConformer). Devanagari output — Hindi and Marathi.
 //
-//   - "browser": the Chrome/Edge Web Speech API. On-device for English, so it
-//               works with or without network.
-//   - "indic":  the backend's /api/stt route running sherpa-onnx + AI4Bharat's
-//               IndicConformer. This model outputs Devanagari, so it's used for
-//               Hindi and Marathi (Gujarati/Kannada would need per-language
-//               models — see apps/backend/README.md).
-//
-// Piper's voice is English-only, so a non-English answer is still read aloud
-// with the English voice.
+// Text-to-speech:
+//   - English -> OS speechSynthesis (instant, no model).
+//   - Hindi   -> backend Piper `hi_IN-priyamvada` (female), offline.
+//   - Marathi -> OS speechSynthesis (Piper has no Marathi voice); shows the
+//               "no offline voice" hint unless the OS pack is installed.
 export type SttEngine = { engine: "browser" } | { engine: "indic" };
 
 export interface TutorLanguage {
@@ -24,13 +25,14 @@ export interface TutorLanguage {
   native: string;
   speech: string;
   stt: SttEngine;
+  tts?: "backend";
 }
 
 const INDIC: SttEngine = { engine: "indic" };
 
 export const LANGUAGES: TutorLanguage[] = [
   { code: "en", name: "English", native: "English", speech: "en-US", stt: { engine: "browser" } },
-  { code: "hi", name: "Hindi", native: "हिन्दी", speech: "hi-IN", stt: INDIC },
+  { code: "hi", name: "Hindi", native: "हिन्दी", speech: "hi-IN", stt: INDIC, tts: "backend" },
   { code: "mr", name: "Marathi", native: "मराठी", speech: "mr-IN", stt: INDIC },
 ];
 

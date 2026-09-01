@@ -73,15 +73,25 @@ def _recognizer():
 
 
 def warm() -> bool:
-    """Load the model up front so the first real request doesn't pay for it.
-    Returns False (not raises) when it can't, so the readiness endpoint can
-    report a plain boolean."""
+    """Load the model *and run one throwaway decode* so the first real request
+    pays neither the graph load nor onnxruntime's first-inference cost (arena
+    allocation, kernel selection, thread-pool spin-up — 2-5x the steady-state
+    time). Returns False (not raises) when it can't, so the readiness endpoint
+    can report a plain boolean."""
     try:
-        _recognizer()
-        return True
+        rec = _recognizer()
     except SttUnavailable as exc:
         logger.warning("STT unavailable: %s", exc)
         return False
+    try:
+        with _lock:
+            stream = rec.create_stream()
+            # ~0.4 s of near-silence at 16 kHz — enough to force a full decode.
+            stream.accept_waveform(16000, [0.0] * 6400)
+            rec.decode_stream(stream)
+    except Exception as exc:  # pragma: no cover - warm-up is best-effort
+        logger.warning("STT warm decode failed (non-fatal): %s", exc)
+    return True
 
 
 def transcribe(wav_bytes: bytes) -> str:

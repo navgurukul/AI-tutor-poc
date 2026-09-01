@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover
     from typing_extensions import Literal  # type: ignore
 
 Role = Literal["system", "user", "assistant"]
-TeachingStyle = Literal["socratic", "direct", "exam_prep"]
+TeachingStyle = Literal["teach", "socratic", "direct", "exam_prep"]
 Difficulty = Literal["easy", "medium", "hard"]
 
 
@@ -43,7 +43,7 @@ class TutorProfile(BaseModel):
 
     subject: Optional[str] = Field(None, examples=["Biology"])
     level: Optional[str] = Field(None, examples=["Grade 8"])
-    style: TeachingStyle = "socratic"
+    style: TeachingStyle = "teach"
     language: str = "English"
     student_name: Optional[str] = None
 
