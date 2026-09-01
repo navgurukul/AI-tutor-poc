@@ -216,20 +216,23 @@ Returns `verdict` (`correct` | `partially_correct` | `incorrect`), `score` (0-10
 
 Send a short **16 kHz mono 16-bit WAV** as the raw request body
 (`Content-Type: audio/wav`); get `{ "text": "..." }` back. Used by the frontend
-for **Hindi / Gujarati / Kannada / Marathi** — English speech input is recognised
-on-device by the browser and never reaches the backend.
+for **Hindi / Marathi** — English speech input is recognised on-device by the
+browser and never reaches the backend.
 
 Runs [`sherpa-onnx`](https://pypi.org/project/sherpa-onnx/) (a prebuilt wheel,
 installed with the other requirements — no compiler) with AI4Bharat's
-**IndicConformer** CTC model, int8. One ~188 MB multilingual model handles all
-four languages and emits the correct native script — no language auto-detect, so
-no Hindi/Urdu confusion. A clip decodes in ~0.5–2 s on CPU (≈0.1× real-time,
-batch, no live partials).
+**IndicConformer-600M** CTC model. One multilingual model emits the correct
+native script — no language auto-detect, so no Hindi/Urdu confusion. A clip
+decodes in ~1–3 s on CPU (batch, no live partials).
 
-- Model files: `apps/backend/models/indicconformer/{model.int8.onnx,tokens.txt}`,
-  downloaded by `scripts/setup.ps1`. Override the folder with `STT_MODEL_DIR`.
+- Model files: `apps/backend/models/indicconformer/{model.onnx,tokens.txt}`,
+  downloaded by `scripts/setup.ps1`. Override the folder with `STT_MODEL_DIR`,
+  the ONNX filename with `STT_MODEL_FILE`.
+- Default is the **fp32** export (`model.onnx`, ~470 MB). `model.int8.onnx`
+  (~188 MB) is available but roughly doubles the word-error rate (Hindi CTC
+  ~0.16 → ~0.30), so it's opt-in via `STT_MODEL_FILE`.
 - Loaded lazily on the first `/api/stt` call (or `GET /api/stt`), so an
-  English-only session pays nothing. Adds ~270 MB RSS once loaded.
+  English-only session pays nothing.
 - Missing model / wheel → `503` with a "run setup" hint, not a crash.
 - Accuracy: strong on everyday vocabulary (WER ~8–12% on clean speech); proper
   nouns and English loanwords still slip.

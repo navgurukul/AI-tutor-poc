@@ -1,10 +1,11 @@
 """Offline speech-to-text for the Indian languages, using sherpa-onnx +
-AI4Bharat's IndicConformer (CTC), int8.
+AI4Bharat's IndicConformer-600M (CTC).
 
-The frontend routes Hindi / Gujarati / Kannada / Marathi speech input here
-(`/api/stt`); English is recognised on-device by the browser and never hits
-this. One ~188 MB multilingual model covers all of them and emits the correct
-native script (no language auto-detect / Hindi-Urdu confusion).
+The frontend routes Hindi / Marathi speech input here (`/api/stt`); English is
+recognised on-device by the browser and never hits this. One multilingual model
+(fp32 `model.onnx` ~470 MB by default; `model.int8.onnx` ~188 MB is available
+but ~2x the WER) emits the correct native script — no language auto-detect, so
+no Hindi/Urdu confusion.
 
 Everything loads lazily on the first request (or an explicit `warm()`), so an
 English-only session pays nothing.
@@ -27,7 +28,6 @@ logger = logging.getLogger(__name__)
 # apps/backend/ — settings.stt_model_dir is resolved against this when relative.
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
-_MODEL_FILE = "model.int8.onnx"
 _TOKENS_FILE = "tokens.txt"
 
 _lock = Lock()
@@ -48,10 +48,12 @@ def _model_dir() -> Path:
 @lru_cache(maxsize=1)
 def _recognizer():
     d = _model_dir()
-    model, tokens = d / _MODEL_FILE, d / _TOKENS_FILE
+    model, tokens = d / settings.stt_model_file, d / _TOKENS_FILE
     if not model.exists() or not tokens.exists():
         raise SttUnavailable(
-            "IndicConformer model not found at {}. Run scripts/setup.ps1.".format(d)
+            "IndicConformer model not found at {} ({}). Run scripts/setup.ps1.".format(
+                d, settings.stt_model_file
+            )
         )
     try:
         import sherpa_onnx

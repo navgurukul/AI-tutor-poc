@@ -67,12 +67,18 @@ class Settings(BaseSettings):
     max_sessions: int = 500
 
     # --- Offline speech-to-text for the Indian languages --------------
-    # sherpa-onnx + IndicConformer (CTC, int8). Used for Hindi/Gujarati/
-    # Kannada/Marathi; English is recognised on-device by the browser. The
-    # folder (model.int8.onnx + tokens.txt) is placed by scripts/setup.ps1;
-    # a relative path is resolved against apps/backend/. Missing files ->
-    # /api/stt reports "not ready" instead of breaking the app.
+    # sherpa-onnx + AI4Bharat IndicConformer-600M (CTC). Used for Hindi /
+    # Marathi (English is recognised on-device by the browser). The folder
+    # (the ONNX file + tokens.txt) is placed by scripts/setup.ps1; a relative
+    # path is resolved against apps/backend/. Missing files -> /api/stt reports
+    # "not ready" instead of breaking the app.
+    #
+    # Default is the fp32 export (`model.onnx`, ~470 MB): int8 roughly doubles
+    # the word-error rate (Hindi CTC ~0.16 -> ~0.30) and the RAM saved (~280 MB)
+    # isn't worth it here. Set STT_MODEL_FILE=model.int8.onnx to trade accuracy
+    # for footprint on a tighter device.
     stt_model_dir: str = "models/indicconformer"
+    stt_model_file: str = "model.onnx"
     stt_num_threads: int = 2
 
     # --- CORS -------------------------------------------------------------

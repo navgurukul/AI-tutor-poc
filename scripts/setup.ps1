@@ -195,12 +195,13 @@ if (-not (Test-ValidFile $jsonPath 100)) {
 }
 
 # 6. Offline speech-to-text model for the Indian languages: AI4Bharat's
-#    IndicConformer (CTC, int8), run by the backend via sherpa-onnx (the wheel
+#    IndicConformer-600M (CTC), run by the backend via sherpa-onnx (the wheel
 #    is installed with the other Python packages in step 3 - prebuilt, no
-#    compiler). One ~188MB multilingual model covers Hindi/Gujarati/Kannada/
-#    Marathi. English speech input is handled on-device by the browser.
+#    compiler). One multilingual model covers Hindi/Marathi (English speech
+#    input is handled on-device by the browser). The fp32 export (~470MB) is
+#    used by default; int8 (~188MB) roughly doubles the word-error rate.
 $indicDir    = Join-Path $backendDir "models\indicconformer"
-$indicModel  = Join-Path $indicDir "model.int8.onnx"
+$indicModel  = Join-Path $indicDir "model.onnx"
 $indicTokens = Join-Path $indicDir "tokens.txt"
 $indicBase   = "https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main"
 
@@ -208,9 +209,9 @@ if (-not (Test-Path $indicDir)) {
     New-Item -ItemType Directory -Force -Path $indicDir | Out-Null
 }
 
-if (-not (Test-ValidFile $indicModel (100MB))) {
-    Step "Downloading IndicConformer STT model (~188MB, one-time)..."
-    Get-FileSafely "$indicBase/model.int8.onnx?download=true" $indicModel
+if (-not (Test-ValidFile $indicModel (300MB))) {
+    Step "Downloading IndicConformer-600M STT model (~470MB, one-time)..."
+    Get-FileSafely "$indicBase/model.onnx?download=true" $indicModel
 } else {
     Step "IndicConformer STT model already present - skipping download."
 }
