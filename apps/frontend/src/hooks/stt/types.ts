@@ -48,9 +48,11 @@ export interface TutorStt {
 export interface EngineHookArgs {
   /**
    * This engine is the one selected for the current language. When false the
-   * hook must stay dormant — no mic, no WASM download, no model in memory.
+   * hook must stay dormant — no mic, no download, no model in memory.
    */
   active: boolean;
   /** BCP-47 tag, e.g. "en-US" / "hi-IN". Meaning depends on the engine. */
   speechLang: string;
+  /** Tutor language name ("English" / "Hindi") — the backend keys models by it. */
+  language: string;
 }

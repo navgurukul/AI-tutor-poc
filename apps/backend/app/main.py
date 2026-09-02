@@ -41,18 +41,18 @@ async def _warm_model() -> None:
 
 
 async def _warm_stt() -> None:
-    """Load the IndicConformer model at boot too, so the first Hindi/Marathi
-    turn doesn't pay its ~3s load. Blocking (sherpa), so run it off the loop;
-    best-effort — warm() returns False rather than raising when files are
-    missing."""
+    """Load every installed STT engine at boot (Moonshine for English,
+    IndicConformer for Hindi/Marathi) so the first turn in any language doesn't
+    pay the model load. Blocking (sherpa), run off the loop; best-effort."""
     started = time.monotonic()
-    logger.info("Warming up IndicConformer STT model in the background...")
-    ok = await asyncio.to_thread(stt_service.warm)
-    logger.info(
-        "STT warm-up %s in %.1fs.",
-        "done" if ok else "skipped (model not available)",
-        time.monotonic() - started,
-    )
+    langs = await asyncio.to_thread(stt_service.available_languages)
+    if not langs:
+        logger.info("STT warm-up skipped (no models installed).")
+        return
+    logger.info("Warming up STT models %s in the background...", langs)
+    for lang in langs:
+        await asyncio.to_thread(stt_service.warm, lang)
+    logger.info("STT warm-up done in %.1fs.", time.monotonic() - started)
 
 
 async def _warm_tts() -> None:

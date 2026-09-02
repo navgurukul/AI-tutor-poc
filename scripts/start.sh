@@ -6,9 +6,11 @@
 # USAGE
 #   From anywhere:  ./scripts/start.sh
 #
-#   Requires Ollama running locally (`ollama serve`) with the model pulled
-#   (`ollama pull qwen2.5:1.5b`) - the backend starts without it, but /health
-#   reports degraded and chat requests fail until it's reachable.
+#   Requires Ollama running locally (`ollama serve`) with the configured model
+#   pulled. The model is OLLAMA_MODEL in apps/backend/.env (default gemma2:2b);
+#   this script prints the exact `ollama pull ...` line for whatever you've set.
+#   The backend starts without it, but /health reports degraded and chat
+#   requests fail until it's reachable.
 #
 #   Closing the borderless window, or Ctrl+C here, stops the frontend; the
 #   backend is stopped too, but only if this script was the one that started
@@ -32,6 +34,20 @@ c_cyan=$'\033[36m'; c_green=$'\033[32m'; c_yellow=$'\033[33m'; c_reset=$'\033[0m
 
 url_ok() { curl -sf --max-time 2 "$1" >/dev/null 2>&1; }
 
+# Which LLM the backend expects - OLLAMA_MODEL in apps/backend/.env, falling
+# back to the template, then gemma2:2b. The checks below follow it.
+get_ollama_model() {
+  local f m
+  for f in "$backend_dir/.env" "$backend_dir/.env.example"; do
+    if [ -f "$f" ]; then
+      m="$(sed -n 's/^[[:space:]]*OLLAMA_MODEL[[:space:]]*=[[:space:]]*\([^[:space:]]*\).*/\1/p' "$f" | head -n1)"
+      if [ -n "$m" ]; then echo "$m"; return; fi
+    fi
+  done
+  echo "gemma2:2b"
+}
+ollama_model="$(get_ollama_model)"
+
 stop_port() {
   # Kill by the port's listener rather than a remembered PID: uvicorn reloads
   # and shell wrappers mean the PID we spawned isn't reliably the one holding
@@ -49,11 +65,20 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-printf '\n%s==> Checking Ollama...%s\n' "$c_cyan" "$c_reset"
-if url_ok "${OLLAMA_HOST:-http://localhost:11434}/api/version"; then
-  printf '%sOllama is up.%s\n' "$c_green" "$c_reset"
+ollama_host="${OLLAMA_HOST:-http://localhost:11434}"
+printf '\n%s==> Checking Ollama (%s)...%s\n' "$c_cyan" "$ollama_model" "$c_reset"
+if url_ok "$ollama_host/api/version"; then
+  if curl -sf --max-time 3 "$ollama_host/api/tags" 2>/dev/null | grep -q -- "$ollama_model"; then
+    printf "%sOllama is up, '%s' is pulled.%s\n" "$c_green" "$ollama_model" "$c_reset"
+  else
+    printf "%sOllama is up, but '%s' isn't pulled yet.  Run:  ollama pull %s%s\n" \
+      "$c_yellow" "$ollama_model" "$ollama_model" "$c_reset"
+    printf '%s  (or set OLLAMA_MODEL in apps/backend/.env to one you have). Continuing.%s\n' "$c_yellow" "$c_reset"
+  fi
 else
-  printf "%sOllama isn't responding on http://localhost:11434 - start it with 'ollama serve' in another terminal (and 'ollama pull qwen2.5:1.5b' if you haven't). Continuing anyway; /health will report degraded until it's reachable.%s\n" "$c_yellow" "$c_reset"
+  printf "%sOllama isn't responding on %s - start it ('ollama serve'), then:  ollama pull %s%s\n" \
+    "$c_yellow" "$ollama_host" "$ollama_model" "$c_reset"
+  printf '%s  Continuing anyway; /health reports degraded until it is reachable.%s\n' "$c_yellow" "$c_reset"
 fi
 
 printf '\n%s==> Starting backend on http://localhost:8000 ...%s\n' "$c_cyan" "$c_reset"

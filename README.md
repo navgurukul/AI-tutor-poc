@@ -32,11 +32,24 @@ powershell -File scripts\start.ps1   # run: starts the backend, then opens the b
 powershell -File scripts\create-shortcut.ps1   # optional: "AI Tutor" icon on the desktop
 ```
 
-`setup.ps1` installs everything (backend Python venv, frontend/desktop npm packages, the
-offline Indic speech-to-text model) and creates each app's `.env` from its template. Safe
-to re-run — every step is skipped if already done. The spoken answer uses the browser's
-built-in speech synthesizer, so there are no voice model files to install; for offline
-Hindi/Marathi audio, add that language's speech pack in Windows Settings.
+**macOS/Linux** — same flow with the shell scripts:
+
+```bash
+brew install ollama && ollama serve &   # or from https://ollama.com
+ollama pull gemma2:2b
+
+./scripts/setup.sh     # install deps for all 3 apps + model downloads + .env files
+./scripts/start.sh     # backend + borderless tutor window  (./scripts/stop.sh to shut down)
+./scripts/create-shortcut.sh            # optional: ~/Desktop/AI Tutor.app
+```
+
+`setup.ps1` installs everything (backend Python venv, frontend/desktop npm packages) and
+downloads the model files — the offline Indic speech-to-text model (IndicConformer, ~470 MB)
+and the Piper text-to-speech voices (English, and Hindi `priyamvada` for spoken Hindi
+answers). It also creates each app's `.env` from its template. About 600 MB of one-time,
+resumable downloads; safe to re-run — every step is skipped if already done. English answers
+are read by the browser's own OS voice; Marathi has no Piper voice yet, so it falls back to
+the OS voice (add the Windows Marathi speech pack, or it stays silent).
 
 `start.ps1` starts the backend, waits for `/health`, then launches the desktop app in dev
 mode (Vite + HMR) and opens the borderless window. Closing the window, or Ctrl+C in the
@@ -44,9 +57,9 @@ terminal, stops both. Re-run `start.ps1` any time you restart your machine or th
 frontend aren't already running — frontend **code** changes apply live without it, since dev
 mode has hot-reload.
 
-`apps/frontend/.env` controls `VITE_USE_MOCK_API` — `setup.ps1` defaults it to `true` (a
-self-contained UI with no backend needed, handy for a first look); set it to `false` to talk
-to the real backend that `start.ps1` brings up.
+`apps/frontend/.env` controls `VITE_USE_MOCK_API` — `setup.ps1` copies the template as-is,
+so it defaults to `false` (talks to the real backend that `start.ps1` brings up). Set it to
+`true` for a self-contained UI with canned replies and no backend.
 
 ## Desktop shortcut
 
@@ -64,8 +77,8 @@ powershell -File scripts\create-shortcut.ps1 -StartMenu   # ...and a searchable 
 ./scripts/create-shortcut.sh ~/Applications
 ```
 
-Run `setup.ps1` (or the macOS steps below) first — the shortcut only launches the stack, it
-doesn't install it. Both scripts write an **absolute** path to this repo into the shortcut,
+Run `setup.ps1` (Windows) or `setup.sh` (macOS/Linux) first — the shortcut only launches the
+stack, it doesn't install it. Both scripts write an **absolute** path to this repo into the shortcut,
 so re-run the script after moving or renaming the project folder. Re-running replaces the
 shortcut it made previously, and refuses to touch a same-named shortcut it didn't create.
 
@@ -89,14 +102,16 @@ Runs on `http://localhost:8000`. Interactive API docs at `/docs`, OpenAPI schema
 See [apps/backend/README.md](apps/backend/README.md) for the full API contract — endpoints,
 the SSE streaming format, error codes, configuration, and the known limits of a 1.5B model.
 
-On macOS/Linux, run it directly instead of through the PowerShell scripts above:
+On macOS/Linux, use the shell equivalents of the PowerShell scripts:
 
 ```bash
-cd apps/backend && ./run.sh
+./scripts/setup.sh   # install deps for all 3 apps + model downloads + .env files
+./scripts/start.sh   # backend + tutor window in one command  (./scripts/stop.sh to shut down)
 ```
 
-`scripts/start.sh` is the macOS/Linux equivalent of `start.ps1` — the backend plus the tutor
-window in one command, with `scripts/stop.sh` to shut both down again.
+`setup.sh` / `start.sh` mirror `setup.ps1` / `start.ps1` step for step (they use the venv's
+`bin/` instead of `Scripts/`, `curl` instead of `Invoke-WebRequest`, etc.). To run just the
+backend on its own: `cd apps/backend && ./run.sh`.
 
 Verify the whole stack end to end:
 

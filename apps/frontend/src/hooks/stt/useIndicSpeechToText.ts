@@ -77,8 +77,8 @@ function encodeWav(samples: Float32Array): Blob {
   return new Blob([buffer], { type: "audio/wav" });
 }
 
-async function postWav(samples: Float32Array): Promise<string> {
-  const res = await fetch(STT_URL, {
+async function postWav(samples: Float32Array, language: string): Promise<string> {
+  const res = await fetch(`${STT_URL}?language=${encodeURIComponent(language)}`, {
     method: "POST",
     headers: { "Content-Type": "audio/wav" },
     body: encodeWav(samples),
@@ -96,7 +96,14 @@ async function postWav(samples: Float32Array): Promise<string> {
  * Live-ish: interim text while you speak (re-decode of the growing clip), plus
  * an energy VAD that ends the utterance on a pause so it auto-submits.
  */
-export function useIndicSpeechToText({ active }: EngineHookArgs): TutorStt {
+export function useIndicSpeechToText({ active, language }: EngineHookArgs): TutorStt {
+  // Latest language name for the backend `?language=`, read from the mic/timer
+  // callbacks without adding it to every useCallback dep list.
+  const languageRef = useRef(language);
+  useEffect(() => {
+    languageRef.current = language;
+  }, [language]);
+
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
@@ -117,8 +124,8 @@ export function useIndicSpeechToText({ active }: EngineHookArgs): TutorStt {
   const speechHeardRef = useRef(false);
   const lastVoiceAtRef = useRef(0);
 
-  // When an Indian language is selected, ping the backend — it lazily loads the
-  // model and tells us when it's ready (or that it isn't installed).
+  // When this engine's language is selected, ping the backend — it lazily loads
+  // that language's model and tells us when it's ready (or that it isn't installed).
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
@@ -127,7 +134,7 @@ export function useIndicSpeechToText({ active }: EngineHookArgs): TutorStt {
 
     (async () => {
       try {
-        const res = await fetch(STT_URL, { method: "GET" });
+        const res = await fetch(`${STT_URL}?language=${encodeURIComponent(language)}`);
         if (cancelled) return;
         if (!res.ok) {
           const body = await res.text().catch(() => "");
@@ -151,7 +158,7 @@ export function useIndicSpeechToText({ active }: EngineHookArgs): TutorStt {
     return () => {
       cancelled = true;
     };
-  }, [active]);
+  }, [active, language]);
 
   const teardownMic = useCallback(() => {
     if (pollRef.current) {
@@ -197,7 +204,7 @@ export function useIndicSpeechToText({ active }: EngineHookArgs): TutorStt {
       setIsTranscribing(true);
       const clipSeconds = samples.length / TARGET_RATE;
       const startedAt = performance.now();
-      void postWav(samples)
+      void postWav(samples, languageRef.current)
         .then((text) => {
           console.log(
             `[timing] STT round-trip: ${(performance.now() - startedAt).toFixed(0)}ms ` +
@@ -277,7 +284,7 @@ export function useIndicSpeechToText({ active }: EngineHookArgs): TutorStt {
         if (total - lastPartialSamplesRef.current < PARTIAL_MIN_NEW_SEC * TARGET_RATE) return;
         lastPartialSamplesRef.current = total;
         partialInFlightRef.current = true;
-        void postWav(collect(PARTIAL_MAX_SEC))
+        void postWav(collect(PARTIAL_MAX_SEC), languageRef.current)
           .then((text) => {
             if (!finishedRef.current) setInterimTranscript(text);
           })

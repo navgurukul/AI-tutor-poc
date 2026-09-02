@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
   One-shot setup for the AI Tutor POC: installs frontend, desktop, and backend
-  dependencies, creates local .env files, and downloads the Piper voice model
-  files.
+  dependencies, creates local .env files, and downloads the speech model files
+  (English + Hindi TTS voices, and the IndicConformer speech-to-text model).
 
 .USAGE
   From the repo root:  powershell -File scripts\setup.ps1
@@ -10,9 +10,18 @@
   failed or was interrupted partway (e.g. a dropped download) is detected and
   retried rather than falsely treated as complete.
 
-  Requires Python 3 on PATH for the backend virtualenv (the Microsoft Store's
-  "python" shim doesn't count - install a real one, e.g.
-  'winget install Python.Python.3.12').
+.PREREQUISITES
+  - Python 3 on PATH for the backend virtualenv (the Microsoft Store's "python"
+    shim doesn't count - install a real one, e.g.
+    'winget install Python.Python.3.12').
+  - Ollama installed and running for the tutor's answers:
+      winget install Ollama.Ollama       # then it runs in the tray
+      ollama pull <model>                # the model set in apps/backend/.env
+                                         # (OLLAMA_MODEL, default gemma2:2b ~1.6 GB)
+    The exact 'ollama pull ...' line is printed at the end of this script.
+  - ~700 MB of one-time model downloads happen below (IndicConformer ~470 MB,
+    Whisper EN ~145 MB, Piper voices ~130 MB). Resumable - just re-run if the
+    connection drops.
 
   After this finishes, start everything with:
     powershell -File scripts\start.ps1
@@ -32,6 +41,20 @@ function Step($message) {
     Write-Host "==> $message" -ForegroundColor Cyan
 }
 
+# The LLM is chosen by OLLAMA_MODEL in apps/backend/.env (falls back to the
+# template, then to gemma2:2b). All the "pull the model" hints derive from this,
+# so pointing the app at qwen2.5:1.5b or a bigger model just works.
+function Get-OllamaModel {
+    foreach ($f in @((Join-Path $backendDir ".env"), (Join-Path $backendDir ".env.example"))) {
+        if (Test-Path $f) {
+            $m = Select-String -Path $f -Pattern '^\s*OLLAMA_MODEL\s*=\s*(\S+)' |
+                 Select-Object -First 1
+            if ($m) { return $m.Matches[0].Groups[1].Value }
+        }
+    }
+    return "gemma2:2b"
+}
+
 # True only if the file exists AND is at least $minBytes large - catches
 # partial/corrupt downloads left behind by an interrupted run, which a plain
 # Test-Path would wrongly treat as "already done".
@@ -43,28 +66,49 @@ function Test-ValidFile($filePath, $minBytes) {
 # Downloads to a temp file first, then moves it into place - so a failed or
 # interrupted download never leaves a corrupt file sitting at $outFile for a
 # later Test-Path to be fooled by.
+#
+# Uses curl.exe (bundled with Windows 10 1803+), NOT Invoke-WebRequest: IWR goes
+# through WinINet, which hangs/times out on this network and can't resume. curl
+# resumes a partial temp file (-C -) and retries transient failures, so a
+# dropped connection just means re-running the script picks up where it left off
+# instead of starting the multi-hundred-MB download over.
 function Get-FileSafely($uri, $outFile) {
     $tempFile = "$outFile.download"
-    if (Test-Path $tempFile) { Remove-Item $tempFile -Force }
-    try {
-        Invoke-WebRequest -Uri $uri -OutFile $tempFile
-        Move-Item $tempFile $outFile -Force
-    } catch {
-        if (Test-Path $tempFile) { Remove-Item $tempFile -Force }
-        throw "Download failed: $uri`n$($_.Exception.Message)"
+    $curl = "$env:SystemRoot\System32\curl.exe"
+    if (-not (Test-Path $curl)) { $curl = "curl.exe" }
+    & $curl --fail --location --retry 5 --retry-delay 3 `
+            --continue-at - --output $tempFile $uri
+    if ($LASTEXITCODE -ne 0) {
+        throw "Download failed ($LASTEXITCODE): $uri`nRe-run scripts\setup.ps1 to resume."
     }
+    Move-Item $tempFile $outFile -Force
 }
 
-# The Microsoft Store's "python"/"python3" shims answer to Get-Command but
-# fail as soon as they're run (they only exist to open the Store), so a real
-# install has to be confirmed by actually running --version, not just found.
+# Finds a real Python 3. The Microsoft Store's "python"/"python3" shims answer
+# to Get-Command but only open the Store when run, so every candidate is
+# confirmed by actually running --version. Also probes the standard python.org
+# install folders, since that installer often isn't added to PATH.
 function Find-Python {
-    foreach ($cmd in @("python", "py")) {
+    $candidates = @()
+    foreach ($cmd in @("python", "python3", "py")) {
         $exe = Get-Command $cmd -ErrorAction SilentlyContinue
-        if (-not $exe) { continue }
+        if ($exe) { $candidates += $exe.Source }
+    }
+    foreach ($glob in @(
+            "$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe",
+            "$env:ProgramFiles\Python3*\python.exe",
+            "${env:ProgramFiles(x86)}\Python3*\python.exe",
+            "$env:USERPROFILE\AppData\Local\Programs\Python\Python3*\python.exe")) {
+        $candidates += (Get-ChildItem $glob -ErrorAction SilentlyContinue |
+                        Sort-Object FullName -Descending |
+                        ForEach-Object { $_.FullName })
+    }
+    foreach ($path in ($candidates | Select-Object -Unique)) {
+        # Skip the WindowsApps shims outright - they hang/relaunch when run here.
+        if ($path -like "*\WindowsApps\*") { continue }
         try {
-            $verOutput = & $exe.Source --version 2>&1
-            if ($LASTEXITCODE -eq 0 -and $verOutput -match "Python 3") { return $exe.Source }
+            $verOutput = & $path --version 2>&1
+            if ($LASTEXITCODE -eq 0 -and $verOutput -match "Python 3") { return $path }
         } catch {}
     }
     return $null
@@ -132,7 +176,17 @@ if (-not (Test-Path $backendPython)) {
     Step "Creating backend virtualenv..."
     $systemPython = Find-Python
     if (-not $systemPython) {
-        throw "Python 3 not found. Install it (e.g. 'winget install Python.Python.3.12') and re-run this script."
+        throw @"
+No real Python 3 found. Checked PATH plus the usual install folders
+(%LOCALAPPDATA%\Programs\Python, %ProgramFiles%\Python*).
+
+- If it's installed but not on PATH, either add it, or re-run its installer
+  and tick "Add python.exe to PATH".
+- Otherwise install one:  winget install Python.Python.3.12
+  (the Microsoft Store 'python' shim does NOT count - it only opens the Store).
+
+Then re-run this script.
+"@
     }
     & $systemPython -m venv $backendVenv
     if ($LASTEXITCODE -ne 0) { throw "Failed to create virtualenv at $backendVenv" }
@@ -154,16 +208,16 @@ if (-not (Test-Path $backendEnvPath)) {
     Step "apps/backend/.env already exists - leaving it as-is."
 }
 
-# 4. .env - not committed to git, so create it from the template if missing.
-#    Defaults to mock API mode so the app is usable with no backend running.
+# 4. Frontend .env - not committed to git, so create it from the template if
+#    missing. Copied verbatim: the template already points at the local backend
+#    (VITE_API_BASE_URL=http://localhost:8000, VITE_USE_MOCK_API=false), which is
+#    what start.ps1 launches. Set VITE_USE_MOCK_API=true by hand only if you want
+#    canned replies with no backend.
 $envPath = Join-Path $frontendDir ".env"
 $envExamplePath = Join-Path $frontendDir ".env.example"
 if (-not (Test-Path $envPath)) {
-    Step "Creating apps/frontend/.env (mock API on, no backend needed yet)..."
+    Step "Creating apps/frontend/.env from template (points at the local backend)..."
     Copy-Item $envExamplePath $envPath
-    (Get-Content $envPath) -replace 'VITE_USE_MOCK_API=false', 'VITE_USE_MOCK_API=true' |
-        Set-Content $envPath
-    Write-Host "Edit apps\frontend\.env later to point VITE_API_BASE_URL at a real backend." -ForegroundColor DarkGray
 } else {
     Step "apps/frontend/.env already exists - leaving it as-is."
 }
@@ -223,6 +277,28 @@ if (-not (Test-ValidFile $indicTokens 10000)) {
     Step "IndicConformer STT tokens already present - skipping."
 }
 
+# 6b. Offline English speech-to-text: Whisper base.en (int8) - handles
+#     Indian-accented English well, so English STT is also fully offline (no
+#     browser Web Speech / Google). Run through the same sherpa-onnx wheel.
+$enSttName = "sherpa-onnx-whisper-base.en"
+$enSttDir  = Join-Path $backendDir "models\stt\$enSttName"
+$enSttArc  = Join-Path $backendDir "models\stt\$enSttName.tar.bz2"
+$enSttUrl  = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$enSttName.tar.bz2"
+if (-not (Get-ChildItem (Join-Path $enSttDir "*tokens.txt") -ErrorAction SilentlyContinue)) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $backendDir "models\stt") | Out-Null
+    Step "Downloading English STT model ($enSttName, ~145MB, one-time)..."
+    Get-FileSafely $enSttUrl $enSttArc
+    Step "Extracting English STT model..."
+    & tar -xf $enSttArc -C (Join-Path $backendDir "models\stt")
+    Remove-Item $enSttArc -ErrorAction SilentlyContinue
+    # The tarball ships both fp32 and int8; we only load int8 - drop the ~290MB
+    # of fp32 encoder/decoder.
+    Get-ChildItem (Join-Path $enSttDir "*coder.onnx") -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike "*int8*" } | Remove-Item -Force
+} else {
+    Step "English STT model already present - skipping download."
+}
+
 # 7. Offline text-to-speech voice for non-English answers: a Piper VITS voice
 #    (hi_IN-priyamvada, female), run by the backend through the same sherpa-onnx
 #    wheel - no extra package. English answers use the browser's own voice.
@@ -242,7 +318,16 @@ if (-not (Test-Path (Join-Path $ttsDir "tokens.txt"))) {
     Step "Piper TTS voice already present - skipping download."
 }
 
+$ollamaModel = Get-OllamaModel
+
 Write-Host ""
 Write-Host "Setup complete." -ForegroundColor Green
-Write-Host "Next: powershell -File scripts\start.ps1" -ForegroundColor Green
+Write-Host ""
+Write-Host "One prerequisite start.ps1 does NOT install for you:" -ForegroundColor Yellow
+Write-Host "  Ollama must be installed and running, with the model pulled:" -ForegroundColor Yellow
+Write-Host "    winget install Ollama.Ollama" -ForegroundColor Yellow
+Write-Host "    ollama pull $ollamaModel   # OLLAMA_MODEL in apps\backend\.env" -ForegroundColor Yellow
+Write-Host "  Without it the app still opens but replies show 'model unavailable'." -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "Then: powershell -File scripts\start.ps1" -ForegroundColor Green
 Write-Host "  (starts the backend, then opens the AI Tutor in a borderless window)"

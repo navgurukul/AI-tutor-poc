@@ -9,9 +9,11 @@
   Run scripts\setup.ps1 first if you haven't (installs dependencies for all
   three apps and creates their .env files).
 
-  Requires Ollama running locally (`ollama serve`) with the model pulled
-  (`ollama pull qwen2.5:1.5b`) - the backend starts without it, but /health
-  will report degraded and chat requests will fail until it's reachable.
+  Requires Ollama running locally (installed separately - `winget install
+  Ollama.Ollama`) with the configured model pulled. The model is OLLAMA_MODEL in
+  apps/backend/.env (default gemma2:2b); this script prints the exact
+  `ollama pull ...` line for whatever you've set. The backend starts without it,
+  but /health reports degraded and chat requests fail until it's reachable.
 
   Closing the borderless window, or Ctrl+C here, stops both the frontend and
   the backend.
@@ -52,12 +54,37 @@ function Test-UrlOk($url) {
     return $LASTEXITCODE -eq 0
 }
 
+# Which LLM the backend expects - read from apps/backend/.env (OLLAMA_MODEL),
+# falling back to the template, then gemma2:2b. So the checks below follow
+# whatever model you've configured.
+function Get-OllamaModel {
+    foreach ($f in @((Join-Path $backendDir ".env"), (Join-Path $backendDir ".env.example"))) {
+        if (Test-Path $f) {
+            $m = Select-String -Path $f -Pattern '^\s*OLLAMA_MODEL\s*=\s*(\S+)' |
+                 Select-Object -First 1
+            if ($m) { return $m.Matches[0].Groups[1].Value }
+        }
+    }
+    return "gemma2:2b"
+}
+$ollamaModel = Get-OllamaModel
+
 Write-Host ""
-Write-Host "==> Checking Ollama..." -ForegroundColor Cyan
+Write-Host "==> Checking Ollama ($ollamaModel)..." -ForegroundColor Cyan
 if (Test-UrlOk "http://localhost:11434/api/version") {
-    Write-Host "Ollama is up." -ForegroundColor Green
+    $tags = (curl.exe -sf --max-time 3 "http://localhost:11434/api/tags") 2>$null
+    if ($tags -and ($tags -match [regex]::Escape($ollamaModel))) {
+        Write-Host "Ollama is up, '$ollamaModel' is pulled." -ForegroundColor Green
+    } else {
+        Write-Host "Ollama is up, but '$ollamaModel' isn't pulled yet." -ForegroundColor Yellow
+        Write-Host "  Run:  ollama pull $ollamaModel" -ForegroundColor Yellow
+        Write-Host "  (or set OLLAMA_MODEL in apps\backend\.env to one you have). Continuing." -ForegroundColor DarkGray
+    }
 } else {
-    Write-Host "Ollama isn't responding on http://localhost:11434 - start it with 'ollama serve' in another terminal (and 'ollama pull qwen2.5:1.5b' if you haven't). Continuing anyway; /health will report degraded until it's reachable." -ForegroundColor Yellow
+    Write-Host "Ollama isn't responding on http://localhost:11434." -ForegroundColor Yellow
+    Write-Host "  Install it (winget install Ollama.Ollama), make sure it's running," -ForegroundColor Yellow
+    Write-Host "  then:  ollama pull $ollamaModel" -ForegroundColor Yellow
+    Write-Host "  Continuing anyway; answers show 'model unavailable' until it's reachable." -ForegroundColor DarkGray
 }
 
 Write-Host ""

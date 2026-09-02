@@ -66,19 +66,21 @@ class Settings(BaseSettings):
     session_ttl_minutes: int = 180
     max_sessions: int = 500
 
-    # --- Offline speech-to-text for the Indian languages --------------
-    # sherpa-onnx + AI4Bharat IndicConformer-600M (CTC). Used for Hindi /
-    # Marathi (English is recognised on-device by the browser). The folder
-    # (the ONNX file + tokens.txt) is placed by scripts/setup.ps1; a relative
-    # path is resolved against apps/backend/. Missing files -> /api/stt reports
-    # "not ready" instead of breaking the app.
-    #
-    # Default is the fp32 export (`model.onnx`, ~470 MB): int8 roughly doubles
-    # the word-error rate (Hindi CTC ~0.16 -> ~0.30) and the RAM saved (~280 MB)
-    # isn't worth it here. Set STT_MODEL_FILE=model.int8.onnx to trade accuracy
-    # for footprint on a tighter device.
-    stt_model_dir: str = "models/indicconformer"
-    stt_model_file: str = "model.onnx"
+    # --- Offline speech-to-text -------------------------------------------
+    # Two engines behind /api/stt, picked per language:
+    #   Hindi / Marathi -> sherpa-onnx + AI4Bharat IndicConformer-600M (CTC),
+    #     emits the correct native script. fp32 `model.onnx` (~470 MB) by
+    #     default; int8 roughly doubles the WER (Hindi ~0.16 -> ~0.30).
+    #   English         -> sherpa-onnx + Whisper base.en (int8, ~145 MB) - solid
+    #     on Indian-accented English, so English STT is also fully offline. The
+    #     folder auto-detects Whisper vs Moonshine by its files, so pointing
+    #     STT_ENGLISH_DIR at a Moonshine folder still works.
+    # Each folder (relative paths resolve against apps/backend/) is placed by
+    # scripts/setup.ps1. Missing files -> /api/stt reports that language "not
+    # ready" instead of breaking the app.
+    stt_indic_dir: str = "models/indicconformer"
+    stt_indic_file: str = "model.onnx"
+    stt_english_dir: str = "models/stt/sherpa-onnx-whisper-base.en"
     # Decode is CPU-bound and nothing else runs during it (the LLM turn hasn't
     # started yet), so give it more threads. Lower it if the box has <4 cores.
     stt_num_threads: int = 4

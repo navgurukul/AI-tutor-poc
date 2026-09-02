@@ -130,8 +130,8 @@ export function TutorPage({ schoolClass, subject, language, onLanguageChange }: 
         {!sttSupported && (
           <ErrorBanner
             message={
-              language.stt.engine === "indic"
-                ? "The offline speech model isn't ready. Re-run scripts/setup.ps1 and make sure the backend is running, or pick English."
+              language.stt.engine === "backend"
+                ? "The offline speech model isn't ready. Re-run scripts/setup.ps1 and make sure the backend is running."
                 : "This browser doesn't support speech recognition. Try Chrome or Edge."
             }
           />

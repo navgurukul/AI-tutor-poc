@@ -8,8 +8,10 @@ import { useIndicSpeechToText } from "./useIndicSpeechToText";
  * straight through. Every engine hook is mounted every render (rules of hooks);
  * the `active` flag keeps the unselected one dormant — no mic, no backend calls.
  *
- *   English                         -> browser Web Speech API (on-device)
- *   Hindi/Gujarati/Kannada/Marathi   -> backend /api/stt (IndicConformer, offline)
+ *   All languages -> backend /api/stt (sherpa-onnx): Moonshine for English,
+ *                    IndicConformer for Hindi/Marathi. Fully offline.
+ *   "browser"     -> the Chrome/Edge Web Speech API. Kept as an option; no
+ *                    language routes here today.
  */
 export function useTutorSpeechToText(language: TutorLanguage): TutorStt {
   const engine = language.stt.engine;
@@ -17,11 +19,13 @@ export function useTutorSpeechToText(language: TutorLanguage): TutorStt {
   const browser = useBrowserSpeechToText({
     active: engine === "browser",
     speechLang: language.speech,
+    language: language.name,
   });
-  const indic = useIndicSpeechToText({
-    active: engine === "indic",
+  const backend = useIndicSpeechToText({
+    active: engine === "backend",
     speechLang: language.speech,
+    language: language.name,
   });
 
-  return engine === "indic" ? indic : browser;
+  return engine === "browser" ? browser : backend;
 }
