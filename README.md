@@ -2,9 +2,10 @@
 
 Proof of concept for an AI tutor that runs **entirely offline**. Speak or type a question
 and get an answer back: inference happens locally through [Ollama](https://ollama.com) with
-`gemma2:2b` for every language on the backend, with on-device speech-to-text and the
-browser's speech synthesizer for the spoken answer on the frontend.
-No cloud API, no internet needed once the model and voice assets are downloaded.
+`gemma2:2b` for every language on the backend; speech-to-text is on the backend
+(sherpa-onnx), and the spoken answer is synthesized in the browser (Piper WASM for
+English/Hindi, the OS voice for Marathi). No cloud API, no internet needed once the model
+and voice assets are downloaded.
 
 ```
 apps/backend/     FastAPI service wrapping the local Ollama model    (ready)
@@ -44,12 +45,12 @@ ollama pull gemma2:2b
 ```
 
 `setup.ps1` installs everything (backend Python venv, frontend/desktop npm packages) and
-downloads the model files — the offline Indic speech-to-text model (IndicConformer, ~470 MB)
-and the Piper text-to-speech voices (English, and Hindi `priyamvada` for spoken Hindi
-answers). It also creates each app's `.env` from its template. About 600 MB of one-time,
-resumable downloads; safe to re-run — every step is skipped if already done. English answers
-are read by the browser's own OS voice; Marathi has no Piper voice yet, so it falls back to
-the OS voice (add the Windows Marathi speech pack, or it stays silent).
+downloads the model files — backend speech-to-text (IndicConformer ~470 MB for Hindi/Marathi,
+Whisper base.en ~155 MB for English) and the browser Piper voices for English and Hindi
+(`en_US-amy-low`, `hi_IN-priyamvada-medium`). It also creates each app's `.env` from its
+template. About 700 MB of one-time, resumable downloads; safe to re-run — every step is
+skipped if already done. Marathi has no Piper voice, so its spoken answer falls back to the
+OS speechSynthesis voice (add the Windows Marathi speech pack, or it stays silent).
 
 `start.ps1` starts the backend, waits for `/health`, then launches the desktop app in dev
 mode (Vite + HMR) and opens the borderless window. Closing the window, or Ctrl+C in the

@@ -230,20 +230,23 @@ if (-not (Test-Path $modelsDir)) {
     New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
 }
 
-$onnxPath = Join-Path $modelsDir "en_US-amy-medium.onnx"
-$jsonPath = Join-Path $modelsDir "en_US-amy-medium.json"
-$baseUrl  = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium"
+# en_US-amy-low (16 kHz), not -medium: on a single-thread WASM CPU the medium
+# model takes 20-30 s to synthesize a first sentence. Low is ~2-3x faster, same
+# voice. ~15 MB.
+$onnxPath = Join-Path $modelsDir "en_US-amy-low.onnx"
+$jsonPath = Join-Path $modelsDir "en_US-amy-low.json"
+$baseUrl  = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/low"
 
-if (-not (Test-ValidFile $onnxPath (10MB))) {
-    Step "Downloading Piper voice model (~60MB, one-time)..."
-    Get-FileSafely "$baseUrl/en_US-amy-medium.onnx" $onnxPath
+if (-not (Test-ValidFile $onnxPath (5MB))) {
+    Step "Downloading Piper voice model (~15MB, one-time)..."
+    Get-FileSafely "$baseUrl/en_US-amy-low.onnx" $onnxPath
 } else {
     Step "Voice model (.onnx) already present - skipping download."
 }
 
 if (-not (Test-ValidFile $jsonPath 100)) {
     Step "Downloading Piper voice config..."
-    Get-FileSafely "$baseUrl/en_US-amy-medium.onnx.json" $jsonPath
+    Get-FileSafely "$baseUrl/en_US-amy-low.onnx.json" $jsonPath
 } else {
     Step "Voice model config already present - skipping download."
 }
@@ -299,23 +302,23 @@ if (-not (Get-ChildItem (Join-Path $enSttDir "*tokens.txt") -ErrorAction Silentl
     Step "English STT model already present - skipping download."
 }
 
-# 7. Offline text-to-speech voice for non-English answers: a Piper VITS voice
-#    (hi_IN-priyamvada, female), run by the backend through the same sherpa-onnx
-#    wheel - no extra package. English answers use the browser's own voice.
-$ttsName    = "vits-piper-hi_IN-priyamvada-medium"
-$ttsDir     = Join-Path $backendDir "models\tts\$ttsName"
-$ttsArchive = Join-Path $backendDir "models\tts\$ttsName.tar.bz2"
-$ttsUrl     = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/$ttsName.tar.bz2"
-
-if (-not (Test-Path (Join-Path $ttsDir "tokens.txt"))) {
-    New-Item -ItemType Directory -Force -Path (Split-Path $ttsDir) | Out-Null
-    Step "Downloading Piper TTS voice ($ttsName, ~60MB, one-time)..."
-    Get-FileSafely $ttsUrl $ttsArchive
-    Step "Extracting Piper TTS voice..."
-    & tar -xf $ttsArchive -C (Split-Path $ttsDir)
-    Remove-Item $ttsArchive -ErrorAction SilentlyContinue
+# 7. Hindi Piper voice for the browser's TTS (react-sts-hooks `usePiper`) - the
+#    `.onnx` + `.json` pair, served from public/models/ like the English voice
+#    in step 5. Marathi has no Piper voice (falls back to the OS voice).
+$hiOnnx = Join-Path $modelsDir "hi_IN-priyamvada-medium.onnx"
+$hiJson = Join-Path $modelsDir "hi_IN-priyamvada-medium.json"
+$hiBase = "https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/priyamvada/medium"
+if (-not (Test-ValidFile $hiOnnx (10MB))) {
+    Step "Downloading Hindi Piper voice (~60MB, one-time)..."
+    Get-FileSafely "$hiBase/hi_IN-priyamvada-medium.onnx" $hiOnnx
 } else {
-    Step "Piper TTS voice already present - skipping download."
+    Step "Hindi Piper voice (.onnx) already present - skipping download."
+}
+if (-not (Test-ValidFile $hiJson 100)) {
+    Step "Downloading Hindi Piper voice config..."
+    Get-FileSafely "$hiBase/hi_IN-priyamvada-medium.onnx.json" $hiJson
+} else {
+    Step "Hindi Piper voice config already present - skipping."
 }
 
 $ollamaModel = Get-OllamaModel

@@ -14,10 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.routers import chat, health, sessions, stt, tts, tutor
+from app.routers import chat, health, sessions, stt, tutor
 
 from app.services import stt as stt_service
-from app.services import tts as tts_service
 from app.services.ollama_client import OllamaError, client
 
 logging.basicConfig(
@@ -55,19 +54,6 @@ async def _warm_stt() -> None:
     logger.info("STT warm-up done in %.1fs.", time.monotonic() - started)
 
 
-async def _warm_tts() -> None:
-    """Load the Piper TTS voice at boot so the first non-English answer's first
-    sentence isn't delayed by it. Blocking (sherpa), best-effort."""
-    started = time.monotonic()
-    logger.info("Warming up Piper TTS voice in the background...")
-    ok = await asyncio.to_thread(tts_service.warm)
-    logger.info(
-        "TTS warm-up %s in %.1fs.",
-        "done" if ok else "skipped (voice not available)",
-        time.monotonic() - started,
-    )
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await client.startup()
@@ -75,9 +61,6 @@ async def lifespan(app: FastAPI):
     warm_task = None
     stt_warm_task = (
         asyncio.create_task(_warm_stt()) if settings.warm_model_on_startup else None
-    )
-    tts_warm_task = (
-        asyncio.create_task(_warm_tts()) if settings.warm_model_on_startup else None
     )
     try:
         version = await client.version()
@@ -100,7 +83,7 @@ async def lifespan(app: FastAPI):
         # render a 'model unavailable' state instead of failing to connect.
         logger.warning("Ollama unavailable at startup: %s %s", exc.detail, exc.hint or "")
     yield
-    for task in (warm_task, stt_warm_task, tts_warm_task):
+    for task in (warm_task, stt_warm_task):
         if task is not None and not task.done():
             task.cancel()
     await client.shutdown()
@@ -138,7 +121,6 @@ app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(sessions.router)
 app.include_router(stt.router)
-app.include_router(tts.router)
 app.include_router(tutor.router)
 
 

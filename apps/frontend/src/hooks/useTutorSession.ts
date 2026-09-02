@@ -34,21 +34,27 @@ const stripForSpeech = (s: string) =>
     .replace(/`([^`]*)`/g, "$1")
     .replace(/^\s{0,3}#{1,6}\s+/gm, "")
     .replace(/^\s*[-*•]\s+/gm, "")
+    // Numbered list markers ("1. ", "2) ") — otherwise Piper reads the lone
+    // digit aloud ("एक") as its own utterance.
+    .replace(/^\s*\d+[.)]\s+/gm, "")
     .replace(/(\*\*|__)(.*?)\1/g, "$2")
     .replace(/(\*|_)(.*?)\1/g, "$2")
     .replace(/[*_#>`]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
-// The backend streams tokens, so the reply is spoken one sentence at a time as
-// it decodes — the first sentence starts playing while the model is still
-// writing the rest. The browser's speech queue plays them back-to-back with no
-// gaps. Fragments shorter than this are merged into the sentence that follows.
-// Short sentences shorter than this are merged with the next one before being
-// spoken. Kept fairly high for the backend voice: a lone short opener plays out
-// in a second or two and then there's dead air while the LLM writes the next
-// sentence, so a longer first chunk hides that gap better.
+// The reply is spoken one sentence at a time as the model decodes — the first
+// sentence starts playing while the rest is still being written, and the Piper
+// queue plays them back-to-back with no gaps. Sentences shorter than this are
+// merged with the next one before being spoken, so a lone two-word opener
+// doesn't play out in a second and leave dead air while the LLM writes more.
 const MIN_SPEECH_CHARS = 60;
+
+// ...except the *first* chunk of a turn, which is queued as soon as it clears
+// this lower bar — Piper synth time scales with length, so starting on a ~30-
+// char opener is audible much sooner. Not 1: a trivially short opener ("ये है:")
+// plays out in a blink and leaves dead air while the next sentence synthesizes.
+const FIRST_CHUNK_MIN_CHARS = 30;
 
 /**
  * Pulls every *complete* sentence off the front of a growing token buffer.
@@ -61,9 +67,15 @@ const MIN_SPEECH_CHARS = 60;
  * start until the stream ends. The unterminated tail stays in `rest` until more
  * tokens arrive, or until the stream ends and the caller flushes it.
  */
-function drainSentences(buffer: string): { sentences: string[]; rest: string } {
+function drainSentences(
+  buffer: string,
+  minChars: number,
+): { sentences: string[]; rest: string } {
   const sentences: string[] = [];
-  const boundary = /(?:[.!?…]+["')\]]*(?=\s)|[।॥]+)/g;
+  // A `.` right after a digit is a list marker ("1. ") or a decimal, not a
+  // sentence end — the negative lookbehind keeps "ये है: 1." from being spoken
+  // as its own fragment. The danda (। ॥) is always a sentence end.
+  const boundary = /(?:(?<!\d)[.!?…]+["')\]]*(?=\s)|[।॥]+)/g;
   let rest = buffer;
   let searchFrom = 0;
 
@@ -74,7 +86,7 @@ function drainSentences(buffer: string): { sentences: string[]; rest: string } {
 
     const end = match.index + match[0].length;
     const candidate = rest.slice(0, end).trim();
-    if (candidate.length < MIN_SPEECH_CHARS) {
+    if (candidate.length < minChars) {
       // Keep it and look for the next boundary, so it's spoken as one phrase.
       searchFrom = end;
       continue;
@@ -275,7 +287,14 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
               // voice — which speaks a sentence at a time and keeps pace.
               setReplyText(answer);
 
-              const { sentences, rest } = drainSentences(unspoken);
+              // First chunk: break at the first sentence boundary, however
+              // short, so audio starts as soon as possible. After that, hold out
+              // for MIN_SPEECH_CHARS so the voice doesn't stutter phrase-by-phrase.
+              const minChars =
+                speakQueueStartRef.current === null
+                  ? FIRST_CHUNK_MIN_CHARS
+                  : MIN_SPEECH_CHARS;
+              const { sentences, rest } = drainSentences(unspoken, minChars);
               unspoken = rest;
               for (const sentence of sentences) enqueueSpeech(sentence);
             },

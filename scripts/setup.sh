@@ -113,17 +113,20 @@ else
 fi
 
 # 5. Piper English voice model (used by the browser's Piper worker).
+#    en_US-amy-low (16 kHz), not -medium: on a single-thread WASM CPU the medium
+#    model takes 20-30 s to synthesize a first sentence. Low is ~2-3x faster,
+#    same voice. ~15 MB.
 mkdir -p "$models_dir"
-en_base="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium"
-if ! valid_file "$models_dir/en_US-amy-medium.onnx" 10000000; then
-  step "Downloading Piper voice model (~60MB, one-time)..."
-  download_safely "$en_base/en_US-amy-medium.onnx" "$models_dir/en_US-amy-medium.onnx"
+en_base="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/low"
+if ! valid_file "$models_dir/en_US-amy-low.onnx" 5000000; then
+  step "Downloading Piper voice model (~15MB, one-time)..."
+  download_safely "$en_base/en_US-amy-low.onnx" "$models_dir/en_US-amy-low.onnx"
 else
   step "Voice model (.onnx) already present - skipping download."
 fi
-if ! valid_file "$models_dir/en_US-amy-medium.json" 100; then
+if ! valid_file "$models_dir/en_US-amy-low.json" 100; then
   step "Downloading Piper voice config..."
-  download_safely "$en_base/en_US-amy-medium.onnx.json" "$models_dir/en_US-amy-medium.json"
+  download_safely "$en_base/en_US-amy-low.onnx.json" "$models_dir/en_US-amy-low.json"
 else
   step "Voice model config already present - skipping download."
 fi
@@ -167,21 +170,21 @@ else
   step "English STT model already present - skipping download."
 fi
 
-# 7. Offline text-to-speech for non-English answers: a Piper VITS voice
-#    (hi_IN-priyamvada, female), run by the backend through the same sherpa-onnx.
-tts_name="vits-piper-hi_IN-priyamvada-medium"
-tts_dir="$backend_dir/models/tts/$tts_name"
-tts_archive="$backend_dir/models/tts/$tts_name.tar.bz2"
-tts_url="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/$tts_name.tar.bz2"
-if [ ! -f "$tts_dir/tokens.txt" ]; then
-  mkdir -p "$backend_dir/models/tts"
-  step "Downloading Piper TTS voice ($tts_name, ~60MB, one-time)..."
-  download_safely "$tts_url" "$tts_archive"
-  step "Extracting Piper TTS voice..."
-  tar -xf "$tts_archive" -C "$backend_dir/models/tts"
-  rm -f "$tts_archive"
+# 7. Hindi Piper voice for the browser's TTS (react-sts-hooks usePiper) - the
+#    .onnx + .json pair, served from public/models/ like the English voice in
+#    step 5. Marathi has no Piper voice (falls back to the OS voice).
+hi_base="https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/priyamvada/medium"
+if ! valid_file "$models_dir/hi_IN-priyamvada-medium.onnx" 10000000; then
+  step "Downloading Hindi Piper voice (~60MB, one-time)..."
+  download_safely "$hi_base/hi_IN-priyamvada-medium.onnx" "$models_dir/hi_IN-priyamvada-medium.onnx"
 else
-  step "Piper TTS voice already present - skipping download."
+  step "Hindi Piper voice (.onnx) already present - skipping download."
+fi
+if ! valid_file "$models_dir/hi_IN-priyamvada-medium.json" 100; then
+  step "Downloading Hindi Piper voice config..."
+  download_safely "$hi_base/hi_IN-priyamvada-medium.onnx.json" "$models_dir/hi_IN-priyamvada-medium.json"
+else
+  step "Hindi Piper voice config already present - skipping."
 fi
 
 ollama_model="$(get_ollama_model)"

@@ -85,17 +85,9 @@ class Settings(BaseSettings):
     # started yet), so give it more threads. Lower it if the box has <4 cores.
     stt_num_threads: int = 4
 
-    # --- Offline text-to-speech -------------------------------------------
-    # sherpa-onnx + a Piper VITS voice (no extra dependency — sherpa is already
-    # installed for STT). Only non-English answers route here (English uses the
-    # OS speechSynthesis voice). The voice folder (<voice>.onnx, tokens.txt,
-    # espeak-ng-data/) is placed by scripts/setup.ps1.
-    tts_model_dir: str = "models/tts"
-    tts_voice: str = "vits-piper-hi_IN-priyamvada-medium"
-    tts_num_threads: int = 2
-    # Playback speed multiplier. 1.0 = the voice's natural pace; lower is slower
-    # (0.9 if it sounds rushed), higher is faster.
-    tts_speed: float = 1.0
+    # Text-to-speech is not on the backend: the frontend runs Piper in the
+    # browser (react-sts-hooks `usePiper`) for English/Hindi, and the OS
+    # speechSynthesis voice for Marathi.
 
     # --- CORS -------------------------------------------------------------
     # Comma-separated list. "*" is fine for a local POC.
