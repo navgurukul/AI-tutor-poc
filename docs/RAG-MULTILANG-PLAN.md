@@ -344,3 +344,112 @@ nothing else here matters.
 Non-blocking review findings still unaddressed after this plan: RRF weighting,
 phase ordering, corpus size behind the model choice, and the two disagreeing
 latency tables in the source document.
+
+---
+
+# Execution record — 2026-09-03
+
+All seven phases executed on `feature/multilang-rag`. What measurement
+contradicted, in the order it was found.
+
+## The merge cost more than predicted (§P0-a confirmed)
+
+Eleven files conflicted. Two auto-merge artefacts git did **not** flag:
+
+- `ollama_client.py` gained a **second `warm()`** that silently shadowed the
+  first. Kept the RAG branch's load-only version — it pins `num_ctx`, so
+  warming matches what real requests send.
+- `main.py` **re-declared `warm_task`** after the try block that starts it,
+  discarding the task so shutdown could never cancel it.
+
+`num_ctx` merged clean at 3072, silently dropping 4096 — exactly §P0-b.
+
+## §P0-d was wrong about the FTS5 mechanism
+
+The hazard is **not** statement ordering. FTS5's `delete` command takes the
+column values explicitly and never re-reads the content table, so index-first
+and content-first behave identically. Passing the **wrong text** is the
+failure: it decrements postings for terms the row never had, leaving the index
+stale *and* corrupt (`database disk image is malformed`). The fix is to select
+`id, text` together before deleting anything.
+
+## A third heading defect, found only by ingesting
+
+The plan named two `looks_like_heading()` defects. Measurement found a third
+and larger one: **352 distinct headings across 419 chunks**. Since a heading is
+a hard cut, the book was shredded — median chunk 374 chars against a 1200
+target. Single letters, publisher front matter, figure captions
+(`1.2 : Proportion of land and water`), curriculum codes (`06.72.01 …`),
+contents dot-leaders and numbered activity steps were all firing.
+
+After tightening: **419 → 266 chunks, 352 → 110 headings, median 374 → 1088
+chars**, and real chapter titles dominate.
+
+## The decision record's ceilings were wrong for this corpus
+
+| language | correct chunk (min/med/max) | off-topic min | doc said | measured |
+|---|---|---|---|---|
+| en | 0.286 / 0.329 / 0.439 | 0.575 | 0.45 | **0.51** |
+| hi | 0.313 / 0.430 / 0.536 | 0.627 | 0.62 | **0.58** |
+| mr | 0.331 / 0.438 / 0.556 | 0.627 | 0.62 | **0.59** |
+| romanized | 0.649 / 0.672 / 0.717 | 0.661 | 0.62 | **0.0 (off)** |
+
+The English 0.45 sat **0.011 above** the worst correct English hit — one
+noisier book from discarding right answers.
+
+## Romanized Indic does not work, and no ceiling can fix it
+
+The correct chunk sits at 0.649–0.717 while off-topic sits at 0.661: **the
+right answer is farther away than a wrong one.** Half the romanized golden
+questions never retrieve their answer in the top fifty, and what ranks first is
+front matter — the production officer's name scored 0.6188 for
+`chumbak ke dhruv kya hote hain`.
+
+Same signature nomic showed on Devanagari. `rag_ceiling_romanized = 0.0`
+disables the bucket outright rather than picking a number fitted to this book's
+noise. The tutor answers unaided instead of citing a page about galaxies. The
+fix is transliteration to Devanagari before embedding — **deferred, not done.**
+
+## The harness was wrong before the config was
+
+Calibration first measured the **best hit** per question, which looks healthy
+exactly when ranking is broken — it reported romanized as a clean 0.558–0.642.
+Corrected to measure the distance of the chunk that actually answers, and to
+count questions whose correct chunk never ranks at all.
+
+## Verification step 10 earned its place
+
+Running the re-embed on a populated library found two silent defects:
+
+1. `embed_query()` read the model from **config** while the store had cut over.
+   Queries embedded at 1024 dims against a 768-dim table; `retrieve()`
+   swallowed the mismatch and the tutor **silently stopped citing anything**.
+2. The store took its identity from config at open, so a restart after cutover
+   either refused a good library or built an empty table beside the real one.
+   `meta` is now authoritative — the file describes itself.
+
+Cutover also does **not** carry the ceilings: distance scales are
+model-specific (granite's sit ~0.10 tighter than bge-m3's). It now warns.
+
+## Results — Class 6 Science, 266 chunks, bge-m3
+
+| language | N | recall@50 | recall@1 | prec@4 | MRR | nDCG@4 |
+|---|---|---|---|---|---|---|
+| en | 12 | 1.00 | 0.83 | 0.56 | 0.92 | 0.73 |
+| hi | 10 | 1.00 | 0.70 | 0.50 | 0.81 | 0.64 |
+| mr | 5 | 1.00 | 0.60 | 0.40 | 0.71 | 0.46 |
+| romanized | 8 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+
+Out-of-syllabus abstains 7/7, in all four languages.
+
+**Definition of done, verified offline:** a Hindi question returns a Hindi
+answer grounded in the English textbook, citing `13. Sound`, pp. 101–104.
+
+## Not done
+
+- **Steps 9 and 12** need the target laptop.
+- **Step 1's Devanagari textbook** — no Devanagari PDF was available, so
+  Devanagari *ingestion* (extraction, reflow, heading detection on a real PDF)
+  is covered only by unit tests. Devanagari *querying* is verified against the
+  English corpus, which is the mixed-library case the project is for.
+- **Romanized retrieval** — measured, understood, deliberately disabled.
