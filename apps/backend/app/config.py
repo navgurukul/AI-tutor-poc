@@ -158,16 +158,56 @@ class Settings(BaseSettings):
     # Per-query-language ceilings: reject everything when even the best hit is
     # this far out. This is the mechanism that lets the tutor decline.
     #
-    # STARTING POINTS, to be re-measured against the golden set with
-    # scripts/evaluate_retrieval.py --calibrate. Not constants.
-    rag_ceiling_en: float = 0.45
-    rag_ceiling_hi: float = 0.62
-    rag_ceiling_mr: float = 0.62
-    # Romanized Hindi/Marathi ("utak kya hai") is its own bucket, not English.
-    # Read as English it takes the strictest ceiling and discards a correct hit
-    # at 0.51 -- the exact failure the per-language ceiling exists to prevent,
-    # returning through the one path nobody measured.
-    rag_ceiling_romanized: float = 0.62
+    # MEASURED against scripts/golden_set.json on the Class 6 Science corpus
+    # with scripts/evaluate_retrieval.py --calibrate. Each ceiling is the
+    # midpoint between the worst CORRECT-chunk distance and the best off-topic
+    # one -- correct-chunk, not best-hit, because those differ exactly where
+    # ranking is poor and that is where a ceiling matters.
+    #
+    #              correct chunk (min/med/max)   off-topic min   ceiling
+    #   en            0.286 / 0.329 / 0.439          0.575         0.51
+    #   hi            0.313 / 0.430 / 0.536          0.627         0.58
+    #   mr            0.331 / 0.438 / 0.556          0.627         0.59
+    #   romanized     0.649 / 0.672 / 0.717          0.661       OVERLAP
+    #
+    # The decision record's starting values (0.45 / 0.62 / 0.62) came from a
+    # different corpus. 0.45 sat 0.011 above the worst correct English hit --
+    # one noisier book from being wrong.
+    rag_ceiling_en: float = 0.51
+    rag_ceiling_hi: float = 0.58
+    rag_ceiling_mr: float = 0.59
+    # Romanized Hindi/Marathi ("gharshan bal kya hai"): DELIBERATELY BELOW THE
+    # NOISE FLOOR, so these questions retrieve nothing and the tutor answers
+    # unaided.
+    #
+    # This is not a tuning choice, it is what the measurement forces. bge-m3
+    # has no usable signal for Latin-script Indic against this corpus: the
+    # correct chunk sits at 0.649-0.717 while off-topic passages sit at 0.661,
+    # so the right answer is FARTHER AWAY than a wrong one. Half the romanized
+    # golden questions do not retrieve their answer in the top fifty at all,
+    # and the passages that do rank first are front matter -- the production
+    # officer's name scored 0.6188 for "chumbak ke dhruv kya hote hain".
+    #
+    # That is the same signature nomic-embed-text showed on Devanagari Hindi,
+    # and it fails the same way: silently, with a confident citation. A
+    # ceiling that admits these admits noise with a chapter and page attached,
+    # which is the precise failure the gate exists to prevent.
+    #
+    # 0.0 means no distance can ever clear it: retrieval is OFF for this
+    # bucket. That is deliberate rather than a tuned number, because the
+    # ordering is inverted and no threshold can separate the two populations.
+    # Measured noise floor: "saral yantra kya hote hain" returns a passage
+    # about Songardh in Gujarat at 0.558, while its correct chunk sits at
+    # 0.677. A ceiling picked to exclude today's noise would be fitted to this
+    # corpus's front matter and would start admitting garbage on the next book.
+    #
+    # The fix is transliteration to Devanagari before embedding, not a
+    # threshold -- romanized text routed through the Devanagari path would
+    # inherit hi's working retrieval. Until that lands, abstaining is the
+    # honest behaviour: the student gets a model answer instead of a confident
+    # citation to a page about galaxies. Re-check with
+    # scripts/evaluate_retrieval.py --check after any change here.
+    rag_ceiling_romanized: float = 0.0
 
     # Token budget for the assembled context block. Tokens, not characters:
     # Devanagari costs 2-4x more tokens per character, so a character budget

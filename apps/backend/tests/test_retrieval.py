@@ -168,14 +168,19 @@ def test_the_ceiling_lets_the_tutor_decline():
 
 
 def test_the_relative_gate_normalises_the_language_offset():
-    """A correct Hindi hit at 0.51 must survive; the same number fails on en.
+    """A correct Hindi hit must survive at a distance that fails on English.
 
-    This is the failure the single 0.42 threshold produced -- and the reason
-    it produced it silently, for exactly the students the feature is for.
+    Measured on the Class 6 corpus, correct chunks sit at 0.313-0.536 for a
+    Hindi question and 0.286-0.439 for an English one, so the ceilings are
+    0.58 and 0.51. A hit at 0.536 is the Hindi student's right answer and an
+    English student's noise -- which is the whole reason one global threshold
+    cannot serve both, and why it failed silently for exactly the students the
+    feature exists for.
     """
-    hindi_shaped = [_hit(1, 0.51), _hit(2, 0.55), _hit(3, 0.78)]
+    hindi_shaped = [_hit(1, 0.536), _hit(2, 0.56), _hit(3, 0.82)]
     survivors, _ = gate_dense_hits(hindi_shaped, "hi")
     assert [h.chunk_id for h in survivors] == [1, 2]
+    # The same distances, judged as English, do not clear the ceiling at all.
     assert gate_dense_hits(hindi_shaped, "en")[0] == []
 
 
@@ -316,3 +321,21 @@ async def test_lexical_hits_must_clear_the_gate_or_neighbour_one(store, monkeypa
     assert "New Delhi" not in texts or all(
         h.distance < 1.0 for h in hits
     ), "an off-topic lexical hit reached the prompt"
+
+
+def test_a_zero_ceiling_disables_retrieval_for_that_bucket(monkeypatch):
+    """Romanized Indic, where bge-m3 ranks noise above the correct chunk.
+
+    Not a tight threshold -- a measured absence of signal. Nothing can clear a
+    ceiling of 0.0, so the tutor answers unaided rather than citing a page
+    about galaxies.
+    """
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "rag_ceiling_romanized", 0.0)
+    close = [_hit(1, 0.05), _hit(2, 0.06)]
+    survivors, ceiling = gate_dense_hits(close, "romanized")
+    assert survivors == []
+    assert ceiling == 0.0
+    # ...and the other buckets are unaffected.
+    assert gate_dense_hits(close, "en")[0]

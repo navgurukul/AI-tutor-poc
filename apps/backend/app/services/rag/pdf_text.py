@@ -120,6 +120,26 @@ def _clean_page(page_text: str, repeated: set) -> str:
 # "6.2 Plant Tissues" / "1.10.3 Something" -- numbered sections are the most
 # reliable heading signal in a textbook.
 _NUMBERED_HEADING = re.compile(r"^\d+(?:\.\d+)*\.?\s+\S")
+# "1.2 : Proportion of land and water" -- in a textbook a colon straight after
+# the figure number is a caption, never a section heading. Measured on the
+# Class 6 Science book, this single pattern accounted for a large share of the
+# spurious hard cuts.
+_FIGURE_CAPTION = re.compile(r"^\d+(?:\.\d+)*\s*:")
+# Table-of-contents dot leaders: "3. Diversity in Living Things ............"
+_DOT_LEADER = re.compile(r"\.{4,}")
+# Curriculum codes in the front matter: "06.72.01 Identifies materials and..."
+_OUTCOME_CODE = re.compile(r"^\d{2}\.\d{2}\.\d{2}")
+# A heading has to be a phrase. Below this it is a page letter, a column label
+# or an artefact of the reflow ("E", "F", "H" all appeared as headings).
+_MIN_HEADING_LETTERS = 3
+# A numbered heading longer than this is a numbered *list item* -- an activity
+# step or an instruction ("3. Stir the mixture thoroughly and put it", eight
+# words). Six is a deliberate trade: it costs the occasional long chapter title
+# ("5. Substances in the Surroundings - Their States and Properties"), which
+# degrades to no heading rather than to a wrong one. A missed heading merges
+# two sections; a spurious one splits a section AND mislabels the citation the
+# student is shown, so the errors are not symmetric.
+_MAX_NUMBERED_HEADING_WORDS = 6
 _MAX_HEADING_CHARS = 90
 # A heading may end in a question mark -- textbooks are full of them ("What
 # are Tissues?", "Why do we fall ill?") -- so only the punctuation that ends
@@ -159,10 +179,26 @@ def looks_like_heading(line: str) -> bool:
         return False
     if _SENTENCE_END.search(stripped):
         return False
+
+    # Front matter, captions and contents pages, which a textbook has more of
+    # than it has chapters. Every one of these was firing as a heading -- and
+    # since a heading is a *hard cut*, each spurious one splits a section in
+    # two and labels the remainder with a figure number. Measured on the
+    # Class 6 Science book before this: 352 distinct headings across 419
+    # chunks, median chunk 374 characters against a 1,200 target.
+    if _DOT_LEADER.search(stripped) or _OUTCOME_CODE.match(stripped):
+        return False
+    if _FIGURE_CAPTION.match(stripped):
+        return False
+    if len([c for c in stripped if c.isalpha()]) < _MIN_HEADING_LETTERS:
+        return False
+
     # A numbered section is the most reliable signal in any script, and the
-    # only one that fires for Devanagari before the caseless branch below.
+    # only one that fires for Devanagari before the caseless branch below --
+    # but only when it is short enough to be a heading rather than step 3 of
+    # an activity.
     if _NUMBERED_HEADING.match(stripped):
-        return True
+        return len(stripped.split()) <= _MAX_NUMBERED_HEADING_WORDS
     words = stripped.split()
     if len(words) > 12:
         return False

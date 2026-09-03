@@ -132,6 +132,14 @@ def gate_dense_hits(
     if not hits:
         return [], ceiling
 
+    if ceiling <= 0.0:
+        # Retrieval is off for this bucket -- see rag_ceiling_romanized. Not a
+        # tight threshold but a measured absence of signal.
+        logger.info(
+            "Retrieval disabled for query language %r; answering unaided.", language
+        )
+        return [], ceiling
+
     best = min(h.distance for h in hits)
     if best > ceiling:
         # Not even the closest passage is close enough. This is the branch that
