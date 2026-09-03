@@ -46,6 +46,7 @@ async def upload_document(
     grade: int = Form(...),
     subject: str = Form(...),
     title: Optional[str] = Form(None),
+    language: Optional[str] = Form(None),
 ) -> Dict[str, Any]:
     """Accepts the PDF, starts a background job and returns its id.
 
@@ -83,6 +84,7 @@ async def upload_document(
         title=(title or "").strip() or filename.rsplit(".", 1)[0],
         grade=grade,
         subject=subject,
+        language=(language or "").strip(),
     )
     return {"job": job.as_dict()}
 

@@ -38,6 +38,7 @@ class IngestJob:
     title: str
     grade: int
     subject: str
+    language: str = ""
     status: str = "queued"          # queued | extracting | embedding | done | error
     stage_detail: str = ""
     pages: int = 0
@@ -64,6 +65,7 @@ class IngestJob:
             "title": self.title,
             "grade": self.grade,
             "subject": self.subject,
+            "language": self.language,
             "status": self.status,
             "stage_detail": self.stage_detail,
             "pages": self.pages,
@@ -103,7 +105,14 @@ class IngestionService:
                 self._jobs.pop(stale.id, None)
 
     def start(
-        self, *, data: bytes, filename: str, title: str, grade: int, subject: str
+        self,
+        *,
+        data: bytes,
+        filename: str,
+        title: str,
+        grade: int,
+        subject: str,
+        language: str = "",
     ) -> IngestJob:
         job = IngestJob(
             id=uuid.uuid4().hex[:12],
@@ -111,6 +120,7 @@ class IngestionService:
             title=title or filename,
             grade=grade,
             subject=subject,
+            language=language,
         )
         self._remember(job)
         asyncio.create_task(self._run(job, data))
@@ -178,6 +188,7 @@ class IngestionService:
             title=job.title,
             grade=job.grade,
             subject=job.subject,
+            language=job.language,
             sha256=digest,
             pages=raw_page_count,
             created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -197,6 +208,7 @@ class IngestionService:
                     job.grade,
                     job.subject,
                     list(zip(batch, vectors)),
+                    job.language,
                 )
                 job.chunks_done += len(batch)
         except Exception:

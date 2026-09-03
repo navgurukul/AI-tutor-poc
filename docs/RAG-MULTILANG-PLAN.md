@@ -59,10 +59,16 @@ gate that reads it. That is a smaller job than the doc implies.
 bugs and are folded into the phases below**, because they land in code we are
 already touching:
 
-- FTS5 external-content **delete ordering** (phase 01) — for
-  `content='chunks'` tables the index delete must be issued *before* the
-  content row is gone, or the terms cannot be found to remove and stale rows
-  keep matching.
+- FTS5 external-content **deletes** (phase 01) — nothing cascades into
+  `chunks_fts`, so `delete_document()` must remove its rows by hand.
+  **Corrected during phase 01 by measurement:** the hazard is not statement
+  *ordering*, as first written here. FTS5's `delete` command takes the column
+  values explicitly and never re-reads the content table, so index-first and
+  content-first behave identically. What matters is passing the **correct
+  original text** — given the wrong values it decrements postings for terms
+  the row never had, leaving the index stale *and* structurally damaged
+  ("database disk image is malformed"). The fix is to select `id, text`
+  together before deleting anything.
 - The **lexical leg has no grade filter** (phase 04) — FTS5 has no partition
   key. Without an explicit join a Class 6 student gets Class 9 passages fed
   into RRF.

@@ -14,6 +14,7 @@ another grade.
 """
 
 import logging
+import re
 import sqlite3
 import struct
 import threading
@@ -23,7 +24,20 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+
+def vector_table_for(model: str) -> str:
+    """The vec0 table name for an embedding model.
+
+    Naming the table after the model is what makes the choice reversible. A
+    re-embed job can fill `chunk_vectors_bge_m3` in the background while
+    `chunk_vectors_nomic_embed_text` goes on serving queries, and the cutover
+    is a `meta` update rather than a migration on every device. Retrofitting
+    the name after an index has shipped is not.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", model.lower()).strip("_")
+    return "chunk_vectors_{}".format(slug or "unknown")
 
 
 class StoreUnavailable(Exception):
@@ -51,6 +65,7 @@ class Retrieved:
     document_title: str
     grade: int
     subject: str
+    language: str = ""
 
 
 def _serialise(vector: Sequence[float]) -> bytes:
@@ -63,6 +78,9 @@ class LibraryStore:
         self.db_path = Path(db_path)
         self.dims = dims
         self.embedding_model = embedding_model
+        # Named for the model it holds, so a re-embed can build the next one
+        # alongside it instead of over it.
+        self.vector_table = vector_table_for(embedding_model)
         self._conn: Optional[sqlite3.Connection] = None
         # One connection guarded by a lock. SQLite handles concurrent readers
         # fine, but ingestion writes in bulk from a worker thread while chat
@@ -153,6 +171,7 @@ class LibraryStore:
                     title text not null,
                     grade integer not null,
                     subject text not null,
+                    language text not null default '',
                     sha256 text not null unique,
                     pages integer not null,
                     chunk_count integer not null default 0,
@@ -171,18 +190,40 @@ class LibraryStore:
                 create index if not exists idx_chunks_document on chunks(document_id);
                 """
             )
+            # Full-text index over the same rows, in the same file. `trigram`
+            # rather than the default unicode61: unicode61 shatters Devanagari
+            # conjuncts -- कार्य becomes क, र, य -- which is useless for BM25.
+            # Trigram indexes every script the same way.
+            #
+            # external content (content='chunks'), so the text is stored once.
+            # That is why delete_document() has to remove the index rows by
+            # hand, and before the content rows go.
+            conn.execute(
+                """create virtual table if not exists chunks_fts using fts5(
+                       text,
+                       content='chunks',
+                       content_rowid='id',
+                       tokenize='trigram'
+                   )"""
+            )
             # Cosine, not the vec0 default of L2. nomic's vectors are not unit
             # length, so an L2 distance mixes "different topic" with "longer
             # passage" and the cut-off stops meaning anything. Cosine compares
             # direction only, which is what the model was trained for and what
             # makes rag_max_distance portable across models.
+            #
+            # `language` is a metadata column, deliberately not a second
+            # partition key: grade x language x subject would shard the table
+            # into fragments too small to be worth scanning separately, and a
+            # Hindi question has to reach an English page anyway.
             conn.execute(
-                """create virtual table if not exists chunk_vectors using vec0(
+                """create virtual table if not exists {} using vec0(
                        chunk_id integer primary key,
                        grade integer partition key,
                        subject text,
+                       language text,
                        embedding float[{}] distance_metric=cosine
-                   )""".format(self.dims)
+                   )""".format(self.vector_table, self.dims)
             )
             self._check_or_stamp_meta(conn)
 
@@ -200,6 +241,7 @@ class LibraryStore:
             "schema_version": str(SCHEMA_VERSION),
             "embedding_model": self.embedding_model,
             "embedding_dims": str(self.dims),
+            "vector_table": self.vector_table,
         }
         if not rows:
             conn.executemany(
@@ -254,9 +296,10 @@ class LibraryStore:
         conn = self._require()
         with self._lock:
             rows = conn.execute(
-                """select grade, subject, count(*) as documents,
+                """select grade, subject, language, count(*) as documents,
                           coalesce(sum(chunk_count), 0) as chunks
-                   from documents group by grade, subject order by grade, subject"""
+                   from documents group by grade, subject, language
+                   order by grade, subject, language"""
             ).fetchall()
         return [dict(r) for r in rows]
 
@@ -271,14 +314,16 @@ class LibraryStore:
         sha256: str,
         pages: int,
         created_at: str,
+        language: str = "",
     ) -> int:
         conn = self._require()
         with self._lock, conn:
             cursor = conn.execute(
                 """insert into documents
-                       (filename, title, grade, subject, sha256, pages, created_at)
-                   values (?, ?, ?, ?, ?, ?, ?)""",
-                (filename, title, grade, subject, sha256, pages, created_at),
+                       (filename, title, grade, subject, language, sha256, pages,
+                        created_at)
+                   values (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (filename, title, grade, subject, language, sha256, pages, created_at),
             )
         return int(cursor.lastrowid)
 
@@ -288,12 +333,15 @@ class LibraryStore:
         grade: int,
         subject: str,
         records: Iterable[Tuple[Any, Sequence[float]]],
+        language: str = "",
     ) -> int:
-        """Insert chunks and their vectors together.
+        """Insert chunks, their vectors and their full-text rows together.
 
-        Both tables are written inside one transaction: a chunk row with no
-        vector is invisible to search, and a vector with no chunk row would
-        surface as a result with no text.
+        All three are written inside one transaction: a chunk row with no
+        vector is invisible to dense search, a vector with no chunk row would
+        surface as a result with no text, and a chunk missing from chunks_fts
+        is invisible to the lexical leg -- each of which fails silently, as a
+        quietly worse answer rather than an error.
         """
         conn = self._require()
         written = 0
@@ -312,10 +360,17 @@ class LibraryStore:
                         chunk.text,
                     ),
                 )
+                chunk_id = int(cursor.lastrowid)
                 conn.execute(
-                    """insert into chunk_vectors(chunk_id, grade, subject, embedding)
-                       values (?, ?, ?, ?)""",
-                    (int(cursor.lastrowid), grade, subject, _serialise(vector)),
+                    """insert into {}(chunk_id, grade, subject, language, embedding)
+                       values (?, ?, ?, ?, ?)""".format(self.vector_table),
+                    (chunk_id, grade, subject, language, _serialise(vector)),
+                )
+                # External-content FTS5: the rowid has to match chunks.id, and
+                # the row has to be inserted explicitly -- there is no trigger.
+                conn.execute(
+                    "insert into chunks_fts(rowid, text) values (?, ?)",
+                    (chunk_id, chunk.text),
                 )
                 written += 1
             conn.execute(
@@ -325,23 +380,43 @@ class LibraryStore:
         return written
 
     def delete_document(self, document_id: int) -> bool:
-        """Remove a document, its chunks and its vectors.
+        """Remove a document, its chunks, its vectors and its full-text rows.
 
-        vec0 tables take no part in foreign-key cascade, so the vectors are
-        deleted explicitly -- otherwise they would linger and keep matching
-        queries with no text to show for it.
+        Two indexes here take no part in a foreign-key cascade and each needs
+        removing by hand, in a specific order:
+
+        vec0 tables ignore foreign keys entirely, so stale vectors would go on
+        matching queries with no text to show for them.
+
+        chunks_fts is an external-content table: it stores the index but not
+        the text. Its `delete` command takes the original column values and
+        uses them to work out which terms to remove -- it does not read them
+        back out of `chunks`. So what matters is not the order of the two
+        statements but that the *correct original text* is passed, which is
+        why the select below fetches `text` alongside `id` and why it runs
+        before anything is deleted.
+
+        Get that wrong -- pass the wrong text, or skip the delete -- and the
+        index keeps matching a passage that no longer exists. Measured: the
+        stale row still satisfies MATCH, and reading it fails with "fts5:
+        missing row from content table". The student sees a citation to a
+        book that is gone.
         """
         conn = self._require()
         with self._lock, conn:
-            ids = [
-                r[0]
-                for r in conn.execute(
-                    "select id from chunks where document_id = ?", (document_id,)
-                ).fetchall()
-            ]
-            if ids:
+            rows = conn.execute(
+                "select id, text from chunks where document_id = ?", (document_id,)
+            ).fetchall()
+            if rows:
                 conn.executemany(
-                    "delete from chunk_vectors where chunk_id = ?", [(i,) for i in ids]
+                    "delete from {} where chunk_id = ?".format(self.vector_table),
+                    [(r[0],) for r in rows],
+                )
+                # The exact text the row was indexed with. See the docstring.
+                conn.executemany(
+                    "insert into chunks_fts(chunks_fts, rowid, text) "
+                    "values ('delete', ?, ?)",
+                    [(r[0], r[1]) for r in rows],
                 )
             conn.execute("delete from chunks where document_id = ?", (document_id,))
             cursor = conn.execute("delete from documents where id = ?", (document_id,))
@@ -376,16 +451,17 @@ class LibraryStore:
         sql = """
             with knn as (
                 select chunk_id, distance
-                from chunk_vectors v
-                where {}
+                from {table} v
+                where {filters}
             )
             select knn.chunk_id, knn.distance, c.text, c.heading,
-                   c.page_start, c.page_end, d.title, d.grade, d.subject
+                   c.page_start, c.page_end, d.title, d.grade, d.subject,
+                   d.language
             from knn
             join chunks c on c.id = knn.chunk_id
             join documents d on d.id = c.document_id
             order by knn.distance
-        """.format(" and ".join(filters))
+        """.format(table=self.vector_table, filters=" and ".join(filters))
 
         with self._lock:
             rows = conn.execute(sql, params).fetchall()
@@ -401,9 +477,90 @@ class LibraryStore:
                 document_title=r["title"],
                 grade=r["grade"],
                 subject=r["subject"],
+                language=r["language"] or "",
             )
             for r in rows
         ]
         if max_distance is not None:
             hits = [h for h in hits if h.distance <= max_distance]
         return hits
+
+    def search_lexical(
+        self,
+        match_query: str,
+        *,
+        grade: Optional[int],
+        k: int,
+    ) -> List[Retrieved]:
+        """Best BM25 matches for an already-built FTS5 MATCH string.
+
+        The grade filter is a join, not a partition: FTS5 has no partition key,
+        so without this a Class 6 question can pull a Class 9 passage into the
+        fusion and out the other side with a citation on it. The dense leg gets
+        that for free from vec0; this leg has to ask.
+
+        `distance` is left at 1.0 -- BM25 scores are not distances and the two
+        are never compared. Fusion is by rank precisely so they need no common
+        scale.
+        """
+        if not match_query.strip():
+            return []
+        conn = self._require()
+        params: List[Any] = [match_query]
+        where = ["chunks_fts match ?"]
+        if grade is not None:
+            where.append("d.grade = ?")
+            params.append(grade)
+        params.append(k)
+
+        sql = """
+            select c.id as chunk_id, c.text, c.heading, c.page_start, c.page_end,
+                   d.title, d.grade, d.subject, d.language
+            from chunks_fts
+            join chunks c on c.id = chunks_fts.rowid
+            join documents d on d.id = c.document_id
+            where {}
+            order by bm25(chunks_fts)
+            limit ?
+        """.format(" and ".join(where))
+
+        with self._lock:
+            rows = conn.execute(sql, params).fetchall()
+        return [
+            Retrieved(
+                chunk_id=r["chunk_id"],
+                text=r["text"],
+                heading=r["heading"],
+                page_start=r["page_start"],
+                page_end=r["page_end"],
+                distance=1.0,
+                document_title=r["title"],
+                grade=r["grade"],
+                subject=r["subject"],
+                language=r["language"] or "",
+            )
+            for r in rows
+        ]
+
+    def neighbours(self, chunk_id: int, ordinals: int = 1) -> List[int]:
+        """Chunk ids immediately either side of one, in the same document.
+
+        Used by the gate: a definition split across a chunk boundary should
+        stay retrievable through the half that cleared the gate, without
+        letting an unrelated lexical hit ride in on a good one.
+        """
+        conn = self._require()
+        with self._lock:
+            row = conn.execute(
+                "select document_id, ordinal from chunks where id = ?", (chunk_id,)
+            ).fetchone()
+            if row is None:
+                return []
+            rows = conn.execute(
+                """select id from chunks
+                   where document_id = ? and ordinal between ? and ?
+                     and id != ?""",
+                (row["document_id"], row["ordinal"] - ordinals,
+                 row["ordinal"] + ordinals, chunk_id),
+            ).fetchall()
+        return [r[0] for r in rows]
