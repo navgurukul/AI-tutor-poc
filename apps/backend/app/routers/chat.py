@@ -13,7 +13,12 @@ from app.schemas import ChatRequest, ChatResponse, Source, Usage
 from app.services.ollama_client import OllamaError, build_usage, client
 from app.services.sessions import store
 from app.services.rag import service as library
-from app.services.rag.retrieval import build_context_block, citations, retrieve
+from app.services.rag.retrieval import (
+    build_context_block,
+    citations,
+    fit_to_budget,
+    retrieve,
+)
 from app.services.tutor import (
     build_chat_messages,
     grade_from_profile,
@@ -51,15 +56,23 @@ def _effective_temperature(requested: Optional[float], profile) -> Optional[floa
 async def _retrieve_context(message: str, profile) -> tuple:
     """Textbook excerpts for this question, as (prompt block, citations).
 
-    Scoped to the session's grade and subject so a Class 6 question cannot be
-    answered out of a Class 11 chapter.
+    Scoped to the session's grade so a Class 6 question cannot be answered out
+    of a Class 11 chapter. Subject is deliberately not passed: it is already
+    inside every vector via the breadcrumb, where it ranks softly and can never
+    return an empty set the way a hard filter can.
+
+    The session's language goes with it. The ASR selection and the UI toggle
+    both already know it, and it decides which relevance ceiling applies --
+    getting it from the text instead is what discards a correct Hindi hit.
     """
     hits = await retrieve(
         library.store,
         message,
         grade=grade_from_profile(profile),
-        subject=(profile.subject if profile else None),
+        language=(profile.language if profile else None),
     )
+    # k falls before a passage is cut.
+    hits = fit_to_budget(hits)
     return build_context_block(hits), citations(hits)
 
 

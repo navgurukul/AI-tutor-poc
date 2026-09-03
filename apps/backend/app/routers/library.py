@@ -155,23 +155,48 @@ async def search(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     Exposed because when the tutor gives a poor answer, the first question is
     always whether retrieval found the right passage or the model ignored it,
-    and this separates the two.
+    and this separates the two. The evaluation harness is built on this route
+    for the same reason -- it measures retrieval, not generation.
+
+    `language` is the session language the gate should use. `raw` returns the
+    ungated dense leg with its distances, which is what calibration needs.
     """
     _require_store()
+    from app.services.rag.embeddings import embed_query
+    from app.services.rag.gate import resolve_query_language
+    from app.services.rag.query import build_match_query
     from app.services.rag.retrieval import citations, retrieve
 
     question = str(payload.get("question") or "").strip()
     if not question:
         raise HTTPException(status_code=422, detail="A question is required.")
+
+    grade = payload.get("grade")
+    language = payload.get("language")
+    k = int(payload.get("k") or settings.rag_top_k)
+
+    if payload.get("raw"):
+        # Ungated, so the on-topic and off-topic distance distributions can be
+        # read off directly. Every ceiling in config is a starting point until
+        # this has been run against a golden set.
+        vector = await embed_query(question)
+        hits = service.store.search(
+            vector, grade=grade, subject=None, k=int(payload.get("candidates") or 50)
+        )
+        return {
+            "question": question,
+            "query_language": resolve_query_language(language, question),
+            "match_query": build_match_query(question),
+            "hits": citations(hits),
+        }
+
     hits = await retrieve(
-        service.store,
-        question,
-        grade=payload.get("grade"),
-        subject=payload.get("subject"),
-        k=int(payload.get("k") or settings.rag_top_k),
+        service.store, question, grade=grade, k=k, language=language
     )
     return {
         "question": question,
+        "query_language": resolve_query_language(language, question),
+        "match_query": build_match_query(question),
         "hits": citations(hits),
         "excerpts": [h.text for h in hits],
     }

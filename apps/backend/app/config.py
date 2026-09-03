@@ -64,9 +64,18 @@ class Settings(BaseSettings):
     # the biggest CPU-latency lever, and Hindi costs 2-4x more tokens per word.
     # Raise it if answers get cut off mid-sentence.
     max_tokens: int = 200
-    # Smaller context = faster prompt processing on CPU. Enough for the system
-    # prompt plus the trimmed history below.
-    num_ctx: int = 3072
+    # Sized for the worst Devanagari case, not the English one. Four 2,000-
+    # character Hindi passages are ~5,800 tokens on their own; with the system
+    # prompt, breadcrumbs and replayed history the window has to hold roughly
+    # 4,000 even after rag_context_token_budget caps the excerpts. At 3072 --
+    # where the speech branch had left it, and where the merge silently kept it
+    # -- Ollama truncates from the front and drops the system prompt without
+    # raising anything.
+    #
+    # This costs prefill time and KV cache. Both are re-measured in phase 07;
+    # the 1.6 GB / 3.3 GB resident figures in the decision record were taken at
+    # a smaller window and do not hold here.
+    num_ctx: int = 6144
 
     # --- Conversation memory ---------------------------------------------
     # Number of past messages (user + assistant) replayed to the model. Kept
@@ -129,15 +138,43 @@ class Settings(BaseSettings):
     # prefill time on a CPU-bound model, which is the real latency cost of RAG
     # -- the search itself is under a millisecond.
     rag_top_k: int = 4
-    # Cosine distance above which a hit is treated as irrelevant. Without it a
-    # question the textbooks don't cover still drags in the four least-bad
-    # chunks and invites the model to answer from them.
+    # Candidates pulled from each leg before fusion. Fifty each is plenty at
+    # curriculum size -- the flat scan is ~8ms and the cost is all in prefill.
+    rag_candidates: int = 50
+    # Reciprocal Rank Fusion damping. Rank-based, so BM25 scores and cosine
+    # distances never need a common scale.
+    rag_rrf_k: int = 60
+
+    # --- The relevance gate ---
+    # There is no single rag_max_distance any more, and there cannot be: the
+    # distance scale shifts with the query language. A correct hit sits at 0.21
+    # for an English question and 0.51 for a Hindi question against the same
+    # English page, so one constant either discards every correct Hindi result
+    # or admits every wrong English one.
     #
-    # Calibrated, not guessed: against a Class 9 Science chapter, questions the
-    # text answers scored 0.12-0.34 and off-topic ones ("capital of France",
-    # "bake bread") scored 0.50-0.58. 0.42 sits in the gap. Re-measure with
-    # POST /api/library/search if you change the embedding model.
-    rag_max_distance: float = 0.42
+    # Relative gate: keep hits within this much of the best hit. Normalises the
+    # language offset away, because every candidate for one query shares it.
+    rag_relative_margin: float = 0.12
+    # Per-query-language ceilings: reject everything when even the best hit is
+    # this far out. This is the mechanism that lets the tutor decline.
+    #
+    # STARTING POINTS, to be re-measured against the golden set with
+    # scripts/evaluate_retrieval.py --calibrate. Not constants.
+    rag_ceiling_en: float = 0.45
+    rag_ceiling_hi: float = 0.62
+    rag_ceiling_mr: float = 0.62
+    # Romanized Hindi/Marathi ("utak kya hai") is its own bucket, not English.
+    # Read as English it takes the strictest ceiling and discards a correct hit
+    # at 0.51 -- the exact failure the per-language ceiling exists to prevent,
+    # returning through the one path nobody measured.
+    rag_ceiling_romanized: float = 0.62
+
+    # Token budget for the assembled context block. Tokens, not characters:
+    # Devanagari costs 2-4x more tokens per character, so a character budget
+    # fits four English passages and overruns on four Hindi ones -- after
+    # which Ollama truncates from the front, discarding the system prompt.
+    # Passages are added whole; k falls before a passage is cut.
+    rag_context_token_budget: int = 2600
     # Chunk bounds, in CHARACTERS -- splitting is a text operation. These are
     # not a context budget: 2,000 characters of English is about 500 tokens and
     # 2,000 characters of Hindi can be three times that, which is why the
