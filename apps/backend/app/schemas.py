@@ -69,12 +69,27 @@ class ChatRequest(GenerationOptions):
     )
 
 
+class Source(BaseModel):
+    """A textbook passage the reply was grounded in."""
+
+    title: str
+    heading: str = ""
+    page_start: int
+    page_end: int
+    grade: Optional[int] = None
+    subject: Optional[str] = None
+    distance: float = 0.0
+
+
 class ChatResponse(BaseModel):
     session_id: str
     reply: str
     model: str
     usage: Usage
     created_at: datetime
+    # Empty whenever the library is absent or nothing matched, which is also
+    # how the UI knows an answer came from the model alone.
+    sources: List[Source] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------
@@ -191,6 +206,8 @@ class HealthResponse(BaseModel):
     ollama: OllamaStatus
     model: ModelStatus
     active_sessions: int
+    # Free-form: the shape differs between "available" and "why it isn't".
+    library: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ModelInfo(BaseModel):

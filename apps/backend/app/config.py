@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     ollama_timeout_seconds: float = 180.0
     ollama_connect_timeout_seconds: float = 5.0
 
+    # Ollama unloads an idle model after 5 minutes by default, and reloading
+    # this one costs ~2s -- a student who pauses between questions would pay it
+    # every time. Accepts Ollama's own forms: a number of seconds ("-1" never
+    # unloads, "0" unloads immediately) or a duration ("30m", "1h").
+    ollama_keep_alive: str = "-1"
+    # Load the model at boot so the first question of the session doesn't pay
+    # the load cost. Runs in the background; startup never waits on it.
+    warm_model_on_startup: bool = True
+
     # --- Generation defaults ---------------------------------------------
     temperature: float = 0.7
     # Non-English turns run a touch lower than English (a little less script
@@ -94,6 +103,41 @@ class Settings(BaseSettings):
     # Playback speed multiplier. 1.0 = the voice's natural pace; lower is slower
     # (0.9 if it sounds rushed), higher is faster.
     tts_speed: float = 1.0
+
+    # --- Retrieval (RAG) ---------------------------------------------------
+    # Textbook retrieval is additive: if the store can't be opened the tutor
+    # still answers from the model alone, so a missing library is a degraded
+    # feature rather than a broken app.
+    rag_enabled: bool = True
+    # Kept beside the backend package so it travels with the app; the whole
+    # corpus (text + vectors) is one file that can be built centrally and
+    # copied onto a device, which is the only sane option on a 15W laptop.
+    rag_db_path: str = "data/library.db"
+    rag_embedding_model: str = "nomic-embed-text"
+    # Must match the model above. Baked into the vec0 table at creation, so
+    # changing either means re-ingesting; the store refuses a silent mismatch.
+    rag_embedding_dims: int = 768
+    # How many chunks are retrieved and pasted into the prompt. Each one costs
+    # prefill time on a CPU-bound model, which is the real latency cost of RAG
+    # -- the search itself is under a millisecond.
+    rag_top_k: int = 4
+    # Cosine distance above which a hit is treated as irrelevant. Without it a
+    # question the textbooks don't cover still drags in the four least-bad
+    # chunks and invites the model to answer from them.
+    #
+    # Calibrated, not guessed: against a Class 9 Science chapter, questions the
+    # text answers scored 0.12-0.34 and off-topic ones ("capital of France",
+    # "bake bread") scored 0.50-0.58. 0.42 sits in the gap. Re-measure with
+    # POST /api/library/search if you change the embedding model.
+    rag_max_distance: float = 0.42
+    # Characters per chunk, and the overlap carried between neighbours so a
+    # definition split across a boundary survives in at least one of them.
+    rag_chunk_chars: int = 1200
+    rag_chunk_overlap_chars: int = 180
+    # Chunks embedded per Ollama call during ingestion.
+    rag_embed_batch_size: int = 16
+    # Upload ceiling for a single PDF.
+    rag_max_upload_mb: int = 80
 
     # --- CORS -------------------------------------------------------------
     # Comma-separated list. "*" is fine for a local POC.

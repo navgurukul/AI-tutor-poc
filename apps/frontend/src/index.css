@@ -356,6 +356,99 @@ button {
   opacity: 0.55;
 }
 
+/* Citations — collapsed by default under a grounded tutor reply. */
+.citations {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  white-space: normal;
+}
+
+.citations__summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  user-select: none;
+}
+
+/* Safari draws its own disclosure marker unless this pseudo-element is hidden. */
+.citations__summary::-webkit-details-marker {
+  display: none;
+}
+
+.citations__summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.citations__chevron {
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 120ms ease;
+}
+
+.citations[open] .citations__chevron {
+  transform: rotate(90deg);
+}
+
+.citations__list {
+  margin: 8px 0 2px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.citations__item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.citations__page {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.citations__where {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.citations__title {
+  color: var(--text-h);
+}
+
+.citations__heading {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  /* Headings come from the PDF's own layout and can be long or fragmentary. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Mic controls */
 .tutor-controls {
   display: flex;
@@ -588,3 +681,212 @@ button {
     transform: rotate(360deg);
   }
 }
+
+/* --------------------------------------------------------------------------
+   Setup page (textbook library)
+   -------------------------------------------------------------------------- */
+.setup {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.setup__bar { display: flex; flex-direction: column; gap: 12px; }
+
+.setup__back {
+  align-self: flex-start;
+  background: none;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  padding: 4px 0;
+}
+.setup__back:hover { text-decoration: underline; }
+
+.setup__title { color: var(--text-h); font-size: 1.45rem; margin: 0; }
+.setup__sub { color: var(--text-muted); margin: 4px 0 0; font-size: 0.92rem; }
+
+.setup__alert {
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 0.9rem;
+  border: 1px solid transparent;
+}
+.setup__alert--error {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.setup__alert--warn {
+  background: var(--warning-bg);
+  border-color: var(--warning);
+  color: var(--text);
+}
+.setup__hint { color: var(--text-muted); margin-top: 6px; font-size: 0.85rem; }
+
+.setup__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.setup__stats > div {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+.setup__stat {
+  display: block;
+  color: var(--text-h);
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+/* The model name is text, not a number, so it needs to shrink to fit. */
+.setup__stat--sm { font-size: 0.95rem; word-break: break-all; }
+.setup__statLabel {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.setup__card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.setup__cardTitle {
+  color: var(--text-h);
+  font-size: 1rem;
+  margin: 0;
+}
+
+.setup__field { display: flex; flex-direction: column; gap: 6px; font-size: 0.88rem; }
+.setup__field > span { color: var(--text); }
+.setup__field em { color: var(--text-muted); font-style: normal; }
+.setup__field input[type="text"],
+.setup__field select,
+.setup__field input[type="file"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 9px 10px;
+  width: 100%;
+}
+.setup__field input:focus-visible,
+.setup__field select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.setup__row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.setup__submit {
+  align-self: flex-start;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border: 0;
+  border-radius: 999px;
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 10px 22px;
+}
+.setup__submit:disabled { cursor: not-allowed; filter: grayscale(0.6); opacity: 0.6; }
+.setup__note { color: var(--text-muted); font-size: 0.82rem; margin: 0; }
+
+.setup__job {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.setup__job--active { border-left-color: var(--accent); }
+.setup__job--done { border-left-color: var(--success); }
+.setup__job--error { border-left-color: var(--danger); }
+
+.setup__jobHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-h);
+  font-size: 0.92rem;
+}
+.setup__jobHead span { color: var(--text-muted); font-size: 0.82rem; }
+
+.setup__progress {
+  background: var(--surface-2);
+  border-radius: 999px;
+  height: 6px;
+  overflow: hidden;
+}
+.setup__progressFill {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  height: 100%;
+  transition: width 0.4s ease;
+}
+.setup__jobMeta { color: var(--text-muted); font-size: 0.82rem; }
+.setup__jobError { color: var(--danger); font-size: 0.86rem; }
+
+.setup__empty { color: var(--text-muted); font-size: 0.9rem; margin: 0; }
+.setup__list { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.setup__item {
+  align-items: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+.setup__itemTitle { color: var(--text-h); font-size: 0.92rem; }
+.setup__itemMeta { color: var(--text-muted); font-size: 0.8rem; margin-top: 2px; }
+.setup__delete {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--danger);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 5px 12px;
+  white-space: nowrap;
+}
+.setup__delete:hover { background: var(--danger-bg); }
+
+@media (max-width: 520px) {
+  .setup__row { grid-template-columns: 1fr; }
+  .setup__stats { grid-template-columns: 1fr; }
+}
+
+/* Link into the setup page from the tutor's app bar. */
+.appbar__setup {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 6px 12px;
+}
+.appbar__setup:hover { border-color: var(--accent); color: var(--accent); }

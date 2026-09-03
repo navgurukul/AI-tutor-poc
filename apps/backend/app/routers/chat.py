@@ -9,11 +9,14 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
 from app.config import settings
-from app.schemas import ChatRequest, ChatResponse, Usage
+from app.schemas import ChatRequest, ChatResponse, Source, Usage
 from app.services.ollama_client import OllamaError, build_usage, client
 from app.services.sessions import store
+from app.services.rag import service as library
+from app.services.rag.retrieval import build_context_block, citations, retrieve
 from app.services.tutor import (
     build_chat_messages,
+    grade_from_profile,
     needs_socratic_retry,
     socratic_retry_messages,
 )
@@ -45,6 +48,21 @@ def _effective_temperature(requested: Optional[float], profile) -> Optional[floa
     return None
 
 
+async def _retrieve_context(message: str, profile) -> tuple:
+    """Textbook excerpts for this question, as (prompt block, citations).
+
+    Scoped to the session's grade and subject so a Class 6 question cannot be
+    answered out of a Class 11 chapter.
+    """
+    hits = await retrieve(
+        library.store,
+        message,
+        grade=grade_from_profile(profile),
+        subject=(profile.subject if profile else None),
+    )
+    return build_context_block(hits), citations(hits)
+
+
 @router.post("/chat", response_model=ChatResponse, summary="Send a message (buffered)")
 async def chat(request: ChatRequest) -> ChatResponse:
     """Full reply in one response. Simple to integrate; use /chat/stream for
@@ -53,8 +71,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
     session.add("user", request.message)
 
     temperature = _effective_temperature(request.temperature, session.profile)
+    context, sources = await _retrieve_context(request.message, session.profile)
     messages = build_chat_messages(
-        session.history(settings.max_history_messages), session.profile
+        session.history(settings.max_history_messages), session.profile, context
     )
     try:
         response = await client.chat(
@@ -94,6 +113,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         model=response.get("model", request.model or settings.ollama_model),
         usage=Usage(**build_usage(response)),
         created_at=datetime.now(timezone.utc),
+        sources=[Source(**s) for s in sources],
     )
 
 
@@ -123,8 +143,13 @@ async def _stream_events(
 
     chunks = []
     try:
+        context, sources = await _retrieve_context(message, session.profile)
+        if sources:
+            # Emitted before the first token so the UI can show what the answer
+            # is grounded in while it is still being written.
+            yield _sse({"type": "sources", "sources": sources})
         messages = build_chat_messages(
-            session.history(settings.max_history_messages), session.profile
+            session.history(settings.max_history_messages), session.profile, context
         )
         async for chunk in client.chat_stream(
             messages, model=model, temperature=temperature, max_tokens=max_tokens

@@ -1,4 +1,4 @@
-import type { AskTutorRequest, AskTutorResponse } from "../types";
+import type { AskTutorRequest, AskTutorResponse, Citation } from "../types";
 import { mockAnswerFor } from "./mockData";
 
 export const API_BASE_URL =
@@ -143,6 +143,12 @@ export async function warmupTutor(
 export interface TutorStreamHandlers {
   /** Fired once, before the first token, with the (possibly new) session id. */
   onStart?: (sessionId: string) => void;
+  /**
+   * Fired once, before the first token, with the textbook passages retrieval
+   * put into the prompt. Not fired at all when the library had no match, which
+   * is what tells the UI the answer came from the model alone.
+   */
+  onSources?: (sources: Citation[]) => void;
   /** Fired per token as the model decodes. */
   onToken?: (token: string) => void;
   /** Fired once the model is finished, with the server's trimmed reply. */
@@ -151,12 +157,13 @@ export interface TutorStreamHandlers {
 
 /** One `data: {...}` frame from the backend's SSE stream. */
 interface StreamEvent {
-  type: "start" | "token" | "done" | "error";
+  type: "start" | "sources" | "token" | "done" | "error";
   session_id?: string;
   content?: string;
   reply?: string;
   detail?: string;
   hint?: string;
+  sources?: Citation[];
 }
 
 async function mockStream(
@@ -255,6 +262,9 @@ export async function askTutorStream(
           case "start":
             sessionId = event.session_id ?? sessionId;
             handlers.onStart?.(sessionId);
+            break;
+          case "sources":
+            if (event.sources?.length) handlers.onSources?.(event.sources);
             break;
           case "token":
             if (event.content) {

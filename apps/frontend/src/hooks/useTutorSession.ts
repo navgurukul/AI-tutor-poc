@@ -3,7 +3,7 @@ import { askTutorStream, warmupTutor } from "../services/api";
 import { useTutorTts } from "./tts/useTutorTts";
 import { useTutorSpeechToText } from "./stt/useTutorSpeechToText";
 import type { TutorLanguage } from "../config/languages";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, Citation } from "../types";
 
 export type TutorStage = "idle" | "listening" | "thinking" | "speaking" | "error";
 
@@ -150,14 +150,21 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
   // always targets the right message.
   const replyIdRef = useRef<string | null>(null);
 
+  // The backend sends its sources frame *before* the first token, so the reply
+  // bubble does not exist yet when they arrive. Parking them here and attaching
+  // them as the bubble is created avoids rendering an empty bubble that shows
+  // citations for an answer that has not started.
+  const pendingSourcesRef = useRef<Citation[] | undefined>(undefined);
+
   const setReplyText = useCallback((text: string) => {
     const id = replyIdRef.current;
     if (!id) return;
     setMessages((prev) => {
       const index = prev.findIndex((m) => m.id === id);
-      if (index === -1) return [...prev, { id, role: "tutor", text }];
+      if (index === -1)
+        return [...prev, { id, role: "tutor", text, sources: pendingSourcesRef.current }];
       const next = [...prev];
-      next[index] = { ...next[index], text };
+      next[index] = { ...next[index], text, sources: pendingSourcesRef.current };
       return next;
     });
   }, []);
@@ -217,6 +224,7 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
       firstAudioLoggedRef.current = false;
       allChunksQueuedRef.current = false;
       speechStoppedRef.current = false;
+      pendingSourcesRef.current = undefined;
 
       // Stop any speech still playing from a previous turn.
       cancelSpeech();
@@ -258,6 +266,9 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
           {
             onStart: (sessionId) => {
               sessionIdRef.current = sessionId;
+            },
+            onSources: (sources) => {
+              pendingSourcesRef.current = sources;
             },
             onToken: (token) => {
               if (firstTokenAt === null) {

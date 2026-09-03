@@ -14,6 +14,8 @@ interface TutorPageProps {
   subject: Subject;
   language: TutorLanguage;
   onLanguageChange: (code: string) => void;
+  /** Opens the textbook library. Omitted, the button is hidden. */
+  onOpenSetup?: () => void;
 }
 
 const STAGE_CAPTION: Record<string, string> = {
@@ -24,7 +26,13 @@ const STAGE_CAPTION: Record<string, string> = {
   error: "Tap the mic and ask a question",
 };
 
-export function TutorPage({ schoolClass, subject, language, onLanguageChange }: TutorPageProps) {
+export function TutorPage({
+  schoolClass,
+  subject,
+  language,
+  onLanguageChange,
+  onOpenSetup,
+}: TutorPageProps) {
   const {
     messages,
     stage,
@@ -118,6 +126,11 @@ export function TutorPage({ schoolClass, subject, language, onLanguageChange }: 
             onChange={onLanguageChange}
             disabled={stage === "thinking" || stage === "speaking"}
           />
+          {onOpenSetup && (
+            <button className="appbar__setup" type="button" onClick={onOpenSetup}>
+              Library
+            </button>
+          )}
           <VoiceToggle enabled={isVoiceEnabled} onToggle={toggleVoice} />
           <span className={`status-pill status-pill--${voiceStatus.tone}`}>
             <span className="status-dot" aria-hidden="true" />

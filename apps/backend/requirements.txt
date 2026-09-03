@@ -7,6 +7,18 @@ pydantic==2.10.4
 pydantic-settings==2.7.0
 python-dotenv==1.0.1
 
+# --- Speech ------------------------------------------------------------
 # Offline speech-to-text for the Indian languages: sherpa-onnx running
-# AI4Bharat's IndicConformer (CTC, int8). Prebuilt wheel, no compiler.
+# AI4Bharat's IndicConformer (CTC). The same package supplies the Piper VITS
+# voice used for non-English text-to-speech. Prebuilt wheel, no compiler.
 sherpa-onnx==1.13.6
+
+# --- Retrieval (RAG) ---------------------------------------------------
+# pypdf is pure Python, so there is no wheel to miss on any target machine.
+pypdf==6.16.2
+# sqlite-vec ships the SQLite extension the vector search runs on. It needs a
+# Python built with extension loading; macOS's system 3.9 is not one, so the
+# backend now expects 3.11+ (Windows: winget install Python.Python.3.12).
+sqlite-vec==0.1.9
+# FastAPI needs this to parse the PDF upload on the setup page.
+python-multipart==0.0.20
