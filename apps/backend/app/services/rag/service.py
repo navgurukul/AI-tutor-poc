@@ -11,6 +11,7 @@ from typing import Any, Dict
 
 from app.config import settings
 from app.services.rag.ingest import IngestionService
+from app.services.rag.reembed import ReembedService
 from app.services.rag.store import LibraryStore, StoreUnavailable
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ store = LibraryStore(
     embedding_model=settings.rag_embedding_model,
 )
 ingestion = IngestionService(store)
+reembedding = ReembedService(store)
 
 
 def open_store() -> None:
@@ -63,8 +65,9 @@ def status() -> Dict[str, Any]:
     return {
         "enabled": True,
         "available": True,
-        "embedding_model": settings.rag_embedding_model,
-        "dims": settings.rag_embedding_dims,
+        "embedding_model": store.embedding_model,
+        "dims": store.dims,
+        "vector_table": store.vector_table,
         "documents": store.document_count(),
         "chunks": store.chunk_count(),
         "db_path": str(store.db_path),

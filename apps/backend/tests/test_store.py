@@ -204,3 +204,67 @@ def test_delete_needs_the_original_text_not_just_the_rowid(store):
         conn.execute(
             "select count(*) from chunks_fts where chunks_fts match '\"tissue\"'"
         ).fetchone()
+
+
+# -- re-embedding ----------------------------------------------------------
+
+def test_reembed_builds_alongside_then_cuts_over(store):
+    """The old table serves queries until the new one is complete.
+
+    This is the mechanism that makes the embedding choice reversible. Until it
+    is exercised on a populated library it is only reversible in principle,
+    which is what the verification list means by "untested, it is not".
+    """
+    _add_book(store, texts=["Tissues are groups of cells.", "Xylem carries water."])
+    conn = store._require()
+    assert store.vector_table == "chunk_vectors_bge_m3"
+
+    rows = store.chunks_for_reembedding()
+    assert len(rows) == 2
+    # The breadcrumb is rebuilt, not stored -- it is what ingestion embedded.
+    assert rows[0]["embedding_text"].startswith("Class 9 > Science")
+    assert "Tissues are groups of cells." in rows[0]["embedding_text"]
+
+    target = "chunk_vectors_granite_embedding_278m"
+    store.create_vector_table(target, 4)
+    store.fill_vector_table(target, rows, [[0.5] * 4, [0.6] * 4])
+
+    # Both tables exist, and the old one is still the one being searched.
+    assert conn.execute("select count(*) from {}".format(target)).fetchone()[0] == 2
+    assert store.search(_vec(0.1), grade=9, subject=None, k=5), "old table still serving"
+
+    store.activate_vector_table(target, "granite-embedding:278m", 4)
+
+    assert store.vector_table == target
+    assert store.dims == 4
+    meta = dict(conn.execute("select key, value from meta").fetchall())
+    assert meta["vector_table"] == target
+    assert meta["embedding_model"] == "granite-embedding:278m"
+    assert meta["embedding_dims"] == "4"
+    # The old table is gone, so nothing can accidentally read stale vectors.
+    names = {
+        r[0] for r in conn.execute(
+            "select name from sqlite_master where name like 'chunk_vectors%'"
+        ).fetchall()
+    }
+    assert not any(n == "chunk_vectors_bge_m3" for n in names)
+    # And search works against the new one.
+    assert store.search([0.5] * 4, grade=9, subject=None, k=5)
+
+
+def test_a_failed_reembed_leaves_the_library_untouched(store):
+    _add_book(store, texts=["Tissues are groups of cells."])
+    target = "chunk_vectors_embeddinggemma"
+    store.create_vector_table(target, 4)
+    store.fill_vector_table(target, store.chunks_for_reembedding()[:1], [[0.5] * 4])
+
+    store.drop_vector_table(target)  # what the job does when embedding raises
+
+    assert store.vector_table == "chunk_vectors_bge_m3"
+    assert store.search(_vec(0.1), grade=9, subject=None, k=5)
+
+
+def test_the_active_table_can_never_be_dropped(store):
+    _add_book(store)
+    with pytest.raises(ValueError, match="currently serving"):
+        store.drop_vector_table(store.vector_table)

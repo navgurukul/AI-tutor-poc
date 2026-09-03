@@ -114,6 +114,41 @@ async def delete_document(document_id: int) -> Dict[str, Any]:
     return {"deleted": True, "id": document_id}
 
 
+@router.post("/reembed", status_code=202, summary="Re-embed the library with another model")
+async def start_reembed(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Rebuild the vectors under a different embedding model, in the background.
+
+    The tutor keeps answering from the current table throughout; the cutover
+    happens in one transaction when the last chunk is in. This is what makes
+    the embedding choice reversible -- and, until it has been run on a
+    populated library at least once, it is only reversible in principle.
+    """
+    _require_store()
+    model = (payload.get("model") or "").strip()
+    if not model:
+        raise HTTPException(status_code=422, detail="A model name is required.")
+    dims = payload.get("dims")
+    if not isinstance(dims, int) or dims <= 0:
+        raise HTTPException(
+            status_code=422, detail="dims must be the vector width of that model."
+        )
+    job = rag_service.reembedding.start(model=model, dims=dims)
+    return {"job": job.as_dict()}
+
+
+@router.get("/reembed/jobs", summary="Recent re-embed jobs")
+async def list_reembed_jobs() -> Dict[str, Any]:
+    return {"jobs": [j.as_dict() for j in rag_service.reembedding.recent()]}
+
+
+@router.get("/reembed/jobs/{job_id}", summary="Re-embed progress")
+async def reembed_job_status(job_id: str) -> Dict[str, Any]:
+    job = rag_service.reembedding.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="No such job.")
+    return {"job": job.as_dict()}
+
+
 @router.post("/search", summary="Search the library (debugging aid)")
 async def search(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Runs retrieval without the model.

@@ -422,6 +422,103 @@ class LibraryStore:
             cursor = conn.execute("delete from documents where id = ?", (document_id,))
         return cursor.rowcount > 0
 
+    # -- re-embedding ------------------------------------------------------
+    def chunks_for_reembedding(self) -> List[Dict[str, Any]]:
+        """Every chunk, with the breadcrumbed text it should be embedded as.
+
+        The breadcrumb is rebuilt here rather than stored, so a re-embed
+        reproduces exactly what ingestion would have produced -- if the
+        breadcrumb format ever changes, the next re-embed picks it up.
+        """
+        conn = self._require()
+        with self._lock:
+            rows = conn.execute(
+                """select c.id, c.text, c.heading, d.grade, d.subject, d.language
+                   from chunks c join documents d on d.id = c.document_id
+                   order by c.id"""
+            ).fetchall()
+        out = []
+        for r in rows:
+            crumbs = ["Class {}".format(r["grade"]), r["subject"]]
+            if r["heading"]:
+                crumbs.append(r["heading"])
+            out.append(
+                {
+                    "chunk_id": r["id"],
+                    "grade": r["grade"],
+                    "subject": r["subject"],
+                    "language": r["language"] or "",
+                    "embedding_text": "{}\n\n{}".format(" > ".join(crumbs), r["text"]),
+                }
+            )
+        return out
+
+    def create_vector_table(self, table: str, dims: int) -> None:
+        conn = self._require()
+        with self._lock, conn:
+            conn.execute(
+                """create virtual table if not exists {} using vec0(
+                       chunk_id integer primary key,
+                       grade integer partition key,
+                       subject text,
+                       language text,
+                       embedding float[{}] distance_metric=cosine
+                   )""".format(table, dims)
+            )
+
+    def fill_vector_table(
+        self, table: str, rows: Sequence[Dict[str, Any]], vectors: Sequence[Sequence[float]]
+    ) -> int:
+        conn = self._require()
+        with self._lock, conn:
+            for row, vector in zip(rows, vectors):
+                conn.execute(
+                    """insert into {}(chunk_id, grade, subject, language, embedding)
+                       values (?, ?, ?, ?, ?)""".format(table),
+                    (
+                        row["chunk_id"],
+                        row["grade"],
+                        row["subject"],
+                        row["language"],
+                        _serialise(vector),
+                    ),
+                )
+        return len(rows)
+
+    def drop_vector_table(self, table: str) -> None:
+        """Abandon a half-built table. Never called on the active one."""
+        if table == self.vector_table:
+            raise ValueError("Refusing to drop the table currently serving queries.")
+        conn = self._require()
+        with self._lock, conn:
+            conn.execute("drop table if exists {}".format(table))
+
+    def activate_vector_table(self, table: str, model: str, dims: int) -> None:
+        """Cut over to a freshly built table, in one transaction.
+
+        Until this runs, queries have been served from the old table and the
+        new one has been invisible. After it, the reverse -- with no window in
+        which the tutor is reading a table that is half full.
+        """
+        conn = self._require()
+        previous = self.vector_table
+        with self._lock, conn:
+            conn.executemany(
+                "insert into meta(key, value) values (?, ?) "
+                "on conflict(key) do update set value = excluded.value",
+                [
+                    ("embedding_model", model),
+                    ("embedding_dims", str(dims)),
+                    ("vector_table", table),
+                ],
+            )
+            if previous != table:
+                conn.execute("drop table if exists {}".format(previous))
+        self.vector_table = table
+        self.embedding_model = model
+        self.dims = dims
+        logger.info("Vector table cut over: %s -> %s (%s)", previous, table, model)
+
     # -- search ------------------------------------------------------------
     def search(
         self,

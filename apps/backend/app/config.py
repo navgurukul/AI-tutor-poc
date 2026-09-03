@@ -113,10 +113,18 @@ class Settings(BaseSettings):
     # corpus (text + vectors) is one file that can be built centrally and
     # copied onto a device, which is the only sane option on a 15W laptop.
     rag_db_path: str = "data/library.db"
-    rag_embedding_model: str = "nomic-embed-text"
+    # bge-m3, not nomic-embed-text. Measured on the mixed-library case -- a
+    # Hindi question against an English page -- nomic scored an off-topic
+    # passage *higher* than the one that answers it. A negative margin means
+    # Hindi retrieval is worse than random, and it fails silently. bge-m3 is
+    # the only model tested that ranks Hindi->English and Marathi->English
+    # correctly. It costs 1024 dims and ~3.4x the ingestion time; ingestion
+    # happens once, centrally, on a fast machine.
+    rag_embedding_model: str = "bge-m3"
     # Must match the model above. Baked into the vec0 table at creation, so
-    # changing either means re-ingesting; the store refuses a silent mismatch.
-    rag_embedding_dims: int = 768
+    # changing either means re-embedding -- which is now a background job
+    # rather than a redistribution, because chunks.text is already on device.
+    rag_embedding_dims: int = 1024
     # How many chunks are retrieved and pasted into the prompt. Each one costs
     # prefill time on a CPU-bound model, which is the real latency cost of RAG
     # -- the search itself is under a millisecond.
