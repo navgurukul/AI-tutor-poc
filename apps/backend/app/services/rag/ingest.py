@@ -171,8 +171,10 @@ class IngestionService:
 
         chunks = chunk_pages(
             pages,
-            chunk_chars=settings.rag_chunk_chars,
+            target_chars=settings.rag_chunk_target_chars,
             overlap_chars=settings.rag_chunk_overlap_chars,
+            max_chars=settings.rag_chunk_max_chars,
+            min_chars=settings.rag_chunk_min_chars,
         )
         if not chunks:
             job.status = "error"

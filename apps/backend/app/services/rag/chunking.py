@@ -59,10 +59,20 @@ def _tail_overlap(text: str, overlap_chars: int) -> str:
 
 def chunk_pages(
     pages: Sequence[str],
-    chunk_chars: int,
+    target_chars: int,
     overlap_chars: int,
+    max_chars: Optional[int] = None,
+    min_chars: int = 40,
 ) -> List[Chunk]:
-    """Group paragraphs into chunks, tracking heading and page range."""
+    """Group paragraphs into chunks, tracking heading and page range.
+
+    Three bounds, not one. Packing aims at `target_chars`; only a paragraph
+    that on its own exceeds `max_chars` is split on sentences. The gap between
+    them is deliberate -- a section that runs to 1,400 characters is better
+    kept whole than cut at 1,201, because the cut lands mid-explanation and
+    both halves embed worse than the whole did.
+    """
+    max_chars = max_chars or int(target_chars * 1.65)
     chunks: List[Chunk] = []
     buffer: List[str] = []
     buffer_len = 0
@@ -121,17 +131,22 @@ def chunk_pages(
             if start_page is None:
                 start_page = page_number
 
-            # A single paragraph longer than the target is split on sentences;
-            # this is the worked-example and long-definition case.
-            if len(para) > chunk_chars:
+            # Only a paragraph past the hard maximum is split on sentences;
+            # this is the worked-example and long-definition case. Between
+            # target and max it is left whole.
+            if len(para) > max_chars:
                 flush()
-                for sentence_group in _split_long_paragraph(para, chunk_chars):
+                for sentence_group in _split_long_paragraph(para, max_chars):
                     buffer.append(sentence_group)
                     buffer_len += len(sentence_group)
                     flush()
                 continue
 
-            if buffer_len + len(para) > chunk_chars:
+            # Adding this paragraph would pass the target. Close the chunk
+            # first -- unless doing so would leave the paragraph to start a
+            # chunk that then exceeds max on its own, which the branch above
+            # has already ruled out.
+            if buffer_len and buffer_len + len(para) > target_chars:
                 flush()
             buffer.append(para)
             buffer_len += len(para) + 2
@@ -140,16 +155,16 @@ def chunk_pages(
     # Re-number: flush() appends in order but overlap carries can leave gaps.
     for index, chunk in enumerate(chunks):
         chunk.ordinal = index
-    return [c for c in chunks if len(c.text.strip()) >= 40]
+    return [c for c in chunks if len(c.text.strip()) >= min_chars]
 
 
-def _split_long_paragraph(para: str, chunk_chars: int) -> List[str]:
+def _split_long_paragraph(para: str, max_chars: int) -> List[str]:
     sentences = re.split(r"(?<=[.!?])\s+", para)
     out: List[str] = []
     current: List[str] = []
     length = 0
     for sentence in sentences:
-        if length + len(sentence) > chunk_chars and current:
+        if length + len(sentence) > max_chars and current:
             out.append(" ".join(current))
             current, length = [], 0
         current.append(sentence)

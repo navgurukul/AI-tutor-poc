@@ -138,9 +138,24 @@ class Settings(BaseSettings):
     # "bake bread") scored 0.50-0.58. 0.42 sits in the gap. Re-measure with
     # POST /api/library/search if you change the embedding model.
     rag_max_distance: float = 0.42
-    # Characters per chunk, and the overlap carried between neighbours so a
-    # definition split across a boundary survives in at least one of them.
-    rag_chunk_chars: int = 1200
+    # Chunk bounds, in CHARACTERS -- splitting is a text operation. These are
+    # not a context budget: 2,000 characters of English is about 500 tokens and
+    # 2,000 characters of Hindi can be three times that, which is why the
+    # prompt is assembled against tokens instead (rag_context_token_budget).
+    #
+    # Three numbers rather than one. Paragraph packing aims at `target`; a
+    # single paragraph longer than `max` is split on sentences; anything under
+    # `min` is dropped. The gap between target and max is what lets a section
+    # run slightly long to stay whole rather than being cut at character 1,201.
+    rag_chunk_target_chars: int = 1200
+    rag_chunk_max_chars: int = 2000
+    # The floor is low on purpose. A one-line definition ("Xylem: the tissue
+    # that carries water.") is exactly what a definition question wants, and a
+    # higher floor drops it silently.
+    rag_chunk_min_chars: int = 40
+    # Overlap carried between neighbours so a definition split across a
+    # boundary survives in at least one of them. Zero at a heading -- see
+    # chunking.flush().
     rag_chunk_overlap_chars: int = 180
     # Chunks embedded per Ollama call during ingestion.
     rag_embed_batch_size: int = 16

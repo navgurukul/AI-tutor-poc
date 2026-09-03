@@ -129,6 +129,22 @@ _SENTENCE_END = re.compile(r"[.,;:]$")
 # rather than wrapping. 0.78 is deliberately generous: a false split costs one
 # extra paragraph boundary, a missed one merges two topics into a chunk.
 _SHORT_LINE_RATIO = 0.78
+# Devanagari (Hindi, Marathi) plus the Devanagari extended block. Used to spot
+# a script with no case distinction, where every capitalisation test below is
+# vacuously false and would leave the numbered-heading regex as the only rule
+# that can ever fire.
+_DEVANAGARI = re.compile(r"[\u0900-\u097F\uA8E0-\uA8FF]")
+# A caseless heading has to be short. Without case there is no other signal, so
+# this is deliberately tighter than the 12-word Latin limit -- a wrong hard cut
+# costs a merged topic and a mislabelled citation.
+_MAX_CASELESS_HEADING_WORDS = 8
+# Words that appear in a figure or table label rather than a section heading.
+# "Xylem Vessels" and "Fig. 6.2 Xylem Vessels" are both title-cased; only the
+# second is reliably not a heading.
+_LABEL_PREFIX = re.compile(
+    r"^(fig|figure|table|chart|diagram|plate|box|activity|exercise|example)\b[\s.:]*",
+    re.IGNORECASE,
+)
 
 
 def looks_like_heading(line: str) -> bool:
@@ -143,6 +159,8 @@ def looks_like_heading(line: str) -> bool:
         return False
     if _SENTENCE_END.search(stripped):
         return False
+    # A numbered section is the most reliable signal in any script, and the
+    # only one that fires for Devanagari before the caseless branch below.
     if _NUMBERED_HEADING.match(stripped):
         return True
     words = stripped.split()
@@ -151,10 +169,35 @@ def looks_like_heading(line: str) -> bool:
     letters = [c for c in stripped if c.isalpha()]
     if not letters:
         return False
+
+    # Devanagari has no case, so every test below this point is vacuously
+    # false for a Hindi or Marathi book -- which left the numbered regex as
+    # the only rule that could ever fire, and an unnumbered Devanagari chapter
+    # heading merging silently into the paragraph before it.
+    #
+    # With no case to read, brevity is the only signal left: a short line that
+    # does not end like a sentence, in a script where paragraphs do not look
+    # like this.
+    if _DEVANAGARI.search(stripped):
+        return len(words) <= _MAX_CASELESS_HEADING_WORDS
+
+    if _LABEL_PREFIX.match(stripped):
+        # "Fig. 6.2 Xylem Vessels" is a caption, not a section boundary.
+        return False
     if all(c.isupper() for c in letters):
         return True
+
+    # Title case alone is too weak. The old rule made *any* two capitalised
+    # words a heading, so every figure label ("Xylem Vessels", "Cardiac
+    # Muscle") became a hard cut -- splitting a section mid-explanation and
+    # filing the remainder under the label instead of the chapter.
+    #
+    # Require enough words that the line reads as a heading rather than a
+    # noun phrase lifted out of the prose around it.
     capitalised = sum(1 for w in words if w[:1].isupper())
-    return capitalised >= max(2, int(len(words) * 0.7))
+    if len(words) < 3:
+        return False
+    return capitalised >= max(3, int(len(words) * 0.7))
 
 
 def _reflow(text: str) -> str:
