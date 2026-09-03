@@ -197,7 +197,7 @@ class LibraryStore:
             #
             # external content (content='chunks'), so the text is stored once.
             # That is why delete_document() has to remove the index rows by
-            # hand, and before the content rows go.
+            # hand, with the exact text they were indexed with.
             conn.execute(
                 """create virtual table if not exists chunks_fts using fts5(
                        text,
@@ -206,11 +206,15 @@ class LibraryStore:
                        tokenize='trigram'
                    )"""
             )
-            # Cosine, not the vec0 default of L2. nomic's vectors are not unit
-            # length, so an L2 distance mixes "different topic" with "longer
-            # passage" and the cut-off stops meaning anything. Cosine compares
-            # direction only, which is what the model was trained for and what
-            # makes rag_max_distance portable across models.
+
+            # The file describes itself. Adopt what meta says BEFORE creating
+            # any vector table, so a re-embed cutover survives a restart --
+            # which is the whole point of naming the table for its model.
+            self._adopt_or_stamp_meta(conn)
+
+            # Cosine, not the vec0 default of L2. Cosine compares direction
+            # only, which is what the model was trained for and what makes a
+            # distance threshold mean the same thing for every passage length.
             #
             # `language` is a metadata column, deliberately not a second
             # partition key: grade x language x subject would shard the table
@@ -225,41 +229,66 @@ class LibraryStore:
                        embedding float[{}] distance_metric=cosine
                    )""".format(self.vector_table, self.dims)
             )
-            self._check_or_stamp_meta(conn)
 
-    def _check_or_stamp_meta(self, conn: sqlite3.Connection) -> None:
-        """Refuse to mix embeddings from two different models.
+    def _adopt_or_stamp_meta(self, conn: sqlite3.Connection) -> None:
+        """Take the store's identity from the file, not from config.
 
-        The vector width is fixed when the vec0 table is created, so a smaller
-        model would fail loudly -- but another 768-dim model would insert
-        happily and silently return nonsense, because distances between vectors
-        from different models are meaningless. The stamp turns that into an
-        error at startup.
+        A corpus knows which model produced it -- that is what `meta` is for --
+        and after a re-embed cutover the file is ahead of config by design. If
+        config were treated as authoritative, restarting the backend after a
+        cutover would either refuse to open a perfectly good library or, worse,
+        create a fresh empty table beside the real one and serve nothing from
+        it. Both were observed before this method existed.
+
+        So config supplies the *default* for a new file and nothing more. An
+        existing file wins, loudly.
         """
         rows = dict(conn.execute("select key, value from meta").fetchall())
-        expected = {
-            "schema_version": str(SCHEMA_VERSION),
-            "embedding_model": self.embedding_model,
-            "embedding_dims": str(self.dims),
-            "vector_table": self.vector_table,
-        }
         if not rows:
             conn.executemany(
-                "insert into meta(key, value) values (?, ?)", list(expected.items())
+                "insert into meta(key, value) values (?, ?)",
+                [
+                    ("schema_version", str(SCHEMA_VERSION)),
+                    ("embedding_model", self.embedding_model),
+                    ("embedding_dims", str(self.dims)),
+                    ("vector_table", self.vector_table),
+                ],
             )
             return
-        for key, want in expected.items():
-            got = rows.get(key)
-            if got is not None and got != want:
-                raise StoreUnavailable(
-                    "Library at {} was built with {}={!r}, but this backend expects {!r}.".format(
-                        self.db_path, key, got, want
-                    ),
-                    hint=(
-                        "Delete the file to rebuild it, or set the matching value in .env. "
-                        "Vectors from different models cannot be compared."
-                    ),
-                )
+
+        stored_version = rows.get("schema_version")
+        if stored_version is not None and stored_version != str(SCHEMA_VERSION):
+            raise StoreUnavailable(
+                "Library at {} is schema v{}, but this backend speaks v{}.".format(
+                    self.db_path, stored_version, SCHEMA_VERSION
+                ),
+                hint=(
+                    "Delete the file and re-ingest. The schema changed in a way "
+                    "that cannot be migrated in place."
+                ),
+            )
+
+        model = rows.get("embedding_model") or self.embedding_model
+        dims = int(rows.get("embedding_dims") or self.dims)
+        table = rows.get("vector_table") or vector_table_for(model)
+
+        if model != self.embedding_model or dims != self.dims:
+            logger.warning(
+                "Library at %s holds %s vectors (%d dims); config asks for %s "
+                "(%d dims). Serving what the file actually contains. To change "
+                "the model, run a re-embed (POST /api/library/reembed) rather "
+                "than editing config -- vectors from two models cannot be "
+                "compared, and the relevance ceilings are model-specific.",
+                self.db_path, model, dims, self.embedding_model, self.dims,
+            )
+        self.embedding_model = model
+        self.dims = dims
+        self.vector_table = table
+        # Backfill for a file stamped before the table was named for its model.
+        if "vector_table" not in rows:
+            conn.execute(
+                "insert into meta(key, value) values ('vector_table', ?)", (table,)
+            )
 
     # -- reads -------------------------------------------------------------
     def document_count(self) -> int:
@@ -517,7 +546,13 @@ class LibraryStore:
         self.vector_table = table
         self.embedding_model = model
         self.dims = dims
-        logger.info("Vector table cut over: %s -> %s (%s)", previous, table, model)
+        logger.warning(
+            "Vector table cut over: %s -> %s (%s, %d dims). The relevance "
+            "ceilings in config were calibrated for %s and DO NOT carry over -- "
+            "distance scales are model-specific. Re-run "
+            "scripts/evaluate_retrieval.py --calibrate before trusting the gate.",
+            previous, table, model, dims, self.embedding_model,
+        )
 
     # -- search ------------------------------------------------------------
     def search(

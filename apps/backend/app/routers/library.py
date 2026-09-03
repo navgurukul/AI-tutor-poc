@@ -132,18 +132,18 @@ async def start_reembed(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(
             status_code=422, detail="dims must be the vector width of that model."
         )
-    job = rag_service.reembedding.start(model=model, dims=dims)
+    job = service.reembedding.start(model=model, dims=dims)
     return {"job": job.as_dict()}
 
 
 @router.get("/reembed/jobs", summary="Recent re-embed jobs")
 async def list_reembed_jobs() -> Dict[str, Any]:
-    return {"jobs": [j.as_dict() for j in rag_service.reembedding.recent()]}
+    return {"jobs": [j.as_dict() for j in service.reembedding.recent()]}
 
 
 @router.get("/reembed/jobs/{job_id}", summary="Re-embed progress")
 async def reembed_job_status(job_id: str) -> Dict[str, Any]:
-    job = rag_service.reembedding.get(job_id)
+    job = service.reembedding.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="No such job.")
     return {"job": job.as_dict()}
@@ -179,7 +179,8 @@ async def search(payload: Dict[str, Any]) -> Dict[str, Any]:
         # Ungated, so the on-topic and off-topic distance distributions can be
         # read off directly. Every ceiling in config is a starting point until
         # this has been run against a golden set.
-        vector = await embed_query(question)
+        # The store's model, not config's -- see embeddings.embed_query.
+        vector = await embed_query(question, model=service.store.embedding_model)
         hits = service.store.search(
             vector, grade=grade, subject=None, k=int(payload.get("candidates") or 50)
         )

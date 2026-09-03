@@ -210,11 +210,23 @@ class Settings(BaseSettings):
     rag_ceiling_romanized: float = 0.0
 
     # Token budget for the assembled context block. Tokens, not characters:
-    # Devanagari costs 2-4x more tokens per character, so a character budget
-    # fits four English passages and overruns on four Hindi ones -- after
-    # which Ollama truncates from the front, discarding the system prompt.
-    # Passages are added whole; k falls before a passage is cut.
-    rag_context_token_budget: int = 2600
+    # a 2,000-character Devanagari passage measures 1,442 tokens against 578
+    # for the same characters of English, so four of them are 5,925 tokens of
+    # context alone. A character budget fits four English passages and
+    # overruns on four Hindi ones, after which Ollama truncates from the front
+    # and drops the system prompt without raising anything.
+    #
+    # Derived from num_ctx rather than guessed:
+    #   6144 num_ctx
+    #   - 564 system prompt with no context (measured, Hindi persona)
+    #   - 840 replayed history at max_history_messages
+    #   - 200 max_tokens for the reply
+    #   - 540 headroom, because the estimator errs low by design
+    #   = 4000
+    # Worst measured case (4 x 2,000-char Devanagari) fills it at k=2 and
+    # totals 4,613 of 6,144. Passages are added whole; k falls before a
+    # passage is cut.
+    rag_context_token_budget: int = 4000
     # Chunk bounds, in CHARACTERS -- splitting is a text operation. These are
     # not a context budget: 2,000 characters of English is about 500 tokens and
     # 2,000 characters of Hindi can be three times that, which is why the

@@ -72,7 +72,8 @@ async def retrieve(
         return []
     try:
         query_language = resolve_query_language(language, question)
-        vector = await embed_query(question)
+        # The store's model, not config's: after a re-embed cutover they differ.
+        vector = await embed_query(question, model=store.embedding_model)
         candidates = settings.rag_candidates
 
         dense = store.search(vector, grade=grade, subject=None, k=candidates)

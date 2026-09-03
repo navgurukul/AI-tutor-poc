@@ -202,7 +202,8 @@ class IngestionService:
             for start in range(0, len(chunks), batch_size):
                 batch = chunks[start : start + batch_size]
                 vectors = await embed_documents(
-                    [c.embedding_text(job.grade, job.subject) for c in batch]
+                    [c.embedding_text(job.grade, job.subject) for c in batch],
+                    model=self.store.embedding_model,
                 )
                 await asyncio.to_thread(
                     self.store.add_chunks,

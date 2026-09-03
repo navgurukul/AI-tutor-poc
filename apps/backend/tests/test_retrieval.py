@@ -263,7 +263,7 @@ async def test_an_empty_dense_leg_never_consults_bm25(store, monkeypatch):
     """
     from app.services.rag import retrieval
 
-    async def _far_vector(_text):
+    async def _far_vector(_text, model=None):
         # An axis no chunk occupies: cosine distance 1.0 to all of them, which
         # is past every ceiling. (A uniform vector would NOT work -- it is
         # parallel to nothing in particular but equidistant from everything.)
@@ -279,16 +279,25 @@ async def test_an_empty_dense_leg_never_consults_bm25(store, monkeypatch):
     monkeypatch.setattr(retrieval, "embed_query", _far_vector)
     monkeypatch.setattr(store, "search_lexical", _spy)
 
-    hits = await retrieval.retrieve(store, "who won the 1998 world cup", grade=9)
+    caplog_seen = []
+    original_warn = retrieval.logger.warning
+    retrieval.logger.warning = lambda *a, **k: caplog_seen.append(a)
+    try:
+        hits = await retrieval.retrieve(store, "who won the 1998 world cup", grade=9)
+    finally:
+        retrieval.logger.warning = original_warn
+
     assert hits == []
     assert consulted == [], "BM25 was consulted after the gate emptied"
+    # [] because the gate emptied, not because retrieve() swallowed an error.
+    assert not caplog_seen, "retrieve() failed rather than gated: {}".format(caplog_seen)
 
 
 @pytest.mark.asyncio
 async def test_a_covered_question_does_consult_bm25(store, monkeypatch):
     from app.services.rag import retrieval
 
-    async def _near_vector(_text):
+    async def _near_vector(_text, model=None):
         return _axis(0)              # sits exactly on the first chunk
 
     consulted = []
@@ -311,7 +320,7 @@ async def test_lexical_hits_must_clear_the_gate_or_neighbour_one(store, monkeypa
     """An unrelated lexical hit must not ride in on a good one."""
     from app.services.rag import retrieval
 
-    async def _near_first(_text):
+    async def _near_first(_text, model=None):
         return _axis(0)
 
     monkeypatch.setattr(retrieval, "embed_query", _near_first)
