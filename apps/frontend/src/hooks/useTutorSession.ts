@@ -3,7 +3,7 @@ import { askTutorStream, warmupTutor } from "../services/api";
 import { useTutorTts } from "./tts/useTutorTts";
 import { useTutorSpeechToText } from "./stt/useTutorSpeechToText";
 import type { TutorLanguage } from "../config/languages";
-import type { ChatMessage, Citation } from "../types";
+import type { ChatMessage, Citation, ClientTurnMetrics } from "../types";
 
 export type TutorStage = "idle" | "listening" | "thinking" | "speaking" | "error";
 
@@ -156,15 +156,25 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
   // citations for an answer that has not started.
   const pendingSourcesRef = useRef<Citation[] | undefined>(undefined);
 
+  // Metrics arrive with the very last frame, so unlike sources they are parked
+  // here only for the width of one setState — but through the same ref, so the
+  // bubble is written from one place and cannot end up with an answer from this
+  // turn and numbers from the last one.
+  const pendingMetricsRef = useRef<ClientTurnMetrics | undefined>(undefined);
+
   const setReplyText = useCallback((text: string) => {
     const id = replyIdRef.current;
     if (!id) return;
     setMessages((prev) => {
+      const patch = {
+        text,
+        sources: pendingSourcesRef.current,
+        metrics: pendingMetricsRef.current,
+      };
       const index = prev.findIndex((m) => m.id === id);
-      if (index === -1)
-        return [...prev, { id, role: "tutor", text, sources: pendingSourcesRef.current }];
+      if (index === -1) return [...prev, { id, role: "tutor", ...patch }];
       const next = [...prev];
-      next[index] = { ...next[index], text, sources: pendingSourcesRef.current };
+      next[index] = { ...next[index], ...patch };
       return next;
     });
   }, []);
@@ -225,6 +235,7 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
       allChunksQueuedRef.current = false;
       speechStoppedRef.current = false;
       pendingSourcesRef.current = undefined;
+      pendingMetricsRef.current = undefined;
 
       // Stop any speech still playing from a previous turn.
       cancelSpeech();
@@ -240,6 +251,10 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
       let answer = "";
       let unspoken = "";
       let firstTokenAt: number | null = null;
+      // Kept alongside `answer` rather than read back off the ref: TypeScript
+      // cannot see that a callback wrote to `.current`, and narrows it to the
+      // `undefined` it was reset to at the top of the turn.
+      let turnMetrics: ClientTurnMetrics | undefined;
 
       const enqueueSpeech = (text: string) => {
         if (!voiceEnabledRef.current || speechStoppedRef.current) return;
@@ -290,11 +305,26 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
               unspoken = rest;
               for (const sentence of sentences) enqueueSpeech(sentence);
             },
-            onDone: ({ sessionId, answer: finalAnswer }) => {
+            onDone: ({ sessionId, answer: finalAnswer, metrics }) => {
               sessionIdRef.current = sessionId;
               // The server's reply is the same text, trimmed; prefer it so the
               // bubble doesn't keep stray leading/trailing whitespace.
               answer = finalAnswer || answer;
+              // The server's clock starts when the request arrives. By then the
+              // student has already waited through capture and transcription,
+              // so the two browser-side numbers are added here rather than
+              // inferred from the server's — nothing on the backend can see them.
+              if (metrics) {
+                turnMetrics = {
+                  ...metrics,
+                  client_ttft_ms:
+                    firstTokenAt === null
+                      ? undefined
+                      : Math.round(firstTokenAt - turnStart),
+                  client_total_ms: Math.round(performance.now() - turnStart),
+                };
+                pendingMetricsRef.current = turnMetrics;
+              }
               setReplyText(answer);
             },
           },
@@ -304,6 +334,21 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
         console.log(
           `[timing] voice -> full reply: ${(performance.now() - turnStart).toFixed(0)}ms`,
         );
+
+        // The server-side split, alongside the browser-side one above. Retrieval
+        // is milliseconds and prefill is seconds, so the line that matters when
+        // tuning RAG is prefill against the context tokens that caused it.
+        const m = turnMetrics;
+        if (m) {
+          console.log(
+            `[timing] server: total ${m.total_ms.toFixed(0)}ms · ` +
+              `retrieval ${m.retrieval_ms.toFixed(0)}ms ` +
+              `(${m.retrieval.returned} passages, ${m.retrieval.context_tokens} tokens) · ` +
+              `prefill ${m.prefill_ms}ms (${m.prompt_tokens} tok) · ` +
+              `decode ${m.decode_ms}ms (${m.completion_tokens} tok @ ` +
+              `${m.tokens_per_second} tok/s)`,
+          );
+        }
 
         // The last sentence has no trailing whitespace to prove it ended, so it
         // is always still sitting in the tail here.

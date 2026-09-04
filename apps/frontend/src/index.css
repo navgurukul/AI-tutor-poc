@@ -449,6 +449,138 @@ button {
   white-space: nowrap;
 }
 
+/* Turn metrics — collapsed under the citations, for whoever is tuning the
+   tutor rather than the student using it. Deliberately quieter than the
+   citations above it: same disclosure affordance, muted instead of accent. */
+.metrics {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  white-space: normal;
+}
+
+.metrics__summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.metrics__summary::-webkit-details-marker {
+  display: none;
+}
+
+.metrics__summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.metrics[open] .citations__chevron {
+  transform: rotate(90deg);
+}
+
+/* Where the time went. Segments are proportional, so the one that dominates
+   is the one to go and fix — on this stack that is almost always prefill. */
+.metrics__bar {
+  display: flex;
+  height: 8px;
+  margin: 10px 0 7px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.metrics__seg {
+  height: 100%;
+  min-width: 2px;
+}
+
+.metrics__seg--retrieval { background: #38bdf8; }
+.metrics__seg--load      { background: #f87171; }
+.metrics__seg--prefill   { background: var(--accent); }
+.metrics__seg--decode    { background: #34d399; }
+.metrics__seg--retry     { background: var(--warning); }
+.metrics__seg--overhead  { background: var(--text-muted); }
+
+.metrics__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.metrics__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.metrics__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.metrics__group + .metrics__group {
+  margin-top: 12px;
+}
+
+.metrics__heading {
+  margin: 0 0 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.metrics__row {
+  display: grid;
+  /* The value column is fixed so the numbers line up down the panel; the hint
+     wraps under both, because several of them are a full sentence. */
+  grid-template-columns: 1fr auto;
+  gap: 0 10px;
+  padding: 3px 0;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.metrics__row + .metrics__row {
+  border-top: 1px solid var(--border);
+}
+
+.metrics__label {
+  color: var(--text);
+}
+
+.metrics__value {
+  color: var(--text-h);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.metrics__hint {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 /* Mic controls */
 .tutor-controls {
   display: flex;

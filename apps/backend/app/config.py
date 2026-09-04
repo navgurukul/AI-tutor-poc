@@ -113,6 +113,22 @@ class Settings(BaseSettings):
     # (0.9 if it sounds rushed), higher is faster.
     tts_speed: float = 1.0
 
+    # --- Per-turn metrics --------------------------------------------------
+    # Attach the timing and retrieval trace to every reply, and write one INFO
+    # line per turn. On by default: this is a POC whose whole latency story is
+    # invisible without it, and the cost is a few hundred bytes and roughly a
+    # millisecond of trigram sets against turns measured in seconds.
+    #
+    # Turn it off for a student-facing build, where the panel is noise and the
+    # numbers are nobody's business, or when profiling something else and the
+    # log line is in the way. Off means: no `metrics` on ChatResponse, no
+    # `metrics` in the SSE `done` frame, no log line, and no groundedness
+    # computed at all -- the frontend panel then has nothing to render, so it
+    # disappears without needing its own switch. (VITE_SHOW_METRICS hides the
+    # panel while leaving the numbers on the wire, which is the other half of
+    # the same control.)
+    metrics_enabled: bool = True
+
     # --- Retrieval (RAG) ---------------------------------------------------
     # Textbook retrieval is additive: if the store can't be opened the tutor
     # still answers from the model alone, so a missing library is a degraded
@@ -134,10 +150,30 @@ class Settings(BaseSettings):
     # changing either means re-embedding -- which is now a background job
     # rather than a redistribution, because chunks.text is already on device.
     rag_embedding_dims: int = 1024
-    # How many chunks are retrieved and pasted into the prompt. Each one costs
-    # prefill time on a CPU-bound model, which is the real latency cost of RAG
-    # -- the search itself is under a millisecond.
-    rag_top_k: int = 4
+    # How many chunks are retrieved and pasted into the prompt.
+    #
+    # MEASURED 2026-09-04 with the per-turn metrics, and the number this whole
+    # setting turns on: prefill is linear at ~15ms per prompt token, and one
+    # passage is ~285 tokens. **Every retrieved passage costs ~4.3s** of prefill
+    # before the student hears a word. That is the real latency cost of RAG --
+    # not the search, which is 3-8ms for the vector scan and 10-30ms for FTS5,
+    # both dwarfed by the 89ms query embedding and all of it 0.6% of a turn.
+    #
+    # Interleaved on four novel questions per arm (loaded dev box, so read the
+    # ratios and not the absolutes):
+    #
+    #        prompt      prefill    turn    groundedness
+    #   k=4  1404 tok     21.0s    29.8s       0.70
+    #   k=2   841 tok     11.9s    20.0s       0.57
+    #   none  270 tok      3.4s     7.5s        --
+    #
+    # k=2 gives back 9.1s of prefill and a third of the turn, but drops 0.13 of
+    # groundedness -- on some questions the passage that actually answers sits
+    # at rank 3 or 4. 3 is the middle: ~4.3s cheaper than 4, and it still
+    # reaches a rank-3 answer. Re-check with scripts/evaluate_retrieval.py
+    # --report after changing this; precision@k and the k in the harness both
+    # move with it.
+    rag_top_k: int = 3
     # Candidates pulled from each leg before fusion. Fifty each is plenty at
     # curriculum size -- the flat scan is ~8ms and the cost is all in prefill.
     rag_candidates: int = 50

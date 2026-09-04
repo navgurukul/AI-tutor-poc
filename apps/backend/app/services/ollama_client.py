@@ -279,7 +279,16 @@ class OllamaClient:
 
 
 def build_usage(response: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalise Ollama's nanosecond timings into a frontend-friendly shape."""
+    """Normalise Ollama's nanosecond timings into a frontend-friendly shape.
+
+    The prefill/decode split is carried through rather than folded into
+    `total_duration_ms`, because on CPU the two answer to opposite levers.
+    Prefill is charged per token of context, so it is where retrieval's real
+    latency cost lands -- four textbook passages are read in full before the
+    first token appears. Decode is charged per token produced, so it answers to
+    max_tokens and to how wordy the persona is. Summed together they say a turn
+    was slow; apart they say which change made it slow.
+    """
     eval_count = response.get("eval_count") or 0
     eval_duration_ns = response.get("eval_duration") or 0
     tps = (eval_count / (eval_duration_ns / 1e9)) if eval_duration_ns else 0.0
@@ -289,6 +298,8 @@ def build_usage(response: Dict[str, Any]) -> Dict[str, Any]:
         "total_duration_ms": int((response.get("total_duration") or 0) / 1e6),
         "load_duration_ms": int((response.get("load_duration") or 0) / 1e6),
         "tokens_per_second": round(tps, 2),
+        "prompt_eval_ms": int((response.get("prompt_eval_duration") or 0) / 1e6),
+        "eval_ms": int(eval_duration_ns / 1e6),
     }
 
 
