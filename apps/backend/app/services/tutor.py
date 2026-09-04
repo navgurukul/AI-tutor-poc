@@ -123,6 +123,17 @@ def build_system_prompt(
         # it. The rules -- and, for a non-English turn, the script instruction
         # that has to survive to the very end -- stay adjacent to the reply;
         # the excerpts sit above.
+        #
+        # It looks like this position costs the prompt cache, because the
+        # excerpts change every question and sit at the very front. It does
+        # not, and the opposite arrangement was built and measured before that
+        # was believed: Ollama reuses a prompt that STRICTLY EXTENDS the last
+        # one, not one that merely shares a prefix. Excerpts here satisfy that
+        # whenever two consecutive questions retrieve the same passages -- a
+        # repeated question went 14,274ms -> 1,631ms of prefill. Moved onto the
+        # last user message it can never be satisfied (turn N sends
+        # "excerpts + question" where turn N+1 replays a bare "question"), and
+        # the same repeat measured 13,625ms. See tests/test_prompt_layout.py.
         prompt = "{}\n\n{}".format(context, prompt)
     return prompt
 
