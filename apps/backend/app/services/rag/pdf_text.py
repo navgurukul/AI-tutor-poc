@@ -27,6 +27,26 @@ _REPEAT_THRESHOLD = 0.45
 # would have every line looking "repeated".
 _MIN_PAGES_FOR_REPEAT_DETECTION = 6
 
+# A running head carries the page number with it -- "SCIENCE 12",
+# "MATTER IN OUR SURROUNDINGS 7" -- so the exact string differs on every page
+# and exact-match counting never sees a repeat. These strip it back to a stem.
+_EDGE_PAGE_NUMBER = re.compile(r"[\s|\-–—_.]*\d{1,4}[\s|\-–—_.]*$")
+_NON_ALNUM = re.compile(r"[^0-9A-Za-z\u0900-\u097F]+")
+# A stem seen at the page edge on at least this many pages, with a *different*
+# trailing page number each time, is furniture. Three is enough to be sure the
+# number is tracking the page rather than being part of the title, and low
+# enough to catch a running head that only spans one chapter.
+_MIN_RUNNING_HEAD_PAGES = 3
+# A running head is a label, not a sentence. Body prose that happens to end in
+# a varying number -- "A further remark, number 20." at the foot of a page, or
+# "...as shown in equation 12." -- reaches exactly the same code path, and
+# without these two guards the stem rule eats it.
+_ENDS_A_SENTENCE = re.compile(r"[.!?]\s*$")
+# Length is measured in characters, not words: these lines are often
+# letter-spaced, so "MA TTER  IN O UR  S URROUNDING S 7" counts as nine words
+# while being a 34-character strap line.
+_MAX_RUNNING_HEAD_CHARS = 60
+
 # Lines that are only a page number, optionally decorated ("- 87 -", "|87|").
 _PAGE_NUMBER = re.compile(r"^[\s|\-–—_.]*\d{1,4}[\s|\-–—_.]*$")
 # NCERT prints this on every page of the reprint editions.
@@ -72,30 +92,84 @@ def _page_lines(page_text: str) -> List[str]:
     return [line.strip() for line in page_text.splitlines()]
 
 
+def _running_head_stem(line: str) -> str:
+    """A page-number-free, spacing-free key for an edge line.
+
+    Removing every non-alphanumeric character rather than merely collapsing
+    runs of whitespace is deliberate: textbook running heads are frequently
+    letter-spaced for effect, and pypdf hands them back with the spacing
+    intact -- "MA TTER  IN O UR  S URROUNDING S 7". Only by discarding the
+    spaces entirely does that land on the same key as its neighbours.
+    """
+    return _NON_ALNUM.sub("", _EDGE_PAGE_NUMBER.sub("", line)).lower()
+
+
 def _find_repeated_lines(pages: Sequence[str]) -> set:
-    """Identify running headers and footers by how often they repeat.
+    """Identify running headers and footers, and return the exact lines to drop.
 
     Only the first and last few lines of each page are considered: a sentence
     that legitimately recurs in body text ("Activity 6.1") should not be
     stripped, but the same string sitting at the top of forty pages is a header.
+
+    Two rules, because running heads come in two shapes.
+
+    A *constant* header is the same string every time and is caught by counting
+    exact lines against a share-of-pages threshold.
+
+    A *numbered* running head carries the page number -- "SCIENCE 2",
+    "SCIENCE 10" -- so every occurrence is a different string, each appears
+    exactly once, and exact counting never fires. Worse, the threshold cannot
+    simply be lowered: a per-chapter running head like "TISSUES 71" covers only
+    a dozen pages of a 215-page book, well under any safe share. So these are
+    matched on their stem instead, and confirmed by the page number *varying*
+    across occurrences -- which is what distinguishes a running head from a
+    heading that merely happens to start with a number.
     """
     if len(pages) < _MIN_PAGES_FOR_REPEAT_DETECTION:
         return set()
 
     counts: Counter = Counter()
+    # stem -> {trailing number seen: an exact line carrying it}
+    stems: dict = {}
     for page in pages:
         lines = [line for line in _page_lines(page) if line]
         # Three from each end is enough for a header, a footer, and a chapter
         # strap line, without reaching into the body.
         edges = lines[:3] + lines[-3:]
         for line in set(edges):
-            if len(line) > 2:
-                counts[line] += 1
+            if len(line) <= 2:
+                continue
+            counts[line] += 1
+            number = _EDGE_PAGE_NUMBER.search(line)
+            if not number:
+                continue
+            # Prose, not furniture: a chapter strap line does not end in a
+            # full stop, and is not a whole sentence long.
+            if _ENDS_A_SENTENCE.search(line):
+                continue
+            if len(line) > _MAX_RUNNING_HEAD_CHARS:
+                continue
+            stem = _running_head_stem(line)
+            if len(stem) < 3:
+                continue
+            stems.setdefault(stem, {}).setdefault(number.group().strip(), set()).add(line)
 
     cutoff = max(2, int(len(pages) * _REPEAT_THRESHOLD))
     repeated = {line for line, count in counts.items() if count >= cutoff}
+
+    numbered = set()
+    for stem, by_number in stems.items():
+        if len(by_number) < _MIN_RUNNING_HEAD_PAGES:
+            continue  # the number never varied, so it is part of the title
+        for lines in by_number.values():
+            numbered |= lines
+    repeated |= numbered
+
     if repeated:
-        logger.info("Dropping %d repeated header/footer line(s)", len(repeated))
+        logger.info(
+            "Dropping %d header/footer line(s) (%d numbered running heads)",
+            len(repeated), len(numbered),
+        )
     return repeated
 
 

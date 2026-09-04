@@ -119,3 +119,67 @@ def test_breadcrumb_puts_the_chapter_in_the_vector():
     assert text.startswith("Class 9 > Science > 6.1 Tissues")
     # ...and is stripped from what the model is shown.
     assert not chunks[0].text.startswith("Class 9")
+
+
+# -- running heads ---------------------------------------------------------
+
+from app.services.rag.pdf_text import _find_repeated_lines, _running_head_stem  # noqa: E402
+
+
+def test_stem_ignores_page_numbers_and_letter_spacing():
+    """Textbook running heads are letter-spaced and carry the page number."""
+    assert _running_head_stem("SCIENCE2") == _running_head_stem("SCIENCE10") == "science"
+    assert _running_head_stem("MA TTER  IN O UR  S URROUNDING S 7") == "matterinoursurroundings"
+    assert _running_head_stem("IS M ATTER AROUND US PURE? 23") == "ismatterarounduspure"
+
+
+def _book(n=20):
+    """A book with two alternating numbered running heads, as NCERT prints them."""
+    pages = []
+    for i in range(1, n + 1):
+        head = "SCIENCE%d" % i if i % 2 == 0 else "MA TTER  IN O UR  S URROUNDING S %d" % i
+        # Body lines must differ per page, or the share-of-pages rule correctly
+        # classifies them as furniture too and the test proves nothing.
+        pages.append(
+            "%s\nBody sentence number %d about matter.\nA further remark, number %d."
+            % (head, i, i)
+        )
+    return pages
+
+
+def test_numbered_running_heads_are_stripped():
+    """Exact-match counting cannot see these: every occurrence is a different
+    string, appearing exactly once. Before the stem rule they all survived and
+    became chunk headings, so students saw "SCIENCE76" as their citation."""
+    repeated = _find_repeated_lines(_book())
+    assert "SCIENCE2" in repeated
+    assert "MA TTER  IN O UR  S URROUNDING S 7" in repeated
+
+
+def test_body_text_survives_running_head_detection():
+    """Body lines end in a number too -- the stem rule must not eat them.
+
+    "A further remark, number 7." has a trailing digit and sits at a page edge,
+    so it reaches the same code path as a running head. What saves it is that
+    its stem is unique per page, never recurring across three pages.
+    """
+    repeated = _find_repeated_lines(_book())
+    assert not any("Body sentence" in line for line in repeated)
+    assert not any("further remark" in line for line in repeated)
+
+
+def test_a_number_that_never_varies_is_not_a_running_head():
+    """"9.1 First Law of Motion" repeated verbatim is a constant header, caught
+    by the share-of-pages rule -- but the stem rule must not claim it, because
+    its number is part of the title, not a page count."""
+    pages = ["9.1 First Law of Motion\nSome body text %d here." % i for i in range(12)]
+    stems = {}
+    # The stem rule requires the trailing number to VARY; here it never does.
+    repeated = _find_repeated_lines(pages)
+    # It is still dropped -- but by the exact-match rule, which is correct.
+    assert "9.1 First Law of Motion" in repeated
+
+
+def test_short_books_are_left_alone():
+    """Under six pages the statistics are meaningless."""
+    assert _find_repeated_lines(["SCIENCE1\nText", "SCIENCE2\nText"]) == set()
