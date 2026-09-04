@@ -183,3 +183,40 @@ def test_a_number_that_never_varies_is_not_a_running_head():
 def test_short_books_are_left_alone():
     """Under six pages the statistics are meaningless."""
     assert _find_repeated_lines(["SCIENCE1\nText", "SCIENCE2\nText"]) == set()
+
+
+# -- the debris filter must not be ASCII-only ------------------------------
+
+from app.services.rag.pdf_text import _MOSTLY_SYMBOLS, clean_pages  # noqa: E402
+
+
+def test_devanagari_prose_is_not_mistaken_for_debris():
+    """The bug that hid until a real Hindi textbook existed.
+
+    Written as [^A-Za-z0-9]{3,} the debris filter matched every line of a
+    Devanagari book, because Devanagari contains no ASCII letters. 70% of the
+    first Hindi textbook put through the pipeline was silently discarded --
+    197,085 characters in, 58,450 out -- with no error anywhere. An
+    English-only corpus could never surface it.
+    """
+    assert _MOSTLY_SYMBOLS.match("परमाणु की संरचना") is None
+    assert _MOSTLY_SYMBOLS.match("ऊतक कोशिकाओं का समूह है") is None
+    assert _MOSTLY_SYMBOLS.match("४.२.३ बोर का परमाण्विक मॉडल") is None
+
+
+def test_real_debris_is_still_dropped():
+    assert _MOSTLY_SYMBOLS.match("-----") is not None
+    assert _MOSTLY_SYMBOLS.match("।।।") is not None
+    assert _MOSTLY_SYMBOLS.match("+++ ---") is not None
+
+
+def test_a_devanagari_page_survives_cleaning():
+    pages = ["ऊतक कोशिकाओं का एक समूह है जो एक साथ मिलकर कार्य करती हैं।"] * 8
+    cleaned = clean_pages(pages)
+    kept = sum(len(p) for p in cleaned)
+    # Repeated-line detection will strip these as furniture (they are
+    # identical), so assert on a page that varies instead.
+    pages = ["ऊतक कोशिकाओं का समूह %d है जो कार्य करती हैं।" % i for i in range(8)]
+    cleaned = clean_pages(pages)
+    kept = sum(len(p) for p in cleaned)
+    assert kept > 0.9 * sum(len(p) for p in pages)

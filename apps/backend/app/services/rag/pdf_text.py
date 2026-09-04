@@ -59,8 +59,13 @@ _HYPHEN_BREAK = re.compile(r"(\w)-\s*\n\s*([a-z])")
 _EXCESS_BLANKS = re.compile(r"\n{3,}")
 _TRAILING_SPACE = re.compile(r"[ \t]+\n")
 _MULTI_SPACE = re.compile(r"[ \t]{2,}")
-# A line with almost no letters is extraction debris from a diagram or a rule.
-_MOSTLY_SYMBOLS = re.compile(r"^[^A-Za-z0-9]{3,}$")
+# A line with no letters or digits at all is extraction debris from a diagram
+# or a rule. The character class must be Unicode-aware: written as
+# [^A-Za-z0-9] it matched every line of a Devanagari book, because Devanagari
+# contains no ASCII letters -- which silently discarded 70% of the first Hindi
+# textbook put through the pipeline (197,085 characters in, 58,450 out) and
+# could not be seen at all while the corpus was English-only.
+_MOSTLY_SYMBOLS = re.compile(r"^[^\w]{3,}$", re.UNICODE)
 
 # Ligatures and typographic characters that pypdf hands back verbatim. NFKC
 # handles the ligatures, but not the quotes and dashes, and a chunk containing
