@@ -1,4 +1,3 @@
-import { useSpeechSynthesis } from "../useSpeechSynthesis";
 import { usePiperTts } from "./usePiperTts";
 import type { TutorLanguage } from "../../config/languages";
 
@@ -10,20 +9,20 @@ export interface TutorTtsApi {
   isSupported: boolean;
   isReady: boolean;
   isSpeaking: boolean;
-  voiceMissing: boolean;
+  /** The voice failed to load, so answers won't be read aloud. */
+  voiceError: boolean;
   /** The Piper voice model is still downloading (first use only). */
   voiceLoading: boolean;
   voiceDownloadProgress: { loaded: number; total: number } | null;
 }
 
 /**
- * Picks the text-to-speech engine for the current language:
- *   Has a `piper` voice (English, Hindi) -> browser Piper WASM (`usePiperTts`,
- *     our vendored react-sts-hooks Piper with a real `stop()`). The voice
- *     `.onnx` is downloaded once and cached, then synthesis runs on-device.
- *   Otherwise (Marathi) -> the OS `speechSynthesis` voice.
- * Both hooks are mounted every render; the inactive one stays dormant
- * (`usePiperTts(null)` loads nothing).
+ * Text-to-speech for the tutor: browser Piper WASM (`usePiperTts`, our vendored
+ * react-sts-hooks Piper with a real `stop()`), for every language.
+ *
+ * The voice `.onnx` named by `language.piper` is downloaded once and cached,
+ * then synthesis runs on-device - no network, no OS voices. A language without
+ * a `piper` block has no voice; see config/languages.ts for how to add one.
  */
 export function useTutorTts(language: TutorLanguage): TutorTtsApi {
   const piper = usePiperTts(
@@ -35,28 +34,18 @@ export function useTutorTts(language: TutorLanguage): TutorTtsApi {
         }
       : null,
   );
-  const browser = useSpeechSynthesis(language.speech);
-
-  if (language.piper) {
-    return {
-      speak: piper.speak,
-      cancel: piper.stop,
-      primeAudio: () => {},
-      isSupported: !piper.error,
-      // Don't gate the mic on the model download — the first answer's audio just
-      // waits for it; every answer after is instant (voice is cached).
-      isReady: true,
-      isSpeaking: piper.isPlaying,
-      voiceMissing: !!piper.error,
-      voiceLoading: piper.isLoading,
-      voiceDownloadProgress: piper.downloadProgress ?? null,
-    };
-  }
 
   return {
-    ...browser,
+    speak: piper.speak,
+    cancel: piper.stop,
     primeAudio: () => {},
-    voiceLoading: false,
-    voiceDownloadProgress: null,
+    isSupported: !!language.piper && !piper.error,
+    // Don't gate the mic on the model download — the first answer's audio just
+    // waits for it; every answer after is instant (voice is cached).
+    isReady: true,
+    isSpeaking: piper.isPlaying,
+    voiceError: !!piper.error,
+    voiceLoading: piper.isLoading,
+    voiceDownloadProgress: piper.downloadProgress ?? null,
   };
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getCachedOrFetch } from "react-sts-hooks";
+import { getCachedOrFetch } from "./voiceCache";
 
 /**
  * Piper WASM text-to-speech, vendored from react-sts-hooks `usePiper`.
@@ -113,6 +113,20 @@ export function usePiperTts(config: PiperTtsConfig | null): PiperTtsApi {
         const worker = new Worker(`${base}/piper_worker.js`);
         workerRef.current = worker;
 
+        // The worker only ever reports a failed init as a stderr line, so
+        // without this the hook would wait for an "output" that never comes and
+        // the UI would sit on the download bar forever.
+        const failInit = (message: string) => {
+          worker.removeEventListener("message", onInit);
+          console.error("[Piper]", message);
+          if (active) {
+            setIsReady(false);
+            setIsLoading(false);
+            setDownloadProgress(null);
+            setError(message);
+          }
+        };
+
         const onInit = (event: MessageEvent<WorkerMessage>) => {
           const data = event.data;
           if (data.kind === "output") {
@@ -123,10 +137,20 @@ export function usePiperTts(config: PiperTtsConfig | null): PiperTtsApi {
               setDownloadProgress(null);
             }
           } else if (data.kind === "stderr") {
-            console.log("[Piper]", data.message);
+            const message = data.message ?? "";
+            if (message.startsWith("Init failed:")) {
+              failInit(message);
+            } else {
+              console.log("[Piper]", message);
+            }
           }
         };
         worker.addEventListener("message", onInit);
+        // Catches the worker script itself failing to load/parse, which never
+        // reaches the message handler above.
+        worker.addEventListener("error", (event) => {
+          failInit(`Piper worker error: ${event.message || "failed to load"}`);
+        });
         worker.postMessage({
           kind: "init",
           input: warmupText || "Warmup",

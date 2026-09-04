@@ -153,7 +153,7 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
     isSupported: isSpeechSupported,
     isReady: isVoiceReady,
     isSpeaking: isPlaying,
-    voiceMissing,
+    voiceError,
     voiceLoading,
     voiceDownloadProgress,
   } = useTutorTts(language);
@@ -489,7 +489,7 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
     isPlaying,
     isVoiceReady,
     isSpeechSupported,
-    voiceMissing,
+    voiceError,
     voiceLoading,
     voiceDownloadProgress,
     isModelWarm,

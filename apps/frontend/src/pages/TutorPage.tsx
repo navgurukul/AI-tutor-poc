@@ -34,7 +34,7 @@ export function TutorPage({ schoolClass, subject, language, onLanguageChange }: 
     isTranscribing,
     isVoiceReady,
     isModelWarm,
-    voiceMissing,
+    voiceError,
     voiceLoading,
     voiceDownloadProgress,
     sttSupported,
@@ -128,18 +128,12 @@ export function TutorPage({ schoolClass, subject, language, onLanguageChange }: 
 
       <main className="screen tutor-screen">
         {!sttSupported && (
-          <ErrorBanner
-            message={
-              language.stt.engine === "backend"
-                ? "The offline speech model isn't ready. Re-run scripts/setup.ps1 and make sure the backend is running."
-                : "This browser doesn't support speech recognition. Try Chrome or Edge."
-            }
-          />
+          <ErrorBanner message="The offline speech model isn't ready. Re-run scripts/setup.ps1 and make sure the backend is running." />
         )}
 
-        {sttSupported && isVoiceEnabled && voiceMissing && (
+        {sttSupported && isVoiceEnabled && voiceError && (
           <ErrorBanner
-            message={`No offline ${language.name} voice is installed, so answers are read aloud with another voice. On Windows, add it under Settings → Time & Language → Speech, or turn the voice off.`}
+            message={`The ${language.name} voice didn't load, so answers won't be read aloud. Reload the page to retry, or turn the voice off.`}
           />
         )}
 

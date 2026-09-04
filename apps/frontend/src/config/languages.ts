@@ -2,22 +2,19 @@
 //
 //  - `name`   goes to the backend as `profile.language` ("Reply in <name>.")
 //             AND as the ?language= key for /api/stt.
-//  - `speech` is a BCP-47 tag (used by the OS speechSynthesis fallback).
+//  - `speech` is a BCP-47 tag, passed to the speech-to-text engine.
 //  - `native` is the label shown in the dropdown.
-//  - `stt`    picks the speech-to-text engine.
-//  - `piper`  Piper voice files (served from public/models/) for browser TTS via
-//             react-sts-hooks `usePiper`; omit to use the OS speechSynthesis
-//             voice instead.
+//  - `piper`  Piper voice files, served from public/models/, for browser TTS.
 //
 // Speech-to-text — every language goes through the backend /api/stt route
 // (sherpa-onnx), fully offline: English -> Whisper base.en; Hindi/Marathi ->
 // AI4Bharat IndicConformer (Devanagari output).
 //
-// Text-to-speech — browser Piper (WASM, via react-sts-hooks) for English and
-// Hindi; Marathi has no Piper voice, so it falls back to the OS speechSynthesis
-// voice (shows a "no offline voice" hint unless the Windows pack is installed).
-export type SttEngine = { engine: "browser" } | { engine: "backend" };
-
+// Text-to-speech — browser Piper (WASM) for every language, fully offline. Each
+// voice is one .onnx + .json in public/models/. Adding a language means adding
+// its voice files and a `piper` block here; nothing else changes.
+// Voices come from https://huggingface.co/rhasspy/piper-voices (auditionable at
+// https://rhasspy.github.io/piper-samples/).
 export interface PiperVoice {
   /** URL to the .onnx voice model, e.g. "/models/hi_IN-priyamvada-medium.onnx". */
   model: string;
@@ -36,11 +33,8 @@ export interface TutorLanguage {
   name: string;
   native: string;
   speech: string;
-  stt: SttEngine;
   piper?: PiperVoice;
 }
-
-const BACKEND: SttEngine = { engine: "backend" };
 
 export const LANGUAGES: TutorLanguage[] = [
   {
@@ -48,7 +42,6 @@ export const LANGUAGES: TutorLanguage[] = [
     name: "English",
     native: "English",
     speech: "en-US",
-    stt: BACKEND,
     piper: {
       // en_US-amy-low (16 kHz) not -medium: on a single-thread WASM CPU the
       // medium model runs ~200-300 ms per character, so a 100-char first
@@ -64,14 +57,26 @@ export const LANGUAGES: TutorLanguage[] = [
     name: "Hindi",
     native: "हिन्दी",
     speech: "hi-IN",
-    stt: BACKEND,
     piper: {
       model: "/models/hi_IN-priyamvada-medium.onnx",
       config: "/models/hi_IN-priyamvada-medium.json",
       warmup: "पहले उत्तर से पहले आवाज़ को एक पूरे वाक्य से तैयार कर लेते हैं।",
     },
   },
-  { code: "mr", name: "Marathi", native: "मराठी", speech: "mr-IN", stt: BACKEND },
+  {
+    code: "mr",
+    name: "Marathi",
+    native: "मराठी",
+    speech: "mr-IN",
+    piper: {
+      // mr_IN-google-medium is a 9-speaker model; the worker sends sid 0 when a
+      // model has a speaker_id_map, which is mrt_01523 - the voice on the Piper
+      // samples page. Like Hindi, there's no -low export, so it stays on medium.
+      model: "/models/mr_IN-google-medium.onnx",
+      config: "/models/mr_IN-google-medium.json",
+      warmup: "पहिल्या उत्तराआधी संपूर्ण वाक्याने आवाज तयार करून घेऊ.",
+    },
+  },
 ];
 
 export const DEFAULT_LANGUAGE = LANGUAGES[0];
