@@ -1,4 +1,4 @@
-import { usePiperTts } from "./usePiperTts";
+import { useBackendTts } from "./useBackendTts";
 import type { TutorLanguage } from "../../config/languages";
 
 export interface TutorTtsApi {
@@ -9,43 +9,30 @@ export interface TutorTtsApi {
   isSupported: boolean;
   isReady: boolean;
   isSpeaking: boolean;
-  /** The voice failed to load, so answers won't be read aloud. */
+  /** The voice isn't available, so answers won't be read aloud. */
   voiceError: boolean;
-  /** The Piper voice model is still downloading (first use only). */
-  voiceLoading: boolean;
-  voiceDownloadProgress: { loaded: number; total: number } | null;
 }
 
 /**
- * Text-to-speech for the tutor: browser Piper WASM (`usePiperTts`, our vendored
- * react-sts-hooks Piper with a real `stop()`), for every language.
+ * Text-to-speech for the tutor: the backend's /api/tts, which runs sherpa-onnx
+ * with one Piper voice per language (see apps/backend/app/services/tts.py).
  *
- * The voice `.onnx` named by `language.piper` is downloaded once and cached,
- * then synthesis runs on-device - no network, no OS voices. A language without
- * a `piper` block has no voice; see config/languages.ts for how to add one.
+ * The browser only plays the WAV it receives — the same engine and voices that
+ * used to run in a WASM worker here, but ~12-20x faster on native CPU, and with
+ * nothing for the client to download.
  */
 export function useTutorTts(language: TutorLanguage): TutorTtsApi {
-  const piper = usePiperTts(
-    language.piper
-      ? {
-          voiceModelUrl: language.piper.model,
-          voiceConfigUrl: language.piper.config,
-          warmupText: language.piper.warmup,
-        }
-      : null,
-  );
+  const tts = useBackendTts(language.name);
 
   return {
-    speak: piper.speak,
-    cancel: piper.stop,
+    speak: tts.speak,
+    cancel: tts.stop,
     primeAudio: () => {},
-    isSupported: !!language.piper && !piper.error,
-    // Don't gate the mic on the model download — the first answer's audio just
-    // waits for it; every answer after is instant (voice is cached).
+    isSupported: !tts.error,
+    // Don't gate the mic on the voice: the backend warms every installed voice
+    // at boot, and a missing one only costs the audio, not the answer.
     isReady: true,
-    isSpeaking: piper.isPlaying,
-    voiceError: !!piper.error,
-    voiceLoading: piper.isLoading,
-    voiceDownloadProgress: piper.downloadProgress ?? null,
+    isSpeaking: tts.isPlaying,
+    voiceError: !!tts.error,
   };
 }

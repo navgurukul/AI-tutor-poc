@@ -2,18 +2,36 @@
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
 from app.config import settings
-from app.schemas import ChatRequest, ChatResponse, Usage
+from app.schemas import (
+    ChatRequest,
+    ChatResponse,
+    RetrievalMetrics,
+    Source,
+    TurnMetrics,
+    Usage,
+)
 from app.services.ollama_client import OllamaError, build_usage, client
 from app.services.sessions import store
+from app.services.rag import service as library
+from app.services.rag.metrics import elapsed_ms, format_turn, groundedness
+from app.services.rag.retrieval import (
+    build_context_block,
+    citations,
+    fit_to_budget,
+    retrieve,
+)
+from app.services.rag.store import Retrieved
 from app.services.tutor import (
     build_chat_messages,
+    grade_from_profile,
     needs_socratic_retry,
     socratic_retry_messages,
 )
@@ -45,39 +63,128 @@ def _effective_temperature(requested: Optional[float], profile) -> Optional[floa
     return None
 
 
+async def _retrieve_context(
+    message: str, profile
+) -> Tuple[str, List[dict], List[Retrieved], Optional[RetrievalMetrics]]:
+    """Textbook excerpts for this question.
+
+    Returns the prompt block, the citations for the UI, the hits themselves
+    (groundedness needs their text once the answer exists) and the trace of how
+    retrieval got there -- or None for the trace when metrics are switched off,
+    in which case retrieval fills nothing.
+
+    Scoped to the session's grade so a Class 6 question cannot be answered out
+    of a Class 11 chapter. Subject is deliberately not passed: it is already
+    inside every vector via the breadcrumb, where it ranks softly and can never
+    return an empty set the way a hard filter can.
+
+    The session's language goes with it. The ASR selection and the UI toggle
+    both already know it, and it decides which relevance ceiling applies --
+    getting it from the text instead is what discards a correct Hindi hit.
+    """
+    trace = RetrievalMetrics() if settings.metrics_enabled else None
+    hits = await retrieve(
+        library.store,
+        message,
+        grade=grade_from_profile(profile),
+        language=(profile.language if profile else None),
+        metrics=trace,
+    )
+    # k falls before a passage is cut.
+    hits = fit_to_budget(hits, metrics=trace)
+    return build_context_block(hits), citations(hits), hits, trace
+
+
+def _turn_metrics(
+    trace: RetrievalMetrics,
+    usage: Dict[str, Any],
+    *,
+    retrieval_ms: float,
+    llm_ms: float,
+    retry_ms: float,
+    total_ms: float,
+    ttft_ms: Optional[float],
+    reply: str,
+    hits: List[Retrieved],
+) -> TurnMetrics:
+    """Assemble one turn's numbers from the two clocks that measured it.
+
+    `overhead_ms` is the wall clock the model cannot account for: HTTP to the
+    Ollama daemon, JSON, and time the event loop spent elsewhere. It is
+    normally small, and when it is not, the fix is not in the prompt.
+    """
+    model_ms = usage["load_duration_ms"] + usage["prompt_eval_ms"] + usage["eval_ms"]
+    grounded, grounded_note = groundedness(reply, hits)
+    return TurnMetrics(
+        retrieval=trace,
+        retrieval_ms=retrieval_ms,
+        ttft_ms=ttft_ms,
+        llm_ms=llm_ms,
+        retry_ms=retry_ms,
+        total_ms=total_ms,
+        load_ms=usage["load_duration_ms"],
+        prefill_ms=usage["prompt_eval_ms"],
+        decode_ms=usage["eval_ms"],
+        overhead_ms=round(max(0.0, total_ms - retrieval_ms - model_ms - retry_ms), 1),
+        prompt_tokens=usage["prompt_tokens"],
+        completion_tokens=usage["completion_tokens"],
+        tokens_per_second=usage["tokens_per_second"],
+        groundedness=grounded,
+        groundedness_note=grounded_note,
+    )
+
+
 @router.post("/chat", response_model=ChatResponse, summary="Send a message (buffered)")
 async def chat(request: ChatRequest) -> ChatResponse:
     """Full reply in one response. Simple to integrate; use /chat/stream for
     token-by-token UX."""
+    turn_started = time.perf_counter()
     session = await store.get_or_create(request.session_id, request.profile)
     session.add("user", request.message)
 
     temperature = _effective_temperature(request.temperature, session.profile)
-    messages = build_chat_messages(
-        session.history(settings.max_history_messages), session.profile
+    retrieval_started = time.perf_counter()
+    context, sources, hits, trace = await _retrieve_context(
+        request.message, session.profile
     )
+    retrieval_ms = elapsed_ms(retrieval_started)
+    messages = build_chat_messages(
+        session.history(settings.max_history_messages), session.profile, context
+    )
+    retry_ms = 0.0
+    # A throwaway one-token call from the frontend on page load, not a question
+    # anyone is waiting on. It decides two things: whether to skip the socratic
+    # re-ask (a one-token reply cannot end with "?"), and how the turn is
+    # labelled in the log, so warm-up cost is not averaged in with real turns.
+    warming_up = (request.max_tokens or settings.max_tokens) <= 2
     try:
+        llm_started = time.perf_counter()
         response = await client.chat(
             messages,
             model=request.model,
             temperature=temperature,
             max_tokens=request.max_tokens,
         )
+        llm_ms = elapsed_ms(llm_started)
 
         reply = (response.get("message") or {}).get("content", "").strip()
 
         # Socratic mode drifts into lecturing on this model; re-ask once when it
         # does. Skip it for a warm-up call (max_tokens 1) -- the 1-token reply
         # can't end with "?" but there's nothing to re-ask.
-        warming_up = (request.max_tokens or settings.max_tokens) <= 2
         if not warming_up and needs_socratic_retry(reply, session.profile):
             logger.info("Socratic reply drifted into an explanation; re-asking once.")
+            retry_started = time.perf_counter()
             retry = await client.chat(
                 socratic_retry_messages(messages, reply, request.message),
                 model=request.model,
                 temperature=temperature,
                 max_tokens=request.max_tokens,
             )
+            # Timed even when the retry is discarded below: the student waited
+            # for it either way, and a rejected retry is the worse case, not a
+            # free one.
+            retry_ms = elapsed_ms(retry_started)
             retry_reply = (retry.get("message") or {}).get("content", "").strip()
             if retry_reply.endswith("?"):
                 reply, response = retry_reply, retry
@@ -88,12 +195,33 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     session.add("assistant", reply)
 
+    usage = build_usage(response)
+    metrics = None
+    if trace is not None:
+        metrics = _turn_metrics(
+            trace,
+            usage,
+            retrieval_ms=retrieval_ms,
+            llm_ms=llm_ms,
+            retry_ms=retry_ms,
+            total_ms=elapsed_ms(turn_started),
+            # A buffered turn has no first token to time: nothing leaves the
+            # server until the whole answer exists. Reporting llm_ms here
+            # instead would read as a TTFT this endpoint cannot deliver.
+            ttft_ms=None,
+            reply=reply,
+            hits=hits,
+        )
+        logger.info("%s", format_turn(metrics, "warm-up" if warming_up else "turn"))
+
     return ChatResponse(
         session_id=session.session_id,
         reply=reply,
         model=response.get("model", request.model or settings.ollama_model),
-        usage=Usage(**build_usage(response)),
+        usage=Usage(**usage),
         created_at=datetime.now(timezone.utc),
+        sources=[Source(**s) for s in sources],
+        metrics=metrics,
     )
 
 
@@ -110,6 +238,7 @@ async def _stream_events(
     Errors are emitted as events rather than raised, because the HTTP status is
     already committed once streaming begins.
     """
+    turn_started = time.perf_counter()
     session = await store.get_or_create(session_id, profile)
     session.add("user", message)
     temperature = _effective_temperature(temperature, session.profile)
@@ -123,27 +252,59 @@ async def _stream_events(
 
     chunks = []
     try:
+        retrieval_started = time.perf_counter()
+        context, sources, hits, trace = await _retrieve_context(message, session.profile)
+        retrieval_ms = elapsed_ms(retrieval_started)
+        if sources:
+            # Emitted before the first token so the UI can show what the answer
+            # is grounded in while it is still being written.
+            yield _sse({"type": "sources", "sources": sources})
         messages = build_chat_messages(
-            session.history(settings.max_history_messages), session.profile
+            session.history(settings.max_history_messages), session.profile, context
         )
+        llm_started = time.perf_counter()
+        ttft_ms: Optional[float] = None
         async for chunk in client.chat_stream(
             messages, model=model, temperature=temperature, max_tokens=max_tokens
         ):
             token = (chunk.get("message") or {}).get("content", "")
             if token:
+                if ttft_ms is None:
+                    # Measured from the top of the turn, not from llm_started:
+                    # retrieval is part of what the student waited through, and
+                    # a TTFT that excludes it would go on looking healthy as
+                    # retrieval got slower.
+                    ttft_ms = elapsed_ms(turn_started)
                 chunks.append(token)
                 yield _sse({"type": "token", "content": token})
             if chunk.get("done"):
                 reply = "".join(chunks).strip()
                 session.add("assistant", reply)
-                yield _sse(
-                    {
-                        "type": "done",
-                        "session_id": session.session_id,
-                        "reply": reply,
-                        "usage": build_usage(chunk),
-                    }
-                )
+                usage = build_usage(chunk)
+                done: Dict[str, Any] = {
+                    "type": "done",
+                    "session_id": session.session_id,
+                    "reply": reply,
+                    "usage": usage,
+                }
+                if trace is not None:
+                    metrics = _turn_metrics(
+                        trace,
+                        usage,
+                        retrieval_ms=retrieval_ms,
+                        llm_ms=elapsed_ms(llm_started),
+                        retry_ms=0.0,
+                        total_ms=elapsed_ms(turn_started),
+                        ttft_ms=ttft_ms,
+                        reply=reply,
+                        hits=hits,
+                    )
+                    logger.info("%s", format_turn(metrics))
+                    # Sent with `done` rather than as its own frame: these are
+                    # read after the answer, and the retrieval half of them
+                    # matters most when `sources` never fired at all.
+                    done["metrics"] = metrics.model_dump()
+                yield _sse(done)
     except OllamaError as exc:
         logger.warning("Stream failed: %s", exc.detail)
         session.pop_last()

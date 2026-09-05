@@ -6,6 +6,7 @@ a JSON schema is far more reliable than asking politely for JSON.
 """
 
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 from app.schemas import TutorProfile
@@ -40,7 +41,9 @@ STYLE_RULES = {
 }
 
 
-def build_system_prompt(profile: Optional[TutorProfile]) -> str:
+def build_system_prompt(
+    profile: Optional[TutorProfile], context: Optional[str] = None
+) -> str:
     profile = profile or TutorProfile()
     lines: List[str] = [
         "You are a patient tutor for a school student who is learning a topic "
@@ -116,16 +119,48 @@ def build_system_prompt(profile: Optional[TutorProfile]) -> str:
                 "जैसे वाक्य 'राम दिल्ली में रहता है' में 'राम' और 'दिल्ली' दोनों संज्ञा हैं, "
                 "क्योंकि एक व्यक्ति का नाम है और दूसरा स्थान का।\""
             )
-    return " ".join(lines)
+
+    prompt = " ".join(lines)
+    if context:
+        # Appended after the rules rather than before them. This model weights
+        # the end of the prompt most heavily, and a few hundred words of
+        # textbook dropped in front of the persona pushed the style rules out
+        # of reach -- it started reciting the passage instead of tutoring from
+        # it. The rules -- and, for a non-English turn, the script instruction
+        # that has to survive to the very end -- stay adjacent to the reply;
+        # the excerpts sit above.
+        prompt = "{}\n\n{}".format(context, prompt)
+    return prompt
+
+
+def grade_from_profile(profile: Optional[TutorProfile]) -> Optional[int]:
+    """Pull an integer grade out of the free-text level on the profile.
+
+    The profile carries level as prose ("Grade 8", "Class 6"), because that is
+    what the prompt wants, but retrieval partitions on an integer. Anything
+    unparseable returns None, which searches every grade rather than guessing
+    one -- a wrong grade silently hides the right chapter.
+    """
+    if profile is None or not profile.level:
+        return None
+    match = re.search(r"\d{1,2}", profile.level)
+    if not match:
+        return None
+    grade = int(match.group())
+    return grade if 1 <= grade <= 12 else None
 
 
 
 
 def build_chat_messages(
-    history: List[Dict[str, str]], profile: Optional[TutorProfile]
+    history: List[Dict[str, str]],
+    profile: Optional[TutorProfile],
+    context: Optional[str] = None,
 ) -> List[Dict[str, str]]:
-    """Prepend the persona to the replayed history."""
-    return [{"role": "system", "content": build_system_prompt(profile)}] + history
+    """Prepend the persona (and any retrieved textbook context) to the history."""
+    return [
+        {"role": "system", "content": build_system_prompt(profile, context)}
+    ] + history
 
 
 # --------------------------------------------------------------------------

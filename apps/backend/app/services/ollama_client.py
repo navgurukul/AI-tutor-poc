@@ -36,6 +36,18 @@ class OllamaError(Exception):
         self.hint = hint
 
 
+def _keep_alive() -> Any:
+    """Ollama takes `keep_alive` as either seconds (a number) or a duration
+    string. Settings arrive as strings via env vars, so send whichever form the
+    configured value actually is -- "-1" must go as the number -1, not the text.
+    """
+    raw = str(settings.ollama_keep_alive).strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
+
+
 class OllamaClient:
     def __init__(
         self,
@@ -111,25 +123,40 @@ class OllamaClient:
         except httpx.HTTPError as exc:
             raise OllamaError("Failed to list Ollama models: {}".format(exc))
 
-    async def warm(self, model: Optional[str] = None) -> float:
-        """Load the model into RAM with a 1-token no-op generation, so the first
-        real request doesn't pay the cold start (~8-20s for a 2B model on a
-        4 GB CPU). With keep_alive=-1 it then stays resident. Returns Ollama's
-        reported load_duration in ms; best-effort, swallows failures."""
-        payload = {
-            "model": model or settings.ollama_model,
-            "messages": [{"role": "user", "content": "ok"}],
-            "stream": False,
-            "keep_alive": _keep_alive(),
-            "options": {"num_predict": 1},
-        }
+    # -- embeddings --------------------------------------------------------
+    async def embed(
+        self, inputs: List[str], model: Optional[str] = None
+    ) -> List[List[float]]:
+        """Embed a batch of strings with the retrieval model.
+
+        Ollama's /api/embed takes a list and returns vectors in the same order,
+        so ingestion sends batches rather than paying HTTP overhead per chunk.
+        The embedding model is a different model from the chat one, and asking
+        for it keeps it resident alongside -- both are small enough that this
+        is cheaper than reloading either.
+        """
+        if not inputs:
+            return []
+        target = model or settings.rag_embedding_model
         try:
-            response = await self.client.post("/api/chat", json=payload)
-            response.raise_for_status()
-            return response.json().get("load_duration", 0) / 1e6
+            response = await self.client.post(
+                "/api/embed",
+                json={"model": target, "input": inputs, "keep_alive": _keep_alive()},
+            )
+            self._raise_for_response(response, target)
+            vectors = response.json().get("embeddings") or []
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            raise self._unreachable(exc)
         except httpx.HTTPError as exc:
-            logger.warning("Model warm-up failed (non-fatal): %s", exc)
-            return 0.0
+            raise OllamaError("Embedding request failed: {}".format(exc))
+
+        if len(vectors) != len(inputs):
+            raise OllamaError(
+                "Ollama returned {} embeddings for {} inputs.".format(
+                    len(vectors), len(inputs)
+                )
+            )
+        return vectors
 
     # -- chat --------------------------------------------------------------
     def _payload(
@@ -165,6 +192,32 @@ class OllamaClient:
             # getting reliable structured output out of a 1.5B model.
             payload["format"] = response_format
         return payload
+
+    async def warm(self, model: Optional[str] = None) -> Dict[str, Any]:
+        """Load the model into memory without generating anything.
+
+        An empty `messages` list makes Ollama load the weights and return
+        straight away (`done_reason: "load"`), so this costs the load time and
+        no decoding at all.
+
+        `num_ctx` has to match what real requests send: Ollama keys a resident
+        model by its options, so warming at one context size and then asking at
+        another silently reloads the model and wastes the whole exercise.
+        """
+        payload: Dict[str, Any] = {
+            "model": model or settings.ollama_model,
+            "messages": [],
+            "keep_alive": _keep_alive(),
+            "options": {"num_ctx": settings.num_ctx},
+        }
+        try:
+            response = await self.client.post("/api/chat", json=payload)
+            self._raise_for_response(response, payload["model"])
+            return response.json()
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            raise self._unreachable(exc)
+        except httpx.HTTPError as exc:
+            raise OllamaError("Failed to warm the model: {}".format(exc))
 
     async def chat(
         self,
@@ -226,7 +279,16 @@ class OllamaClient:
 
 
 def build_usage(response: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalise Ollama's nanosecond timings into a frontend-friendly shape."""
+    """Normalise Ollama's nanosecond timings into a frontend-friendly shape.
+
+    The prefill/decode split is carried through rather than folded into
+    `total_duration_ms`, because on CPU the two answer to opposite levers.
+    Prefill is charged per token of context, so it is where retrieval's real
+    latency cost lands -- four textbook passages are read in full before the
+    first token appears. Decode is charged per token produced, so it answers to
+    max_tokens and to how wordy the persona is. Summed together they say a turn
+    was slow; apart they say which change made it slow.
+    """
     eval_count = response.get("eval_count") or 0
     eval_duration_ns = response.get("eval_duration") or 0
     tps = (eval_count / (eval_duration_ns / 1e9)) if eval_duration_ns else 0.0
@@ -236,6 +298,8 @@ def build_usage(response: Dict[str, Any]) -> Dict[str, Any]:
         "total_duration_ms": int((response.get("total_duration") or 0) / 1e6),
         "load_duration_ms": int((response.get("load_duration") or 0) / 1e6),
         "tokens_per_second": round(tps, 2),
+        "prompt_eval_ms": int((response.get("prompt_eval_duration") or 0) / 1e6),
+        "eval_ms": int(eval_duration_ns / 1e6),
     }
 
 

@@ -95,6 +95,43 @@ and favicon bolt, so the desktop icon matches the tutor window. `AI-Tutor.ico` a
 `AI-Tutor.icns` are committed, so creating a shortcut needs no image tooling; after editing
 the SVGs, regenerate them on macOS with `node scripts/generate-icons.mjs`.
 
+## Textbook library (RAG)
+
+The tutor can answer from the school's own textbooks instead of the model's
+general knowledge. Open **Library** in the app bar (or `#setup` in the URL),
+upload a PDF, tag it with a class and subject, and it is cleaned, split and
+indexed on the device. Ask a question afterwards and the reply is grounded in
+those pages, with the chapter and page number cited back.
+
+```
+ollama pull nomic-embed-text     # one-time, ~274 MB, the retrieval model
+```
+
+Retrieval is **additive**: with no library, or with the store unavailable, the
+tutor answers exactly as it did before and `/health` explains why. Nothing here
+reaches the internet.
+
+**Python 3.11+ is now required.** Vector search runs on `sqlite-vec`, a SQLite
+extension, and macOS's system Python 3.9 is built without extension loading, so
+it cannot load it at all. On Windows `winget install Python.Python.3.12` (which
+`setup.ps1` already suggests) is fine; on macOS, recreate the venv with a
+Python from python.org or Homebrew. The backend still *starts* on 3.9 -- it
+just reports the library as unavailable and skips retrieval.
+
+Everything lives in one file, `apps/backend/data/library.db`. That is
+deliberate: embedding a full textbook takes minutes on the target laptops and
+the better part of a day on the oldest of them, so build the index once on a
+fast machine and **copy the .db onto each device** rather than ingesting per
+device. The file carries the text, the metadata and the vectors together.
+
+Tuning lives in `apps/backend/.env` (see `.env.example`): `RAG_TOP_K` trades
+answer grounding against prefill time, and `RAG_MAX_DISTANCE` is the relevance
+cut-off. The default of 0.42 was measured, not guessed -- on a Class 9 Science
+chapter, questions the text answers scored 0.12-0.34 and off-topic ones scored
+0.50-0.58. Re-measure with `POST /api/library/search` if you change
+`RAG_EMBEDDING_MODEL`, and note that changing it means re-ingesting: vectors
+from two models cannot be compared, and the store refuses to mix them.
+
 ## Backend
 
 Runs on `http://localhost:8000`. Interactive API docs at `/docs`, OpenAPI schema at

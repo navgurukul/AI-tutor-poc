@@ -14,6 +14,8 @@ interface TutorPageProps {
   subject: Subject;
   language: TutorLanguage;
   onLanguageChange: (code: string) => void;
+  /** Opens the textbook library. Omitted, the button is hidden. */
+  onOpenSetup?: () => void;
 }
 
 const STAGE_CAPTION: Record<string, string> = {
@@ -24,7 +26,13 @@ const STAGE_CAPTION: Record<string, string> = {
   error: "Tap the mic and ask a question",
 };
 
-export function TutorPage({ schoolClass, subject, language, onLanguageChange }: TutorPageProps) {
+export function TutorPage({
+  schoolClass,
+  subject,
+  language,
+  onLanguageChange,
+  onOpenSetup,
+}: TutorPageProps) {
   const {
     messages,
     stage,
@@ -35,8 +43,6 @@ export function TutorPage({ schoolClass, subject, language, onLanguageChange }: 
     isVoiceReady,
     isModelWarm,
     voiceError,
-    voiceLoading,
-    voiceDownloadProgress,
     sttSupported,
     sttLoading,
     sttDownloadProgress,
@@ -63,7 +69,12 @@ export function TutorPage({ schoolClass, subject, language, onLanguageChange }: 
   // first time an offline language is picked), and a voice has been selected
   // (near-instant — the OS synthesizer needs no download).
   const isReady = isModelWarm && !sttLoading && isVoiceReady;
-  const micDisabled = !sttSupported || !isReady;
+  // The mic doesn't wait on the model. Speaking, and transcribing what was
+  // said, both finish before the LLM is asked anything — so blocking the button
+  // on the warm-up just spends that time on a disabled control instead of on
+  // the question. Only the recognizer has to be there to press it; the status
+  // pill still reports the warm-up, and a question asked early simply waits.
+  const micDisabled = !sttSupported || sttLoading;
 
   // The offline speech models report a real percentage while streaming in; on a
   // cache hit there's no signal, so fall back to an indeterminate bar.
@@ -72,12 +83,6 @@ export function TutorPage({ schoolClass, subject, language, onLanguageChange }: 
   const prepPct = isDownloading
     ? Math.min(99, Math.round((dl!.loaded / dl!.total) * 100))
     : null;
-
-  const vdl = voiceDownloadProgress;
-  const voicePct =
-    vdl && vdl.total > 0 && vdl.loaded > 0
-      ? Math.min(99, Math.round((vdl.loaded / vdl.total) * 100))
-      : null;
 
   const prepLabel = sttLoading
     ? isDownloading
@@ -118,6 +123,11 @@ export function TutorPage({ schoolClass, subject, language, onLanguageChange }: 
             onChange={onLanguageChange}
             disabled={stage === "thinking" || stage === "speaking"}
           />
+          {onOpenSetup && (
+            <button className="appbar__setup" type="button" onClick={onOpenSetup}>
+              Library
+            </button>
+          )}
           <VoiceToggle enabled={isVoiceEnabled} onToggle={toggleVoice} />
           <span className={`status-pill status-pill--${voiceStatus.tone}`}>
             <span className="status-dot" aria-hidden="true" />
@@ -156,24 +166,6 @@ export function TutorPage({ schoolClass, subject, language, onLanguageChange }: 
           </div>
         )}
 
-        {voiceLoading && (
-          <div className="voice-progress">
-            <div className="voice-progress-header">
-              <span>Preparing the {language.native} voice</span>
-              <span>{voicePct !== null ? `${voicePct}%` : "…"}</span>
-            </div>
-            <div className="voice-progress-track">
-              <div
-                className={
-                  voicePct !== null
-                    ? "voice-progress-fill"
-                    : "voice-progress-fill voice-progress-fill--indeterminate"
-                }
-                style={voicePct !== null ? { width: `${voicePct}%` } : undefined}
-              />
-            </div>
-          </div>
-        )}
 
         {error && <ErrorBanner message={error} />}
 

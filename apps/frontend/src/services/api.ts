@@ -1,4 +1,9 @@
-import type { AskTutorRequest, AskTutorResponse } from "../types";
+import type {
+  AskTutorRequest,
+  AskTutorResponse,
+  Citation,
+  TurnMetrics,
+} from "../types";
 import { mockAnswerFor } from "./mockData";
 
 export const API_BASE_URL =
@@ -50,6 +55,7 @@ interface ChatApiResponse {
   model: string;
   usage: unknown;
   created_at: string;
+  metrics?: TurnMetrics;
 }
 
 /** Body shared by /api/chat and /api/chat/stream. */
@@ -89,7 +95,11 @@ export async function askTutor(
     method: "POST",
     body: JSON.stringify(chatBody(payload)),
   });
-  return { sessionId: data.session_id, answer: data.reply };
+  return {
+    sessionId: data.session_id,
+    answer: data.reply,
+    metrics: data.metrics,
+  };
 }
 
 export interface WarmupResult {
@@ -143,20 +153,34 @@ export async function warmupTutor(
 export interface TutorStreamHandlers {
   /** Fired once, before the first token, with the (possibly new) session id. */
   onStart?: (sessionId: string) => void;
+  /**
+   * Fired once, before the first token, with the textbook passages retrieval
+   * put into the prompt. Not fired at all when the library had no match, which
+   * is what tells the UI the answer came from the model alone.
+   */
+  onSources?: (sources: Citation[]) => void;
   /** Fired per token as the model decodes. */
   onToken?: (token: string) => void;
-  /** Fired once the model is finished, with the server's trimmed reply. */
+  /**
+   * Fired once the model is finished, with the server's trimmed reply and the
+   * turn's metrics. The metrics ride on `done` rather than arriving in their
+   * own frame because they are read after the answer — and because the
+   * retrieval half of them matters most on the turns where `onSources` never
+   * fired at all, which is exactly when a sources-shaped frame would be absent.
+   */
   onDone?: (result: AskTutorResponse) => void;
 }
 
 /** One `data: {...}` frame from the backend's SSE stream. */
 interface StreamEvent {
-  type: "start" | "token" | "done" | "error";
+  type: "start" | "sources" | "token" | "done" | "error";
   session_id?: string;
   content?: string;
   reply?: string;
   detail?: string;
   hint?: string;
+  sources?: Citation[];
+  metrics?: TurnMetrics;
 }
 
 async function mockStream(
@@ -221,6 +245,7 @@ export async function askTutorStream(
   let buffer = "";
   let sessionId = payload.sessionId ?? "";
   let reply = "";
+  let metrics: TurnMetrics | undefined;
 
   try {
     for (;;) {
@@ -256,6 +281,9 @@ export async function askTutorStream(
             sessionId = event.session_id ?? sessionId;
             handlers.onStart?.(sessionId);
             break;
+          case "sources":
+            if (event.sources?.length) handlers.onSources?.(event.sources);
+            break;
           case "token":
             if (event.content) {
               reply += event.content;
@@ -265,7 +293,8 @@ export async function askTutorStream(
           case "done":
             sessionId = event.session_id ?? sessionId;
             reply = event.reply ?? reply;
-            handlers.onDone?.({ sessionId, answer: reply });
+            metrics = event.metrics ?? metrics;
+            handlers.onDone?.({ sessionId, answer: reply, metrics });
             break;
           case "error":
             throw new Error(

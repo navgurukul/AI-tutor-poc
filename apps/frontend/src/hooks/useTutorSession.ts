@@ -3,7 +3,7 @@ import { askTutorStream, warmupTutor } from "../services/api";
 import { useTutorTts } from "./tts/useTutorTts";
 import { useTutorSpeechToText } from "./stt/useTutorSpeechToText";
 import type { TutorLanguage } from "../config/languages";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, Citation, ClientTurnMetrics } from "../types";
 
 export type TutorStage = "idle" | "listening" | "thinking" | "speaking" | "error";
 
@@ -48,7 +48,12 @@ const stripForSpeech = (s: string) =>
 // queue plays them back-to-back with no gaps. Sentences shorter than this are
 // merged with the next one before being spoken, so a lone two-word opener
 // doesn't play out in a second and leave dead air while the LLM writes more.
-const MIN_SPEECH_CHARS = 60;
+// 45, not 60: at ~5 tok/s the model writes slower than the voice reads, so the
+// gap before a chunk is spoken is mostly the wait for enough text to exist.
+// Halving that wait costs slightly choppier phrasing and is the cheapest lever
+// on the pause after the opener — synthesis itself runs at RTF ~0.12 and is not
+// what the queue is waiting for.
+const MIN_SPEECH_CHARS = 45;
 
 // ...except the *first* chunk of a turn, which is queued as soon as it clears
 // this lower bar — Piper synth time scales with length, so starting on a ~30-
@@ -70,12 +75,23 @@ const FIRST_CHUNK_MIN_CHARS = 30;
 function drainSentences(
   buffer: string,
   minChars: number,
+  breakOnClause = false,
 ): { sentences: string[]; rest: string } {
   const sentences: string[] = [];
   // A `.` right after a digit is a list marker ("1. ") or a decimal, not a
   // sentence end — the negative lookbehind keeps "ये है: 1." from being spoken
   // as its own fragment. The danda (। ॥) is always a sentence end.
-  const boundary = /(?:(?<!\d)[.!?…]+["')\]]*(?=\s)|[।॥]+)/g;
+  //
+  // `breakOnClause` additionally treats a comma/semicolon/colon as a place to
+  // stop, and is used for the opening chunk only. Without it the first chunk is
+  // however long the model's first sentence happens to be — a 107-character
+  // opener means waiting for all of it to be written *and* synthesized before
+  // any sound plays. Clauses are not split later on, where a mid-sentence pause
+  // would be audible; at the very start there is nothing to interrupt.
+  // Digits are excluded on both sides so "1,000" and "3:30" stay intact.
+  const boundary = breakOnClause
+    ? /(?:(?<!\d)[.!?…]+["')\]]*(?=\s)|[।॥]+|(?<!\d)[,;:](?!\d)(?=\s))/g
+    : /(?:(?<!\d)[.!?…]+["')\]]*(?=\s)|[।॥]+)/g;
   let rest = buffer;
   let searchFrom = 0;
 
@@ -154,22 +170,37 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
     isReady: isVoiceReady,
     isSpeaking: isPlaying,
     voiceError,
-    voiceLoading,
-    voiceDownloadProgress,
   } = useTutorTts(language);
 
   // The id of the tutor bubble for the turn in flight, so the streaming update
   // always targets the right message.
   const replyIdRef = useRef<string | null>(null);
 
+  // The backend sends its sources frame *before* the first token, so the reply
+  // bubble does not exist yet when they arrive. Parking them here and attaching
+  // them as the bubble is created avoids rendering an empty bubble that shows
+  // citations for an answer that has not started.
+  const pendingSourcesRef = useRef<Citation[] | undefined>(undefined);
+
+  // Metrics arrive with the very last frame, so unlike sources they are parked
+  // here only for the width of one setState — but through the same ref, so the
+  // bubble is written from one place and cannot end up with an answer from this
+  // turn and numbers from the last one.
+  const pendingMetricsRef = useRef<ClientTurnMetrics | undefined>(undefined);
+
   const setReplyText = useCallback((text: string) => {
     const id = replyIdRef.current;
     if (!id) return;
     setMessages((prev) => {
+      const patch = {
+        text,
+        sources: pendingSourcesRef.current,
+        metrics: pendingMetricsRef.current,
+      };
       const index = prev.findIndex((m) => m.id === id);
-      if (index === -1) return [...prev, { id, role: "tutor", text }];
+      if (index === -1) return [...prev, { id, role: "tutor", ...patch }];
       const next = [...prev];
-      next[index] = { ...next[index], text };
+      next[index] = { ...next[index], ...patch };
       return next;
     });
   }, []);
@@ -229,6 +260,8 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
       firstAudioLoggedRef.current = false;
       allChunksQueuedRef.current = false;
       speechStoppedRef.current = false;
+      pendingSourcesRef.current = undefined;
+      pendingMetricsRef.current = undefined;
 
       // Stop any speech still playing from a previous turn.
       cancelSpeech();
@@ -244,6 +277,10 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
       let answer = "";
       let unspoken = "";
       let firstTokenAt: number | null = null;
+      // Kept alongside `answer` rather than read back off the ref: TypeScript
+      // cannot see that a callback wrote to `.current`, and narrows it to the
+      // `undefined` it was reset to at the top of the turn.
+      let turnMetrics: ClientTurnMetrics | undefined;
 
       const enqueueSpeech = (text: string) => {
         if (!voiceEnabledRef.current || speechStoppedRef.current) return;
@@ -271,6 +308,9 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
             onStart: (sessionId) => {
               sessionIdRef.current = sessionId;
             },
+            onSources: (sources) => {
+              pendingSourcesRef.current = sources;
+            },
             onToken: (token) => {
               if (firstTokenAt === null) {
                 firstTokenAt = performance.now();
@@ -287,22 +327,42 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
               // voice — which speaks a sentence at a time and keeps pace.
               setReplyText(answer);
 
-              // First chunk: break at the first sentence boundary, however
-              // short, so audio starts as soon as possible. After that, hold out
-              // for MIN_SPEECH_CHARS so the voice doesn't stutter phrase-by-phrase.
-              const minChars =
-                speakQueueStartRef.current === null
-                  ? FIRST_CHUNK_MIN_CHARS
-                  : MIN_SPEECH_CHARS;
-              const { sentences, rest } = drainSentences(unspoken, minChars);
+              // First chunk: break at the first sentence *or clause* boundary,
+              // however short, so audio starts as soon as possible. After that,
+              // hold out for MIN_SPEECH_CHARS and whole sentences only, so the
+              // voice doesn't stutter phrase-by-phrase.
+              const isFirstChunk = speakQueueStartRef.current === null;
+              const minChars = isFirstChunk
+                ? FIRST_CHUNK_MIN_CHARS
+                : MIN_SPEECH_CHARS;
+              const { sentences, rest } = drainSentences(
+                unspoken,
+                minChars,
+                isFirstChunk,
+              );
               unspoken = rest;
               for (const sentence of sentences) enqueueSpeech(sentence);
             },
-            onDone: ({ sessionId, answer: finalAnswer }) => {
+            onDone: ({ sessionId, answer: finalAnswer, metrics }) => {
               sessionIdRef.current = sessionId;
               // The server's reply is the same text, trimmed; prefer it so the
               // bubble doesn't keep stray leading/trailing whitespace.
               answer = finalAnswer || answer;
+              // The server's clock starts when the request arrives. By then the
+              // student has already waited through capture and transcription,
+              // so the two browser-side numbers are added here rather than
+              // inferred from the server's — nothing on the backend can see them.
+              if (metrics) {
+                turnMetrics = {
+                  ...metrics,
+                  client_ttft_ms:
+                    firstTokenAt === null
+                      ? undefined
+                      : Math.round(firstTokenAt - turnStart),
+                  client_total_ms: Math.round(performance.now() - turnStart),
+                };
+                pendingMetricsRef.current = turnMetrics;
+              }
               setReplyText(answer);
             },
           },
@@ -312,6 +372,21 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
         console.log(
           `[timing] voice -> full reply: ${(performance.now() - turnStart).toFixed(0)}ms`,
         );
+
+        // The server-side split, alongside the browser-side one above. Retrieval
+        // is milliseconds and prefill is seconds, so the line that matters when
+        // tuning RAG is prefill against the context tokens that caused it.
+        const m = turnMetrics;
+        if (m) {
+          console.log(
+            `[timing] server: total ${m.total_ms.toFixed(0)}ms · ` +
+              `retrieval ${m.retrieval_ms.toFixed(0)}ms ` +
+              `(${m.retrieval.returned} passages, ${m.retrieval.context_tokens} tokens) · ` +
+              `prefill ${m.prefill_ms}ms (${m.prompt_tokens} tok) · ` +
+              `decode ${m.decode_ms}ms (${m.completion_tokens} tok @ ` +
+              `${m.tokens_per_second} tok/s)`,
+          );
+        }
 
         // The last sentence has no trailing whitespace to prove it ended, so it
         // is always still sitting in the tail here.
@@ -490,8 +565,6 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
     isVoiceReady,
     isSpeechSupported,
     voiceError,
-    voiceLoading,
-    voiceDownloadProgress,
     isModelWarm,
     sttSupported,
     sttLoading,
