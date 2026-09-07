@@ -161,7 +161,7 @@ def format_turn(metrics: TurnMetrics, label: str = "turn") -> str:
     return (
         "{label} {total:.0f}ms | retrieval {retrieval:.0f}ms "
         "(embed {embed:.0f} dense {dense:.0f} lex {lex:.0f}) "
-        "-> {returned} passages / {ctx} ctx tokens | ttft {ttft} | "
+        "-> {returned} passages / {ctx} ctx tokens{carried} | ttft {ttft} | "
         "prefill {prefill}ms ({ptok} tok) decode {decode}ms ({ctok} tok"
         "{tps}){retry} | {lang} best {best} headroom {headroom} "
         "grounded {grounded}"
@@ -174,6 +174,9 @@ def format_turn(metrics: TurnMetrics, label: str = "turn") -> str:
         lex=r.lexical_ms,
         returned=r.returned,
         ctx=r.context_tokens,
+        # Only printed when it fired, so the rate is visible in a scan of the
+        # log rather than being a "no" on every line.
+        carried=" [carried]" if r.query_carried else "",
         ttft=num(metrics.ttft_ms, ".0f") + ("ms" if metrics.ttft_ms is not None else ""),
         prefill=metrics.prefill_ms,
         ptok=metrics.prompt_tokens,

@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from app.config import settings
 from app.schemas import RetrievalMetrics
 from app.services.rag.embeddings import embed_query
+from app.services.rag.followup import embedding_text
 from app.services.rag.gate import gate_dense_hits, resolve_query_language
 from app.services.rag.metrics import elapsed_ms
 from app.services.rag.query import build_match_query, estimate_tokens
@@ -83,6 +84,7 @@ async def retrieve(
     subject: Optional[str] = None,
     k: Optional[int] = None,
     language: Optional[str] = None,
+    previous_question: Optional[str] = None,
     metrics: Optional[RetrievalMetrics] = None,
 ) -> List[Retrieved]:
     """The passages worth putting in front of the model, or [].
@@ -114,9 +116,16 @@ async def retrieve(
         trace.grade = grade
         trace.query_language = resolve_query_language(language, question)
 
+        # A follow-up that names no topic of its own ("what is inside it?")
+        # gets the previous question folded in first, or the vector lands
+        # wherever its leftover words point -- measured, on a page about
+        # evaporation, at a distance the gate was happy to accept.
+        dense_text = embedding_text(question, previous_question)
+        trace.query_carried = dense_text != question
+
         # The store's model, not config's: after a re-embed cutover they differ.
         embed_started = time.perf_counter()
-        vector = await embed_query(question, model=store.embedding_model)
+        vector = await embed_query(dense_text, model=store.embedding_model)
         trace.embed_ms = elapsed_ms(embed_started)
 
         candidates = settings.rag_candidates
@@ -153,6 +162,9 @@ async def retrieve(
             )
             return []
 
+        # Deliberately `question`, not `dense_text`: BM25 ORs its terms, so
+        # folding in the previous question widens the match instead of
+        # focusing it.
         match_query = build_match_query(question)
         trace.lexical_query = bool(match_query)
         lexical_started = time.perf_counter()

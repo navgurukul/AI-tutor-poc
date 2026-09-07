@@ -104,6 +104,10 @@ class RetrievalMetrics(BaseModel):
     ceiling: float = 0.0
     grade: Optional[int] = None
     lexical_query: bool = False
+    # True when the question leaned on the previous turn ("what is inside it?")
+    # and that turn's question was carried into the embedding to give it a
+    # topic. Only the dense leg sees the carried text.
+    query_carried: bool = False
 
     embed_ms: float = 0.0
     dense_ms: float = 0.0

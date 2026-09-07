@@ -64,7 +64,7 @@ def _effective_temperature(requested: Optional[float], profile) -> Optional[floa
 
 
 async def _retrieve_context(
-    message: str, profile
+    message: str, profile, previous_question: Optional[str] = None
 ) -> Tuple[str, List[dict], List[Retrieved], Optional[RetrievalMetrics]]:
     """Textbook excerpts for this question.
 
@@ -88,6 +88,7 @@ async def _retrieve_context(
         message,
         grade=grade_from_profile(profile),
         language=(profile.language if profile else None),
+        previous_question=previous_question,
         metrics=trace,
     )
     # k falls before a passage is cut.
@@ -145,7 +146,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
     temperature = _effective_temperature(request.temperature, session.profile)
     retrieval_started = time.perf_counter()
     context, sources, hits, trace = await _retrieve_context(
-        request.message, session.profile
+        request.message, session.profile, session.previous_question()
     )
     retrieval_ms = elapsed_ms(retrieval_started)
     messages = build_chat_messages(
@@ -253,7 +254,9 @@ async def _stream_events(
     chunks = []
     try:
         retrieval_started = time.perf_counter()
-        context, sources, hits, trace = await _retrieve_context(message, session.profile)
+        context, sources, hits, trace = await _retrieve_context(
+            message, session.profile, session.previous_question()
+        )
         retrieval_ms = elapsed_ms(retrieval_started)
         if sources:
             # Emitted before the first token so the UI can show what the answer

@@ -43,6 +43,18 @@ class Session:
             self.messages.pop()
             self.updated_at = self.messages[-1].created_at if self.messages else self.created_at
 
+    def previous_question(self) -> Optional[str]:
+        """The question before the one being answered, if there is one.
+
+        Retrieval needs it for a follow-up that names no topic of its own. The
+        current turn is already appended by the time this is called, so the
+        search starts one behind it.
+        """
+        for message in reversed(self.messages[:-1]):
+            if message.role == "user":
+                return message.content
+        return None
+
     def history(self, limit: int) -> List[Dict[str, str]]:
         """The last `limit` messages, shaped for Ollama's /api/chat."""
         recent = self.messages[-limit:] if limit > 0 else self.messages
