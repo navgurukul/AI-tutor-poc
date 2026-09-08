@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSpeechToText, usePiper } from "react-sts-hooks";
-import { askTutorStream, warmupTutor } from "../services/api";
+import { usePiper } from "react-sts-hooks";
+// Not react-sts-hooks' useSpeechToText: it never sets processLocally, so Chrome
+// streams every utterance to Google and speech dies the moment a device is
+// offline -- which is the one condition this product is built for.
+import { useOfflineSpeechToText } from "./stt/useOfflineSpeechToText";
+import { askTutorStream, warmupTutor,
+  reportTurnTimings,
+} from "../services/api";
 import { VOICE_MODEL_URL, VOICE_CONFIG_URL } from "../config/voice";
 import { allowSpeech, installSpeechInterceptor, stopSpeech } from "../utils/stopSpeech";
-import type { ChatMessage, Citation } from "../types";
+import type { ChatMessage, Citation, TurnMetrics } from "../types";
 
 export type TutorStage = "idle" | "listening" | "thinking" | "speaking" | "error";
 
@@ -115,7 +121,20 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
 
   // Pipeline timing: voice captured -> first token -> first audio -> speech done.
   const turnStartRef = useRef<number | null>(null);
+  // The backend issues a turn id on the start frame; these rows join to
+  // turns-backend.csv on it. Held in refs because the values arrive from
+  // several callbacks across the life of one turn.
+  const turnIdRef = useRef<string | null>(null);
+  const clientTimingRef = useRef<{
+    ttft?: number; firstSentence?: number; firstAudio?: number;
+    fullReply?: number; chars?: number;
+  }>({});
   const speakQueueStartRef = useRef<number | null>(null);
+  // Length of the opening fragment. The wait between queueing it and hearing
+  // it is a steady ~1.1s on the target laptop; without the character count
+  // there is no way to split that into Piper's fixed per-call overhead and
+  // its per-character synthesis cost, i.e. no way to know which to attack.
+  const firstChunkCharsRef = useRef(0);
   const firstAudioLoggedRef = useRef(false);
   const allChunksQueuedRef = useRef(false);
 
@@ -128,7 +147,9 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     resetTranscript,
     browserSupportsSpeechRecognition,
     error: sttError,
-  } = useSpeechToText({ lang, continuous: true, silenceTimeout: 1000 });
+    onDeviceStatus: sttOnDeviceStatus,
+    isOnDevice: sttIsOnDevice,
+  } = useOfflineSpeechToText({ lang, continuous: true, silenceTimeout: 1000 });
 
   const {
     speak,
@@ -162,6 +183,19 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
         return [...prev, { id, role: "tutor", text, sources: pendingSourcesRef.current }];
       const next = [...prev];
       next[index] = { ...next[index], text, sources: pendingSourcesRef.current };
+      return next;
+    });
+  }, []);
+
+  /** Attach the turn's cost once the reply has finished streaming. */
+  const setReplyMetrics = useCallback((metrics: TurnMetrics) => {
+    const id = replyIdRef.current;
+    if (!id) return;
+    setMessages((prev) => {
+      const index = prev.findIndex((m) => m.id === id);
+      if (index === -1) return prev;
+      const next = [...prev];
+      next[index] = { ...next[index], metrics };
       return next;
     });
   }, []);
@@ -211,6 +245,7 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
       turnStartRef.current = turnStart;
       speakQueueStartRef.current = null;
       firstAudioLoggedRef.current = false;
+      firstChunkCharsRef.current = 0;
       allChunksQueuedRef.current = false;
       speechStoppedRef.current = false;
       pendingSourcesRef.current = undefined;
@@ -239,6 +274,10 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
         if (!voiceEnabledRef.current || speechStoppedRef.current) return;
         if (speakQueueStartRef.current === null) {
           speakQueueStartRef.current = performance.now();
+          firstChunkCharsRef.current = text.length;
+          clientTimingRef.current.firstSentence = Math.round(
+            speakQueueStartRef.current - (turnStartRef.current ?? speakQueueStartRef.current),
+          );
           // Re-arm playback only once the first sentence is actually ready, so a
           // previous turn's Stop stays in force right up to this moment.
           allowSpeech();
@@ -258,8 +297,10 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
             profile: { subject: subjectName, level },
           },
           {
-            onStart: (sessionId) => {
+            onStart: (sessionId, turnId) => {
               sessionIdRef.current = sessionId;
+              turnIdRef.current = turnId ?? null;
+              clientTimingRef.current = {};
             },
             onSources: (sources) => {
               pendingSourcesRef.current = sources;
@@ -267,6 +308,7 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
             onToken: (token) => {
               if (firstTokenAt === null) {
                 firstTokenAt = performance.now();
+                clientTimingRef.current.ttft = Math.round(firstTokenAt - turnStart);
                 console.log(
                   `[timing] voice -> first token: ${(firstTokenAt - turnStart).toFixed(0)}ms`,
                 );
@@ -306,9 +348,33 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
           controller.signal,
         );
 
+        const fullReplyAt = performance.now();
         console.log(
-          `[timing] voice -> full reply: ${(performance.now() - turnStart).toFixed(0)}ms`,
+          `[timing] voice -> full reply: ${(fullReplyAt - turnStart).toFixed(0)}ms`,
         );
+        // Same numbers the console has always carried, now also on the reply
+        // itself so they can be read on a device with no DevTools open.
+        setReplyMetrics({
+          ttftMs: Math.round((firstTokenAt ?? fullReplyAt) - turnStart),
+          totalMs: Math.round(fullReplyAt - turnStart),
+          chars: answer.length,
+        });
+        clientTimingRef.current.fullReply = Math.round(fullReplyAt - turnStart);
+        clientTimingRef.current.chars = answer.length;
+        // Sent now rather than waiting for audio to finish: a student who
+        // stops the voice, or never enabled it, would otherwise never produce
+        // a row. The spoken milestones are filled in by a second post.
+        if (turnIdRef.current) {
+          reportTurnTimings({
+            turn_id: turnIdRef.current,
+            session_id: sessionIdRef.current ?? undefined,
+            ttft_ms: clientTimingRef.current.ttft,
+            first_sentence_ms: clientTimingRef.current.firstSentence,
+            first_audio_ms: clientTimingRef.current.firstAudio,
+            full_reply_ms: clientTimingRef.current.fullReply,
+            answer_chars: clientTimingRef.current.chars,
+          });
+        }
 
         // The last sentence has no trailing whitespace to prove it ended, so it
         // is always still sitting in the tail here.
@@ -359,8 +425,12 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     if (isPlaying && !firstAudioLoggedRef.current && speakQueueStartRef.current !== null) {
       firstAudioLoggedRef.current = true;
       const now = performance.now();
+      clientTimingRef.current.firstAudio = Math.round(now - turnStart);
+      const synthMs = now - speakQueueStartRef.current;
+      const chars = Math.max(firstChunkCharsRef.current, 1);
       console.log(
-        `[timing] first sentence queued -> first audio: ${(now - speakQueueStartRef.current).toFixed(0)}ms ` +
+        `[timing] first sentence queued -> first audio: ${synthMs.toFixed(0)}ms ` +
+          `for ${firstChunkCharsRef.current} chars (${(synthMs / chars).toFixed(1)}ms/char) ` +
           `(voice -> first audio total: ${(now - turnStart).toFixed(0)}ms)`,
       );
     }
@@ -368,6 +438,22 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     if (!isPlaying && firstAudioLoggedRef.current && allChunksQueuedRef.current) {
       const now = performance.now();
       console.log(`[timing] voice -> fully spoken total: ${(now - turnStart).toFixed(0)}ms`);
+      // Second post for the same turn_id: the audio milestones are only known
+      // now, well after the text finished. The CSV keeps both rows -- analysis
+      // takes the last one per turn, and a turn whose voice was cut short
+      // still has its text row from earlier.
+      if (turnIdRef.current) {
+        reportTurnTimings({
+          turn_id: turnIdRef.current,
+          session_id: sessionIdRef.current ?? undefined,
+          ttft_ms: clientTimingRef.current.ttft,
+          first_sentence_ms: clientTimingRef.current.firstSentence,
+          first_audio_ms: clientTimingRef.current.firstAudio,
+          full_reply_ms: clientTimingRef.current.fullReply,
+          fully_spoken_ms: Math.round(now - turnStart),
+          answer_chars: clientTimingRef.current.chars,
+        });
+      }
       turnStartRef.current = null;
     }
   }, [isPlaying]);
@@ -469,6 +555,10 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     voiceDownloadProgress: downloadProgress,
     isModelWarm,
     browserSupportsSpeechRecognition,
+    // Surfaced so the UI can tell a student that speech needs the internet on
+    // this machine, instead of failing mutely the first time the Wi-Fi drops.
+    sttOnDeviceStatus,
+    sttIsOnDevice,
     isVoiceEnabled,
     startTurn,
     cancelTurn,

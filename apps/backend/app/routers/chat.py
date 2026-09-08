@@ -2,6 +2,8 @@
 
 import json
 import logging
+import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, Optional
 
@@ -11,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from app.config import settings
 from app.schemas import ChatRequest, ChatResponse, Source, Usage
 from app.services.ollama_client import OllamaError, build_usage, client
+from app.services import turnlog
 from app.services.sessions import store
 from app.services.rag import service as library
 from app.services.rag.retrieval import build_context_block, citations, retrieve
@@ -49,6 +52,11 @@ async def _retrieve_context(message: str, profile) -> tuple:
         subject=(profile.subject if profile else None),
     )
     return build_context_block(hits), citations(hits)
+
+
+def _new_turn_id() -> str:
+    """Short id shared by the backend and frontend rows for one turn."""
+    return uuid.uuid4().hex[:12]
 
 
 @router.post("/chat", response_model=ChatResponse, summary="Send a message (buffered)")
@@ -116,17 +124,27 @@ async def _stream_events(
     """
     session = await store.get_or_create(session_id, profile)
     session.add("user", message)
+    turn_id = _new_turn_id()
+    turn_start = time.perf_counter()
     yield _sse(
         {
             "type": "start",
             "session_id": session.session_id,
             "model": model or settings.ollama_model,
+            # Echoed back by the frontend so its row joins this one.
+            "turn_id": turn_id,
         }
     )
 
     chunks = []
+    ttft_ms = 0
+    context = ""
+    sources = []
+    retrieval_ms = 0
     try:
+        retrieval_started = time.perf_counter()
         context, sources = await _retrieve_context(message, session.profile)
+        retrieval_ms = int((time.perf_counter() - retrieval_started) * 1000)
         if sources:
             # Emitted before the first token so the UI can show what the answer
             # is grounded in while it is still being written.
@@ -134,22 +152,51 @@ async def _stream_events(
         messages = build_chat_messages(
             session.history(settings.max_history_messages), session.profile, context
         )
+        # Counted here, not at the end: by the time the row is written the reply
+        # has been appended to the session, so reading the window back then
+        # reports a message that was never in this prompt. Minus the system one.
+        history_sent = len(messages) - 1
         async for chunk in client.chat_stream(
             messages, model=model, temperature=temperature, max_tokens=max_tokens
         ):
             token = (chunk.get("message") or {}).get("content", "")
             if token:
+                if not chunks:
+                    ttft_ms = int((time.perf_counter() - turn_start) * 1000)
                 chunks.append(token)
                 yield _sse({"type": "token", "content": token})
             if chunk.get("done"):
                 reply = "".join(chunks).strip()
                 session.add("assistant", reply)
+                usage = build_usage(chunk)
+                turnlog.log_backend_turn(
+                    {
+                        "ts_utc": turnlog.now_utc(),
+                        "turn_id": turn_id,
+                        "session_id": session.session_id,
+                        "question_chars": len(message),
+                        "history_msgs": history_sent,
+                        "retrieval_ms": retrieval_ms,
+                        "sources": len(sources),
+                        "context_chars": len(context),
+                        "prompt_tokens": usage.get("prompt_tokens", 0),
+                        "prefill_ms": usage.get("prompt_eval_ms", 0),
+                        "ttft_ms": ttft_ms,
+                        "completion_tokens": usage.get("completion_tokens", 0),
+                        "generation_ms": usage.get("eval_ms", 0),
+                        "tokens_per_second": usage.get("tokens_per_second", 0),
+                        "load_ms": usage.get("load_duration_ms", 0),
+                        "total_ms": int((time.perf_counter() - turn_start) * 1000),
+                        "answer_chars": len(reply),
+                    }
+                )
                 yield _sse(
                     {
                         "type": "done",
                         "session_id": session.session_id,
                         "reply": reply,
-                        "usage": build_usage(chunk),
+                        "usage": usage,
+                        "turn_id": turn_id,
                     }
                 )
     except OllamaError as exc:

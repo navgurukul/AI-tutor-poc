@@ -74,6 +74,21 @@ def build_context_block(hits: List[Retrieved]) -> str:
     """
     if not hits:
         return ""
+
+    # Trim from the end until the budget is met. Hits arrive best-first, so a
+    # question whose top passage alone exceeds the budget still gets that
+    # passage -- an over-long excerpt is better than none, and the cap exists
+    # to stop the tail, not the head.
+    budget = settings.rag_context_max_chars
+    kept: List[Retrieved] = []
+    used = 0
+    for hit in hits:
+        if kept and used + len(hit.text) > budget:
+            break
+        kept.append(hit)
+        used += len(hit.text)
+    hits = kept
+
     parts = []
     for index, hit in enumerate(hits, start=1):
         pages = (

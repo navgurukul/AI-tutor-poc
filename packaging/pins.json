@@ -1,0 +1,33 @@
+{
+  "_comment": "Every third-party artifact the device payload contains, pinned by exact URL and verified by size on download. Replace `sha256: null` with the real digest after the first successful build (build_payload.py prints them), then the build becomes tamper-evident. Bumping ANY pin here is a runtime-layer version bump and requires re-running the retrieval evaluation, because a re-quantised model changes every distance the relevance cut-off in app/config.py was measured against.",
+  "payload_version": "1.0.0-en",
+  "python": {
+    "version": "3.12.11",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+    "approx_mb": 20,
+    "sha256": "9624883ba5ad269282028e17db800f7ddfa8f57007742a868c2acab0eb3c91c2",
+    "_note": "python-build-standalone, NOT PyInstaller. Keeps an app update at ~140 KB instead of ~250 MB, and avoids the sys._MEIPASS temp-dir extraction that school AV watches. MUST pass the sqlite-vec extension-loading gate in install.ps1 -- see README."
+  },
+  "ollama": {
+    "version": "v0.12.3",
+    "url": "https://github.com/ollama/ollama/releases/download/v0.12.3/ollama-windows-amd64.zip",
+    "approx_mb": 1826,
+    "sha256": "c440fcda7fb1f4677f16c159192aa9ad05aae6b010ee652b82ecc184d08e5549",
+    "keep_prefixes": [
+      "ollama.exe",
+      "lib/ollama/ggml-base.dll",
+      "lib/ollama/ggml-cpu-"
+    ],
+    "vc_redist": "vc_redist.x64.exe",
+    "_note": "Vendored, never installed. The official installer is per-user, adds a tray app, and SELF-UPDATES -- which across a fleet means inference behaviour changing under you between site visits. Measured: the zip is 3322 MB unpacked; keeping only ollama.exe + the CPU ggml runners is 63 MB. The 3259 MB stripped is cuda_v12/cuda_v13/hip, all dead weight on integrated-graphics laptops."
+  },
+  "llm": {
+    "models": [
+      "qwen2.5:1.5b",
+      "nomic-embed-text"
+    ],
+    "approx_mb": 1260,
+    "_note": "Matches app/config.py on this branch: ollama_model=qwen2.5:1.5b, rag_embedding_model=nomic-embed-text at 768 dims. Both Apache-2.0, so unlike the multilang build (gemma2:2b under the Gemma Terms of Use) there is no model licence to pass on to each school. The corpus must be embedded with nomic-embed-text: the store refuses to mix vectors from two models, and a bge-m3 library.db will not open here."
+  },
+  "_variant": "ENGLISH ONLY. Speech is entirely browser-side on this branch -- the backend has no stt.py and no tts.py -- so no IndicConformer and no Piper voice ship. That removes 548 MB from the payload and, more importantly, removes both licensing blockers: the GPL-3.0 espeak-ng bundled with the Piper voice, and the unverified third-party re-export of the IndicConformer weights. Do not re-add the speech section without resolving those first."
+}

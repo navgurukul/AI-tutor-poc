@@ -1,0 +1,108 @@
+# Builds the AI Tutor single-file installer.
+#
+# This runs on windows-latest because it must: WiX writes the MSI database
+# through the Windows Installer native API (msi.dll), which has no counterpart
+# on macOS or Linux. Payload assembly is portable, but MSI creation is not.
+#
+# Trigger it by hand (Actions -> Build Windows installer -> Run workflow) or by
+# pushing a v* tag.
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      full_payload:
+        description: "Include the 3.4 GB of model weights (off = a fast schema-only build)"
+        type: boolean
+        default: false
+      version:
+        description: "Override the version (defaults to packaging/pins.json)"
+        type: string
+        default: ""
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Install uv
+        # Required, and pip cannot substitute: pip's --platform does not
+        # override sys_platform when evaluating environment markers, so it
+        # tries to install uvloop, which has no Windows wheel.
+        uses: astral-sh/setup-uv@v5
+
+      # The models are large, immutable and pinned by URL, so a cache hit turns
+      # a 40-minute build into a 5-minute one.
+      - name: Cache downloaded artifacts
+        uses: actions/cache@v4
+        with:
+          path: build/.cache
+          key: payload-cache-${{ hashFiles('packaging/pins.json') }}
+
+      - name: Install Ollama (to stage model blobs)
+        if: ${{ inputs.full_payload || startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          winget install --id Ollama.Ollama --accept-source-agreements --accept-package-agreements --disable-interactivity
+        shell: pwsh
+        continue-on-error: true
+
+      - name: Build payload
+        shell: bash
+        run: |
+          FLAGS=""
+          if [ "${{ inputs.full_payload }}" != "true" ] && [ "${{ startsWith(github.ref, 'refs/tags/v') }}" != "true" ]; then
+            echo "::notice::Fast build - skipping model weights. The MSI will be structurally complete but not installable."
+            FLAGS="--skip-llm --skip-speech"
+          fi
+          python packaging/build_payload.py --out build/payload $FLAGS
+
+      - name: Install WiX
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.Util.wixext/5.0.2
+          wix extension add -g WixToolset.BootstrapperApplications.wixext/5.0.2
+          wix --version
+
+      - name: Build MSI and single-file installer
+        shell: pwsh
+        run: |
+          $v = "${{ inputs.version }}"
+          $arg = if ($v) { "--version $v" } else { "" }
+          python installer/build_installer.py --payload build/payload $arg
+
+      # Signing is deliberately not wired to a secret here. Authenticode for a
+      # fleet rollout should be a separate, reviewed step on a trusted runner
+      # -- a CI job that can sign is a CI job that can ship code to every
+      # student laptop. See installer/README.md.
+      - name: Report what was built
+        shell: pwsh
+        run: |
+          Get-ChildItem build/dist | ForEach-Object {
+            "{0,-34} {1,10:N1} MB" -f $_.Name, ($_.Length / 1MB)
+          }
+          Write-Host "`nNOT SIGNED. Sign before distributing to devices."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aitutor-installer
+          path: build/dist/*
+          retention-days: 14
+          # These are already-compressed cabs and an exe; recompressing wastes
+          # several minutes for nothing.
+          compression-level: 0

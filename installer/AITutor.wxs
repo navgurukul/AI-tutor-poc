@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AI Tutor MSI.
+
+  Two things about this package are deliberate and easy to get wrong:
+
+  1. MediaTemplate/@EmbedCab is "no". Windows Installer keeps a copy of every
+     installed package under C:\Windows\Installer for repair and uninstall. If
+     the cabinets are embedded, that cached copy includes all 3.5 GB, so the
+     payload costs twice its size on every device, permanently. External cabs
+     leave only the small database cached; the cabs are read during install and
+     not retained.
+
+  2. Executables install under Program Files and the mutable half under
+     ProgramData. AppLocker's default rules permit execution from Program Files
+     and deny it from ProgramData, and school AV flags binaries launching from
+     ProgramData. Splitting the roots is also what lets a later update rewrite
+     app code and content WITHOUT elevation, which matters because IT only has
+     admin at provisioning time.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package Name="AI Tutor"
+           Manufacturer="AI Labs"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="7C4B1E52-9A3D-4F81-B6C2-5D8E0A1F3B47"
+           Scope="perMachine"
+           Compressed="yes"
+           InstallerVersion="500">
+
+    <SummaryInformation Description="AI Tutor - offline AI tutor for schools" />
+
+    <!-- External cabs: see note 1 above. -->
+    <MediaTemplate EmbedCab="no" CompressionLevel="high" MaximumUncompressedMediaSize="2048" />
+
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of AI Tutor is already installed. Uninstall it first." />
+
+    <Launch Condition="Installed OR VersionNT64 &gt;= 603"
+            Message="AI Tutor requires 64-bit Windows 10 or later." />
+
+    <!-- 12 GB: the payload is ~3.6 GB and a future runtime update needs room
+         to stage a second copy before swapping. -->
+    <Launch Condition="Installed OR (WINDOWSVOLUMEFREESPACE &gt; 12582912)"
+            Message="AI Tutor needs at least 12 GB free on the Windows volume." />
+
+    <Property Id="ARPPRODUCTICON" Value="AITutorIcon" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <Property Id="ARPHELPLINK" Value="https://example.invalid/aitutor" />
+    <Icon Id="AITutorIcon" SourceFile="$(var.PayloadDir)\AI-Tutor.ico" />
+
+    <!-- Set per site at install time:
+         msiexec /i AITutor.msi SITEID=MH-PUNE-042 HUBURL=http://10.42.7.9:8477 /qn -->
+    <Property Id="SITEID" Secure="yes" />
+    <Property Id="HUBURL" Secure="yes" />
+    <!-- Set SKIPGATES=1 only when debugging the installer itself. -->
+    <Property Id="SKIPGATES" Secure="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="AITutor">
+        <Directory Id="dirRuntime" Name="runtime" />
+        <Directory Id="dirBin"     Name="bin" />
+        <Directory Id="dirConfig"  Name="config" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DATAFOLDER" Name="AITutor">
+        <Directory Id="dirApp" Name="app">
+          <Directory Id="dirAppCurrent" Name="current" />
+        </Directory>
+        <Directory Id="dirContent" Name="content">
+          <Directory Id="dirContentCurrent" Name="current" />
+        </Directory>
+        <Directory Id="dirState" Name="state" />
+        <Directory Id="dirLogs"  Name="logs" />
+        <Directory Id="dirInbox" Name="inbox" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!-- ============ payload ============
+         <Files> harvests the tree, so adding a model or a Python module needs
+         no edit here. Each group's Directory is the root it unpacks under. -->
+    <ComponentGroup Id="cgRuntime" Directory="dirRuntime">
+      <Files Include="$(var.PayloadDir)\runtime\**" />
+    </ComponentGroup>
+
+    <ComponentGroup Id="cgApp" Directory="dirAppCurrent">
+      <Files Include="$(var.PayloadDir)\app\**" />
+    </ComponentGroup>
+
+    <ComponentGroup Id="cgContent" Directory="dirContentCurrent">
+      <Files Include="$(var.PayloadDir)\content\**" />
+    </ComponentGroup>
+
+    <ComponentGroup Id="cgBin" Directory="dirBin">
+      <Component Id="cmpLaunch" Guid="*">
+        <File Id="fileLaunch" Source="$(var.PayloadDir)\launch.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="cmpCmd" Guid="*">
+        <File Id="fileCmd" Source="$(var.PayloadDir)\AITutor.cmd" KeyPath="yes" />
+      </Component>
+      <Component Id="cmpIcon" Guid="*">
+        <File Id="fileIcon" Source="$(var.PayloadDir)\AI-Tutor.ico" KeyPath="yes" />
+      </Component>
+      <Component Id="cmpManifest" Guid="*">
+        <File Id="fileManifest" Source="$(var.PayloadDir)\manifest.json" KeyPath="yes" />
+      </Component>
+      <Component Id="cmpActions" Guid="*">
+        <File Id="fileActions" Source="setup-actions.ps1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ============ mutable dirs + their ACLs ============
+         %ProgramData%'s inherited ACL already grants Users create-file and
+         gives CREATOR OWNER full control of whatever they create. That is
+         broader and less predictable than what we want, so setup-actions.ps1
+         breaks inheritance and states the permissions explicitly. Directories
+         are declared here (not created by the script) so uninstall removes
+         them and MSI owns their lifetime. -->
+    <ComponentGroup Id="cgDataDirs">
+      <Component Id="cmpDirState" Directory="dirState" Guid="*">
+        <CreateFolder />
+        <RegistryValue Root="HKLM" Key="SOFTWARE\AILabs\AITutor" Name="StateDir"
+                       Type="string" Value="[dirState]" KeyPath="yes" />
+      </Component>
+      <Component Id="cmpDirLogs" Directory="dirLogs" Guid="*">
+        <CreateFolder />
+        <RegistryValue Root="HKLM" Key="SOFTWARE\AILabs\AITutor" Name="LogsDir"
+                       Type="string" Value="[dirLogs]" KeyPath="yes" />
+      </Component>
+      <Component Id="cmpDirInbox" Directory="dirInbox" Guid="*">
+        <CreateFolder />
+        <RegistryValue Root="HKLM" Key="SOFTWARE\AILabs\AITutor" Name="InboxDir"
+                       Type="string" Value="[dirInbox]" KeyPath="yes" />
+      </Component>
+      <Component Id="cmpVersion" Directory="dirConfig" Guid="*">
+        <RegistryValue Root="HKLM" Key="SOFTWARE\AILabs\AITutor" Name="Version"
+                       Type="string" Value="$(var.ProductVersion)" KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="SOFTWARE\AILabs\AITutor" Name="InstallRoot"
+                       Type="string" Value="[INSTALLFOLDER]" />
+        <RegistryValue Root="HKLM" Key="SOFTWARE\AILabs\AITutor" Name="DataRoot"
+                       Type="string" Value="[DATAFOLDER]" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ============ shortcuts ============ -->
+    <ComponentGroup Id="cgShortcuts">
+      <Component Id="cmpStartMenu" Directory="ProgramMenuFolder" Guid="*">
+        <Shortcut Id="scStartMenu" Name="AI Tutor"
+                  Description="AI Tutor - works offline"
+                  Target="[dirBin]AITutor.cmd" WorkingDirectory="dirBin"
+                  Icon="AITutorIcon" Show="minimized" />
+        <RegistryValue Root="HKCU" Key="SOFTWARE\AILabs\AITutor" Name="StartMenu"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+      <Component Id="cmpDesktop" Directory="DesktopFolder" Guid="*">
+        <Shortcut Id="scDesktop" Name="AI Tutor"
+                  Description="AI Tutor - works offline"
+                  Target="[dirBin]AITutor.cmd" WorkingDirectory="dirBin"
+                  Icon="AITutorIcon" Show="minimized" />
+        <RegistryValue Root="HKCU" Key="SOFTWARE\AILabs\AITutor" Name="Desktop"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main" Title="AI Tutor" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="cgRuntime" />
+      <ComponentGroupRef Id="cgApp" />
+      <ComponentGroupRef Id="cgContent" />
+      <ComponentGroupRef Id="cgBin" />
+      <ComponentGroupRef Id="cgDataDirs" />
+      <ComponentGroupRef Id="cgShortcuts" />
+    </Feature>
+
+    <!-- ============ custom actions ============
+         Deferred and noImpersonate so they run elevated in a per-machine
+         install. Both are driven by one script so the logic has a single home
+         and can be run by hand for diagnosis. -->
+    <SetProperty Id="caConfigure" Before="caConfigure" Sequence="execute"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -ExecutionPolicy Bypass -File &quot;[dirBin]setup-actions.ps1&quot; -Mode configure -InstallRoot &quot;[INSTALLFOLDER]&quot; -DataRoot &quot;[DATAFOLDER]&quot; -SiteId &quot;[SITEID]&quot; -HubUrl &quot;[HUBURL]&quot;" />
+    <CustomAction Id="caConfigure" DllEntry="WixQuietExec64" Execute="deferred"
+                  Impersonate="no" Return="check" BinaryRef="Wix4UtilCA_X64" />
+
+    <SetProperty Id="caGates" Before="caGates" Sequence="execute"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -ExecutionPolicy Bypass -File &quot;[dirBin]setup-actions.ps1&quot; -Mode gates -InstallRoot &quot;[INSTALLFOLDER]&quot; -DataRoot &quot;[DATAFOLDER]&quot;" />
+    <CustomAction Id="caGates" DllEntry="WixQuietExec64" Execute="deferred"
+                  Impersonate="no" Return="check" BinaryRef="Wix4UtilCA_X64" />
+
+    <InstallExecuteSequence>
+      <!-- After the files land, before the install is committed: a runtime that
+           cannot load sqlite-vec would leave a shortcut launching a tutor whose
+           vector search is silently dead, so fail the install instead. -->
+      <Custom Action="caConfigure" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="caGates" After="caConfigure" Condition="NOT REMOVE AND NOT SKIPGATES" />
+    </InstallExecuteSequence>
+
+  </Package>
+</Wix>

@@ -273,6 +273,11 @@ def build_usage(response: Dict[str, Any]) -> Dict[str, Any]:
         "completion_tokens": eval_count,
         "total_duration_ms": int((response.get("total_duration") or 0) / 1e6),
         "load_duration_ms": int((response.get("load_duration") or 0) / 1e6),
+        # Prefill and generation, split. This is the pair that actually
+        # explains a slow turn: prefill scales with the retrieved context and
+        # generation with the answer length, and they need different fixes.
+        "prompt_eval_ms": int((response.get("prompt_eval_duration") or 0) / 1e6),
+        "eval_ms": int(eval_duration_ns / 1e6),
         "tokens_per_second": round(tps, 2),
     }
 

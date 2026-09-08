@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Single-file distributable: AITutor-<version>.exe
+
+  Burn wraps the MSI and its external cabs into one signed executable. That is
+  what makes "copy one file to the device" true while keeping the MSI database
+  itself small, which is what keeps C:\Windows\Installer from holding a second
+  copy of 3.5 GB forever.
+
+  Cache="remove" matters for the same reason: Burn's default is to keep every
+  package it installed in its own cache under ProgramData, which would be a
+  THIRD copy of the payload. We do not need it: repair and uninstall go
+  through the MSI, and a re-install means running this .exe again.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+
+  <Bundle Name="AI Tutor"
+          Manufacturer="AI Labs"
+          Version="$(var.ProductVersion)"
+          UpgradeCode="B18F6D30-2C74-4A9E-8F51-3E7A9C0D6521"
+          IconSourceFile="$(var.PayloadDir)\AI-Tutor.ico"
+          Compressed="yes">
+
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication
+          Theme="hyperlinkLicense"
+          LicenseUrl=""
+          LogoFile="$(var.PayloadDir)\AI-Tutor.ico"
+          SuppressOptionsUI="yes" />
+    </BootstrapperApplication>
+
+    <!-- Not a supported configuration and the failure would be confusing:
+         the payload is x64 CPython, x64 Ollama and x64 ONNX runtimes. -->
+    <bal:Condition Condition="VersionNT64 AND VersionNT &gt;= v6.3"
+                   Message="AI Tutor requires 64-bit Windows 8.1 or later." />
+
+    <Variable Name="SITEID" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="HUBURL" bal:Overridable="yes" Type="string" Value="" />
+
+    <Chain>
+      <!-- Ollama's ggml runners are MSVC-built and fail to load without this.
+           Shipped inside the Ollama release zip and staged into the payload by
+           build_payload.py. Permanent=yes: other software may rely on it, so
+           uninstalling the tutor must not remove it. -->
+      <ExePackage Id="VCRedist"
+                  SourceFile="$(var.PayloadDir)\runtime\vc_redist.x64.exe"
+                  DisplayName="Microsoft Visual C++ Runtime"
+                  InstallArguments="/install /quiet /norestart"
+                  Permanent="yes"
+                  Vital="yes"
+                  Cache="remove"
+                  DetectCondition="">
+        <!-- 1638 = a newer version is already present, which is success here. -->
+        <ExitCode Value="1638" Behavior="success" />
+        <ExitCode Value="3010" Behavior="scheduleReboot" />
+      </ExePackage>
+
+      <MsiPackage Id="AITutorMsi"
+                  SourceFile="$(var.MsiPath)"
+                  DisplayName="AI Tutor"
+                  Vital="yes"
+                  Cache="remove"
+                  Compressed="yes"
+                  EnableFeatureSelection="no">
+        <MsiProperty Name="SITEID" Value="[SITEID]" />
+        <MsiProperty Name="HUBURL" Value="[HUBURL]" />
+      </MsiPackage>
+    </Chain>
+
+  </Bundle>
+</Wix>

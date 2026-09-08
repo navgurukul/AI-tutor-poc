@@ -35,6 +35,11 @@ class Usage(BaseModel):
     completion_tokens: int = 0
     total_duration_ms: int = 0
     load_duration_ms: int = 0
+    # Prefill and generation split apart. Prefill scales with the retrieved
+    # context, generation with the answer length; a slow turn is almost always
+    # one or the other, and they need different remedies.
+    prompt_eval_ms: int = 0
+    eval_ms: int = 0
     tokens_per_second: float = 0.0
 
 

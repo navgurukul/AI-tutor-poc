@@ -15,7 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.routers import chat, health, library, sessions, tutor
+from app.guards import LocalOnlyMiddleware
+from app.routers import chat, health, library, sessions, telemetry, tutor
+from app.web import SpaFiles, resolve_web_dir
 from app.services.ollama_client import OllamaError, client
 from app.services.rag import service as rag_service
 
@@ -94,19 +96,32 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.version,
     lifespan=lifespan,
+    # A packaged device has no audience for the interactive docs, and they
+    # advertise the library write routes to anyone poking at the URL bar.
+    docs_url=None if settings.packaged else "/docs",
+    redoc_url=None if settings.packaged else "/redoc",
+    openapi_url=None if settings.packaged else "/openapi.json",
     description=(
         "Offline AI tutor backend. Every completion is produced locally by "
         "Ollama -- no external API calls, no internet required at request time."
     ),
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# The packaged build serves the frontend from this same process, so every
+# request is same-origin and CORS is not merely unnecessary but unwanted. The
+# launcher sets CORS_ORIGINS empty; a developer running Vite on its own port
+# keeps the permissive default.
+if settings.cors_origin_list:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+if settings.packaged:
+    app.add_middleware(LocalOnlyMiddleware)
 
 
 @app.exception_handler(OllamaError)
@@ -123,15 +138,24 @@ app.include_router(chat.router)
 app.include_router(sessions.router)
 app.include_router(tutor.router)
 app.include_router(library.router)
+app.include_router(telemetry.router)
 
 
-@app.get("/", tags=["health"], summary="API index")
-async def root():
+@app.get("/api/index", tags=["health"], summary="API index")
+async def api_index():
     return {
         "name": settings.app_name,
         "version": settings.version,
-        "docs": "/docs",
+        "docs": None if settings.packaged else "/docs",
         "health": "/health",
         "model": settings.ollama_model,
         "offline": True,
     }
+
+
+# Mounted last, and it must stay last: a mount at "/" matches every path, so
+# any route registered after it is unreachable.
+_web_dir = resolve_web_dir(settings.web_dir)
+if _web_dir is not None:
+    app.mount("/", SpaFiles(directory=_web_dir, html=True), name="web")
+    logger.info("Serving frontend from %s", _web_dir)

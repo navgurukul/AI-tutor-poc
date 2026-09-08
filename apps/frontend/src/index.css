@@ -840,3 +840,30 @@ button {
   padding: 6px 12px;
 }
 .appbar__setup:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Turn cost, sat beside "From your textbook · N".
+   Pushed to the right of the summary row so the citation label stays the
+   thing the eye lands on -- the timings are for someone checking the device,
+   not for the student reading the answer. */
+.turn-cost {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: var(--muted, #6b7280);
+  white-space: nowrap;
+}
+
+.turn-cost__item b {
+  font-weight: 600;
+  color: var(--text, #374151);
+}
+
+/* An ungrounded reply has no citation row to sit on, so it gets its own. */
+.turn-cost-row {
+  display: flex;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border, #e5e7eb);
+}

@@ -45,3 +45,17 @@ apps/backend/data/
 *.db
 *.db-wal
 *.db-shm
+
+# Offline speech models. Not used on this English-only branch (speech is
+# browser-side), but 549 MB of them can be left in the working tree by a
+# checkout from the multilingual branch -- never let that reach git.
+apps/backend/models/
+
+# Windows packaging output: multi-GB payload, installer artifacts and the
+# download cache. build/ above already covers it; named here so it is obvious.
+build/.cache/
+build/dist/
+
+# Source textbook PDFs. Third-party copyright and large: they are an input to
+# the content build, not source to be redistributed through this repo.
+data/

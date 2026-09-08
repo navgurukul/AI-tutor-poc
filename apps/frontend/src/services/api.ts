@@ -135,7 +135,7 @@ export async function warmupTutor(
 
 export interface TutorStreamHandlers {
   /** Fired once, before the first token, with the (possibly new) session id. */
-  onStart?: (sessionId: string) => void;
+  onStart?: (sessionId: string, turnId?: string) => void;
   /**
    * Fired once, before the first token, with the textbook passages retrieval
    * put into the prompt. Not fired at all when the library had no match, which
@@ -151,6 +151,8 @@ export interface TutorStreamHandlers {
 /** One `data: {...}` frame from the backend's SSE stream. */
 interface StreamEvent {
   type: "start" | "sources" | "token" | "done" | "error";
+  /** Joins this turn to its row in turns-backend.csv. */
+  turn_id?: string;
   session_id?: string;
   content?: string;
   reply?: string;
@@ -254,7 +256,7 @@ export async function askTutorStream(
         switch (event.type) {
           case "start":
             sessionId = event.session_id ?? sessionId;
-            handlers.onStart?.(sessionId);
+            handlers.onStart?.(sessionId, event.turn_id);
             break;
           case "sources":
             if (event.sources?.length) handlers.onSources?.(event.sources);
@@ -284,4 +286,31 @@ export async function askTutorStream(
     // also stops the model generating server-side.
     reader.cancel().catch(() => undefined);
   }
+}
+
+/**
+ * Send the client half of a turn's timings to the backend, which appends them
+ * to turns-frontend.csv.
+ *
+ * Only the browser knows when words appeared or audio started, and it cannot
+ * write to the log directory itself. Deliberately fire-and-forget and silent
+ * on failure: a latency log must never delay or break a lesson.
+ */
+export function reportTurnTimings(row: {
+  turn_id: string;
+  session_id?: string;
+  ttft_ms?: number;
+  first_sentence_ms?: number;
+  first_audio_ms?: number;
+  full_reply_ms?: number;
+  fully_spoken_ms?: number;
+  answer_chars?: number;
+}): void {
+  if (USE_MOCK_API || !row.turn_id) return;
+  void fetch(`${API_BASE_URL}/api/telemetry/turn`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(row),
+    keepalive: true,
+  }).catch(() => {});
 }

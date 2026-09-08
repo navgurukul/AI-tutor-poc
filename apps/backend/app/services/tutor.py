@@ -63,6 +63,28 @@ def build_system_prompt(
         # textbook dropped in front of the persona pushed the style rules out
         # of reach -- it started reciting the passage instead of tutoring from
         # it. The rules stay adjacent to the reply; the excerpts sit above.
+        #
+        # It is tempting to move the excerpts out of this message entirely and
+        # attach them to the question instead: they are the only part of the
+        # prompt that changes each turn, so parking them in messages[0] means
+        # Ollama's KV cache is invalidated from token zero and the persona and
+        # the whole conversation are re-read every single turn. That was tried
+        # and measured, and it is not worth it. Against 12 pronoun follow-ups
+        # ("why does it get bigger?", "can I make one at home?") over three
+        # topics, keeping the excerpts here answered from the conversation
+        # 11/12 times; moving them next to the question dropped that to 5/12,
+        # and 7/12 even with the style rule restated below them. With the
+        # excerpts adjacent to the reply, an irrelevant retrieval hit -- which
+        # a pronoun-only follow-up reliably produces, since the question alone
+        # embeds to nothing useful -- simply overrides the conversation, and
+        # the tutor starts answering about hens and cows. Front placement keeps
+        # them subordinate to the dialogue.
+        #
+        # The cache would have been worth ~140 tokens a turn, about 3s on the
+        # target laptop. Cutting MAX_HISTORY_MESSAGES and RAG_CONTEXT_MAX_CHARS
+        # buys four times that without touching answer quality. Fix the
+        # retrieval instead if this needs revisiting: the follow-ups above came
+        # back at distance 0.35-0.40, just inside RAG_MAX_DISTANCE.
         prompt = "{}\n\n{}".format(context, prompt)
     return prompt
 

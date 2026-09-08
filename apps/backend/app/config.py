@@ -38,13 +38,30 @@ class Settings(BaseSettings):
 
     # --- Generation defaults ---------------------------------------------
     temperature: float = 0.7
-    max_tokens: int = 800
+    # Caps the tail of a slow turn. The persona already asks for under 200
+    # words (~260 tokens); 800 only ever bought a runaway answer, and on a CPU
+    # at ~9 chars/s the difference is minutes.
+    max_tokens: int = 400
     # Kept well under the model's 32k window; keeps replies fast on CPU.
     num_ctx: int = 4096
 
     # --- Conversation memory ---------------------------------------------
-    # Number of past messages (user + assistant) replayed to the model.
-    max_history_messages: int = 20
+    # Number of past messages (user + assistant) replayed to the model, the
+    # current question included. Every turn replays this much through prefill.
+    #
+    # Measured over eight real turns on the target laptop, history at 10 was
+    # 54-71% of the whole prompt -- more than the retrieved textbook excerpts,
+    # and 12-20s of the wait. Assistant replies run 300-600 characters, so each
+    # message carries roughly 63 tokens and each token costs ~20ms of prefill.
+    #
+    # Two means the model sees its own last answer and the new question, which
+    # is what "explain that again" actually needs; it loses the student's
+    # previous wording, which is rarely load-bearing. Note that a *sliding*
+    # window is also the reason prompt caching cannot help much here: dropping
+    # a message off the front shifts every token behind it, so only the system
+    # prompt survives as a shared prefix. A short prompt beats a cached long
+    # one -- the re-read part is the same size either way.
+    max_history_messages: int = 2
     session_ttl_minutes: int = 180
     max_sessions: int = 500
 
@@ -64,7 +81,26 @@ class Settings(BaseSettings):
     # How many chunks are retrieved and pasted into the prompt. Each one costs
     # prefill time on a CPU-bound model, which is the real latency cost of RAG
     # -- the search itself is under a millisecond.
-    rag_top_k: int = 4
+    rag_top_k: int = 3
+    # Hard ceiling on retrieved text, applied after ranking. rag_top_k alone
+    # does not bound latency: prefill costs ~25-30ms per token on the target
+    # laptop, and four chunks measured anywhere from 1,178 to 3,376 characters
+    # depending on the question -- 10.7s vs 28.6s to first token for the same
+    # k. Budgeting characters makes the wait predictable instead of a lottery
+    # on which passages happen to be long. Chunks are dropped from the end, so
+    # the best-ranked excerpt is always kept.
+    #
+    # Measured on the target laptop: base prompt with no excerpts reaches first
+    # token in 3.3s; 1,178 characters of excerpt takes 10.7s; 3,376 takes
+    # 28.6s. Roughly 20-27ms per token of prefill, linear.
+    #
+    # Now at 1200. Once the excerpts moved out of the system message and the
+    # history window came down to 2, this became the largest remaining piece of
+    # the prompt -- and the only piece that changes every turn, so it is the
+    # part no amount of caching can ever make free. Raise it if a site would
+    # rather wait for better grounding; every 100 characters is roughly half a
+    # second. RAG_CONTEXT_MAX_CHARS overrides.
+    rag_context_max_chars: int = 1200
     # Cosine distance above which a hit is treated as irrelevant. Without it a
     # question the textbooks don't cover still drags in the four least-bad
     # chunks and invites the model to answer from them.
@@ -82,6 +118,27 @@ class Settings(BaseSettings):
     rag_embed_batch_size: int = 16
     # Upload ceiling for a single PDF.
     rag_max_upload_mb: int = 80
+
+    # --- Latency logging --------------------------------------------------
+    # Per-turn CSVs in the log directory, for working out where a slow device
+    # is spending its time. Shapes and durations only -- never question or
+    # answer text, because these files get copied off classroom laptops.
+    turn_log_enabled: bool = True
+
+    # --- Serving / packaging ---------------------------------------------
+    # Loopback by default. A packaged device build must never bind 0.0.0.0:
+    # the library upload and delete routes have no auth, so a wildcard bind
+    # publishes them to every peer on the school network.
+    bind_host: str = "127.0.0.1"
+    bind_port: int = 8000
+    # Directory of built frontend assets to serve at "/". Empty disables the
+    # mount, which is what a developer running Vite on its own port wants. The
+    # packaged launcher points this at the installed web/ directory, making the
+    # product same-origin and removing the need for Node at runtime.
+    web_dir: str = ""
+    # Set by the packaged launcher: turns off the interactive API docs and
+    # enables the loopback request guards.
+    packaged: bool = False
 
     # --- CORS -------------------------------------------------------------
     # Comma-separated list. "*" is fine for a local POC.
