@@ -21,6 +21,26 @@ param(
     [string]$DataRoot    = "$env:ProgramData\AITutor",
     [int]$Port           = 8756,
     [int]$OllamaPort     = 11435,
+    # Ollama's own default when 0. Prefill is batched matrix work and scales
+    # almost linearly with threads, while generation is memory-bound and barely
+    # moves -- so a thread count set too low shows up as slow prefill next to
+    # normal generation, which is exactly this device's profile (2.7x prefill
+    # to generation here against 8.2x on reference hardware). Exposed as a
+    # parameter so the two can be measured back to back on one install rather
+    # than needing a second 1.4 GB copy. Try physical core count first.
+    [int]$Threads        = 0,
+    # Textbook excerpts pasted into the prompt per turn. 0 leaves the backend
+    # default (3). Exposed for the same reason as $Threads -- so a site can
+    # trade grounding against latency on the device itself rather than
+    # rebuilding. Each excerpt is prefill time on a CPU-bound model, which is
+    # the entire latency cost of RAG; the vector search itself is under a
+    # millisecond.
+    #
+    # Read RAG_CONTEXT_MAX_CHARS (1200) before turning this up: the character
+    # budget is applied after ranking and drops chunks from the end, so raising
+    # k past what fits buys nothing except a longer candidate list. Raise the
+    # two together, and expect roughly half a second per extra 100 characters.
+    [int]$TopK           = 0,
     [switch]$NoBrowser
 )
 
@@ -40,6 +60,39 @@ function Log($m) {
     Write-Host $line
 }
 
+# Both callers below open the tutor window, and the second one used to get it
+# wrong: a plain Start-Process on the URL hands it to Windows, which opens it in
+# the default browser as an ordinary tab with an address bar. Same URL, entirely
+# different thing -- and it is the path every relaunch took, because closing the
+# window deliberately leaves the backend running.
+function Open-TutorWindow {
+    if ($NoBrowser) { return }
+    $candidates = @(
+        "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+        "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+        "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe",
+        "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+        "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
+    )
+    $browser = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    if (-not $browser) {
+        Log "No Chrome or Edge found; opening the default browser as a normal tab instead."
+        Start-Process "http://127.0.0.1:$Port/"
+        return
+    }
+    Log "Opening tutor window via $browser"
+    # --profile-directory, NOT --user-data-dir: a separate user-data root would
+    # isolate Chrome's installation-level component downloads, the on-device
+    # speech model among them, and English speech would silently start sending
+    # audio to Google -- which fails outright offline.
+    Start-Process $browser -ArgumentList @(
+        "--app=http://127.0.0.1:$Port/",
+        "--new-window", "--window-size=1280,800",
+        "--profile-directory=AI Tutor",
+        "--no-first-run", "--no-default-browser-check", "--disable-extensions"
+    )
+}
+
 # --- single instance -------------------------------------------------------
 # Closing the tutor window deliberately leaves the stack up, so the next
 # double-click is instant. Without this guard that second click would start a
@@ -47,7 +100,7 @@ function Log($m) {
 $mutex = New-Object System.Threading.Mutex($false, "Local\AITutor.Launcher")
 if (-not $mutex.WaitOne(0)) {
     Log "Already running - reopening the window."
-    if (-not $NoBrowser) { Start-Process "http://127.0.0.1:$Port/" }
+    Open-TutorWindow
     exit 0
 }
 
@@ -81,8 +134,12 @@ if (Test-Url "http://127.0.0.1:$OllamaPort/api/version") {
     Log "Starting vendored Ollama on 127.0.0.1:$OllamaPort"
     $env:OLLAMA_HOST              = "127.0.0.1:$OllamaPort"
     $env:OLLAMA_MODELS            = Join-Path $models "ollama"
+    if ($Threads -gt 0) {
+        $env:OLLAMA_NUM_THREAD    = "$Threads"
+        Log "OLLAMA_NUM_THREAD=$Threads (override)"
+    }
     $env:OLLAMA_KEEP_ALIVE        = "-1"      # never unload; a reload costs a student ~2s every pause
-    $env:OLLAMA_MAX_LOADED_MODELS = "2"       # gemma2:2b and bge-m3 both resident
+    $env:OLLAMA_MAX_LOADED_MODELS = "2"       # qwen2.5:1.5b and nomic-embed-text both resident
     $env:OLLAMA_NUM_PARALLEL      = "1"
     $env:OLLAMA_NOPRUNE           = "1"       # our model dir is read-only; do not try to prune it
     $env:OLLAMA_ORIGINS           = ""        # nothing browser-side talks to Ollama
@@ -128,6 +185,10 @@ $env:NUM_CTX                = "4096"
 
 $env:RAG_DB_PATH            = $dbPath
 $env:RAG_ENABLED            = if (Test-Path $dbPath) { "true" } else { "false" }
+if ($TopK -gt 0) {
+    $env:RAG_TOP_K          = "$TopK"
+    Log "RAG_TOP_K=$TopK (override)"
+}
 
 $backend = Start-Process $python -ArgumentList "-m","app.serve" -WorkingDirectory $appDir `
     -WindowStyle Hidden -PassThru `
@@ -151,34 +212,7 @@ try {
         @{ port = $Port; pid = $backend.Id; started_utc = (Get-Date).ToUniversalTime().ToString("s") } | ConvertTo-Json)
 
     # --- the tutor window --------------------------------------------------
-    if (-not $NoBrowser) {
-        $candidates = @(
-            "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
-            "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
-            "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe",
-            "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
-            "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
-        )
-        $browser = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-        if ($browser) {
-            Log "Opening tutor window via $browser"
-            # --profile-directory, NOT --user-data-dir. A separate user-data
-            # root would isolate Chrome's installation-level component
-            # downloads -- including the on-device speech model -- so English
-            # speech input would silently fall back to sending audio to Google,
-            # which fails outright at an offline site. A named profile inside
-            # the default root inherits those downloads.
-            Start-Process $browser -ArgumentList @(
-                "--app=http://127.0.0.1:$Port/",
-                "--new-window", "--window-size=1280,800",
-                "--profile-directory=AI Tutor",
-                "--no-first-run", "--no-default-browser-check", "--disable-extensions"
-            )
-        } else {
-            Log "No Chrome or Edge found; opening the default browser instead."
-            Start-Process "http://127.0.0.1:$Port/"
-        }
-    }
+    Open-TutorWindow
 
     Log "Running. Close this window to stop the AI Tutor."
     while (-not $backend.HasExited) { Start-Sleep -Seconds 2 }

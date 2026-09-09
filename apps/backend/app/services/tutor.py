@@ -13,12 +13,24 @@ from app.schemas import TutorProfile
 
 STYLE_RULES = {
     # Abstract phrasing like "guide with questions" is ignored by small models;
-    # a hard length limit plus a worked example is what actually lands.
+    # a concrete shape plus a sentence count is what actually lands.
+    #
+    # Tuned against measured answer length on the target laptop. "at most 3-5
+    # sentences - one small hint" produced 223-character replies, which read as
+    # curt rather than socratic. Generation runs at ~15.6 tokens/s there, so
+    # this rule costs real time -- but it is time the student spends listening
+    # to an answer already on screen, not waiting for one, and time to first
+    # token is what perceived latency is made of. Naming the three parts is
+    # what lifts the length; "4 to 6 sentences" alone was still undershot.
+    #
+    # No question-mark requirement. It used to end "your reply MUST end with a
+    # question mark", which the model obeyed to the letter and made every
+    # answer read as interrogation. needs_socratic_retry below changed with it.
     "socratic": (
-        "Do NOT explain the whole concept at once. Reply in at most 3 "
-        "sentences: give one small hint, then end with a question that makes "
-        "the student think. Your reply MUST end with a question mark. Give the "
-        "full answer only if the student asks for it directly."
+        "reply in 4 to 6 sentences: the key idea, then one concrete example a "
+        "student can picture, then one line that nudges them to think further. "
+        "Do not explain the whole topic at once, and do not list every fact you "
+        "know."
     ),
     "direct": (
         "Answer clearly and immediately, then add one short worked example."
@@ -29,63 +41,69 @@ STYLE_RULES = {
     ),
 }
 
+# Sits between the persona and the excerpts, so the model reads what the
+# passages are for before it reads the passages. Deliberately permissive: a
+# 1.5B model told to answer *only* from context refuses far too often, which
+# reads to a student as the tutor being broken.
+EXCERPT_PREAMBLE = (
+    "Use the student's textbook excerpts when relevant, prioritizing their "
+    "wording and examples over your own knowledge."
+)
+
 
 def build_system_prompt(
     profile: Optional[TutorProfile], context: Optional[str] = None
 ) -> str:
+    """Persona and style rule, then the excerpt preamble, then the excerpts.
+
+    The conversation is not part of this message -- it follows as its own turns
+    (see build_chat_messages), so the excerpts stay subordinate to the dialogue
+    rather than sitting next to the question.
+
+    This ordering replaced the previous one, which put the excerpts at the very
+    top, above the persona. That arrangement was chosen because the model
+    weights the end of the prompt most heavily and a few hundred words of
+    textbook in front of the persona pushed the style rules out of reach -- it
+    recited the passage instead of tutoring from it. The style rule is now
+    shorter and the preamble frames the excerpts explicitly, which is what
+    makes the flip viable; the drift it was guarding against is worth
+    re-checking on a real book if answers start reading like recitation.
+
+    What was measured before the flip, and still holds: excerpts must not move
+    out of this message and onto the question. Against 12 pronoun follow-ups
+    ("why does it get bigger?", "can I make one at home?") over three topics,
+    excerpts in the system message answered from the conversation 11/12 times;
+    attached to the question, 5/12, and 7/12 even with the style rule restated
+    below them. A pronoun-only follow-up embeds to nothing useful, so retrieval
+    returns weakly related chunks just inside RAG_MAX_DISTANCE (0.35-0.40);
+    adjacent to the question they override the dialogue and the tutor starts
+    answering about hens and cows.
+
+    One incidental gain: the persona and preamble are now a fixed prefix, so
+    Ollama's KV cache survives them instead of being invalidated at token zero
+    by excerpts that change every turn. It is a small prefix, so expect a small
+    win -- RAG_CONTEXT_MAX_CHARS and MAX_HISTORY_MESSAGES remain the levers
+    that actually move a turn.
+    """
     profile = profile or TutorProfile()
-    lines: List[str] = [
-        "You are a patient, encouraging tutor running entirely offline on the "
-        "student's own device.",
-    ]
+    persona = "Patient tutor"
+    if profile.level:
+        persona += " for a {} student".format(profile.level)
+    lines: List[str] = [persona + "."]
     if profile.subject:
         lines.append("Subject: {}.".format(profile.subject))
-    if profile.level:
-        lines.append("The student's level is: {}. Match your vocabulary to it.".format(profile.level))
     if profile.student_name:
         lines.append("The student's name is {}.".format(profile.student_name))
-
-    lines.extend(
-        [
-            "Keep answers under 200 words unless asked for more.",
-            "Use simple language and a concrete example. Never invent facts; if "
-            "you are unsure, say so plainly.",
-            "Reply in {}.".format(profile.language or "English"),
-        ]
+    lines.append(
+        "Simple words, {}, never invent facts.".format(profile.language or "English")
     )
-    # Trailing position is deliberate: a 1.5B model follows the last
-    # instruction most closely, and mid-prompt style rules got ignored.
-    lines.append("Most important rule: " + STYLE_RULES.get(profile.style, STYLE_RULES["socratic"]))
+    lines.append(
+        "Most important rule: "
+        + STYLE_RULES.get(profile.style, STYLE_RULES["socratic"])
+    )
     prompt = " ".join(lines)
     if context:
-        # Appended after the rules rather than before them. This model weights
-        # the end of the prompt most heavily, and a few hundred words of
-        # textbook dropped in front of the persona pushed the style rules out
-        # of reach -- it started reciting the passage instead of tutoring from
-        # it. The rules stay adjacent to the reply; the excerpts sit above.
-        #
-        # It is tempting to move the excerpts out of this message entirely and
-        # attach them to the question instead: they are the only part of the
-        # prompt that changes each turn, so parking them in messages[0] means
-        # Ollama's KV cache is invalidated from token zero and the persona and
-        # the whole conversation are re-read every single turn. That was tried
-        # and measured, and it is not worth it. Against 12 pronoun follow-ups
-        # ("why does it get bigger?", "can I make one at home?") over three
-        # topics, keeping the excerpts here answered from the conversation
-        # 11/12 times; moving them next to the question dropped that to 5/12,
-        # and 7/12 even with the style rule restated below them. With the
-        # excerpts adjacent to the reply, an irrelevant retrieval hit -- which
-        # a pronoun-only follow-up reliably produces, since the question alone
-        # embeds to nothing useful -- simply overrides the conversation, and
-        # the tutor starts answering about hens and cows. Front placement keeps
-        # them subordinate to the dialogue.
-        #
-        # The cache would have been worth ~140 tokens a turn, about 3s on the
-        # target laptop. Cutting MAX_HISTORY_MESSAGES and RAG_CONTEXT_MAX_CHARS
-        # buys four times that without touching answer quality. Fix the
-        # retrieval instead if this needs revisiting: the follow-ups above came
-        # back at distance 0.35-0.40, just inside RAG_MAX_DISTANCE.
-        prompt = "{}\n\n{}".format(context, prompt)
+        prompt = "{}\n\n{}\n\n{}".format(prompt, EXCERPT_PREAMBLE, context)
     return prompt
 
 
@@ -290,19 +308,38 @@ def parse_json_content(content: str) -> Dict[str, Any]:
 # matter how the persona is phrased (rule-only, rule-last, one example, two
 # examples and few-shot turns were all measured). Rather than trust the prompt,
 # the reply is checked and re-asked once. One extra short generation costs ~1s.
+#
+# Only /api/chat reaches this; /api/chat/stream cannot, because the reply is
+# already on the student's screen token by token before there is anything to
+# inspect. The UI streams, so in practice this guards the buffered API only.
 SOCRATIC_CORRECTION = (
-    "That reply explained too much. My question was: \"{question}\". Rewrite "
-    "your reply in at most 2 sentences, strictly about that question: one small "
-    "hint, then ONE question back to me. Your whole reply must end with a "
-    "question mark. Do not give the answer. Do not change the subject."
+    "That reply explained too much. My question was: \"{question}\". Rewrite it "
+    "in 4 sentences or fewer, strictly about that question: the key idea, one "
+    "example, and a nudge to think further. Do not walk through the whole "
+    "topic. Do not change the subject."
 )
+
+# Roughly twice what the style rule asks for. A well-shaped 6-sentence reply
+# runs 400-600 characters on this model; the failure being caught is the
+# wholesale topic dump, which runs well past this. Deliberately set clear of
+# the target rather than at it: a retry costs a second full generation, so a
+# merely wordy answer must never trigger one.
+SOCRATIC_MAX_CHARS = 1200
 
 
 def needs_socratic_retry(reply: str, profile: Optional[TutorProfile]) -> bool:
-    """True when socratic mode was requested but the model lectured instead."""
+    """True when socratic mode was requested but the model lectured instead.
+
+    This was a question-mark test, back when the style rule ended "your reply
+    MUST end with a question mark". The rule no longer asks for one, so that
+    test would now fire on nearly every reply and buy a wasted second
+    generation on every buffered call. Length is the signal that survives the
+    rule change: what the rule actually forbids is explaining the whole topic
+    at once, and that failure is visible in the character count.
+    """
     if profile is None or profile.style != "socratic":
         return False
-    return not reply.strip().endswith("?")
+    return len(reply.strip()) > SOCRATIC_MAX_CHARS
 
 
 def socratic_retry_messages(

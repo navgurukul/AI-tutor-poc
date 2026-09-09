@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Anatomy of a Tutor Turn</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+
+<style>
+:root{color-scheme:light}
+body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}
+img{max-width:100%}
+[hidden]:not([hidden=until-found]){display:none!important}
+</style>
+
+<style>
+:root {
+  --paper:      #EDF0F3;
+  --surface:    #F7F9FA;
+  --surface-2:  #E3E8ED;
+  --ink:        #101B24;
+  --ink-2:      #3C4C59;
+  --ink-3:      #6B7C89;
+  --rule:       #C6D0D9;
+  --rule-soft:  #D8E0E6;
+
+  --structural: #2B5F8A;
+  --hot:        #C2440F;
+  --warm:       #B07A06;
+  --cool:       #12756A;
+  --free:       #7E8D99;
+
+  --hot-fill:   #C2440F22;
+  --warm-fill:  #B07A0622;
+  --cool-fill:  #12756A22;
+
+  --shadow: 0 1px 2px rgba(16,27,36,.06), 0 8px 24px -12px rgba(16,27,36,.18);
+
+  --measure: 66ch;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:      #0C1319;
+    --surface:    #131C24;
+    --surface-2:  #1C2833;
+    --ink:        #E4EBF1;
+    --ink-2:      #A9B8C4;
+    --ink-3:      #778896;
+    --rule:       #2A3945;
+    --rule-soft:  #212E38;
+    --structural: #6FA8D6;
+    --hot:        #F0764A;
+    --warm:       #E0AE3C;
+    --cool:       #3FB3A2;
+    --free:       #6B7A87;
+    --hot-fill:   #F0764A26;
+    --warm-fill:  #E0AE3C26;
+    --cool-fill:  #3FB3A226;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px -14px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"] {
+  --paper:      #0C1319;
+  --surface:    #131C24;
+  --surface-2:  #1C2833;
+  --ink:        #E4EBF1;
+  --ink-2:      #A9B8C4;
+  --ink-3:      #778896;
+  --rule:       #2A3945;
+  --rule-soft:  #212E38;
+  --structural: #6FA8D6;
+  --hot:        #F0764A;
+  --warm:       #E0AE3C;
+  --cool:       #3FB3A2;
+  --free:       #6B7A87;
+  --hot-fill:   #F0764A26;
+  --warm-fill:  #E0AE3C26;
+  --cool-fill:  #3FB3A226;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px -14px rgba(0,0,0,.7);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 3.5rem;
+}
+
+h1, h2, h3, .eyebrow, .lab, th, .num, .stat-v { font-family: Archivo, "Helvetica Neue", Arial, sans-serif; }
+
+.eyebrow {
+  font-size: .70rem; font-weight: 600; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--structural); margin: 0 0 .9rem;
+}
+h1 {
+  font-size: clamp(2.1rem, 5.2vw, 3.1rem); font-weight: 700;
+  letter-spacing: -.022em; line-height: 1.05; text-wrap: balance; margin: 0 0 1rem;
+}
+h2 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.012em; text-wrap: balance; margin: 0; }
+h3 { font-size: .95rem; font-weight: 600; margin: 0; }
+p { margin: 0 0 1rem; max-width: var(--measure); }
+p:last-child { margin-bottom: 0; }
+.standfirst { font-size: 1.12rem; color: var(--ink-2); max-width: 60ch; }
+
+code, .mono, .num, .tok {
+  font-family: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+code { font-size: .86em; background: var(--surface-2); padding: .1em .38em; border-radius: 2px; }
+
+.masthead { border-bottom: 3px solid var(--ink); padding-bottom: 1.75rem; }
+.facts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin-top: 2rem;
+}
+.fact { background: var(--paper); padding: .8rem .9rem; }
+.fact .lab {
+  display: block; font-size: .62rem; font-weight: 600; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-3); margin-bottom: .3rem;
+}
+.fact .val {
+  font-family: "IBM Plex Mono", monospace; font-size: .82rem;
+  font-variant-numeric: tabular-nums; color: var(--ink);
+}
+
+section { display: flex; flex-direction: column; gap: 1.5rem; }
+.sec-head { display: flex; flex-direction: column; gap: .5rem; }
+.sec-head .rule-n {
+  font-family: "IBM Plex Mono", monospace; font-size: .7rem;
+  letter-spacing: .08em; color: var(--structural); text-transform: uppercase;
+}
+
+/* ---------- before / after ---------- */
+.ba { display: flex; flex-direction: column; gap: .85rem; }
+.ba-row { display: grid; grid-template-columns: minmax(130px, 170px) 1fr; gap: .9rem; align-items: center; }
+.ba-lab {
+  font-family: Archivo, sans-serif; font-size: .72rem; font-weight: 600;
+  color: var(--ink-2); text-align: right; line-height: 1.25;
+}
+.ba-lab small { display: block; font-weight: 500; color: var(--ink-3); font-size: .65rem; }
+.stack { display: flex; height: 46px; border: 1px solid var(--rule); background: var(--surface); overflow: hidden; }
+.stack.tall { height: 62px; }
+.seg { display: flex; flex-direction: column; justify-content: center; padding: 0 .6rem; min-width: 0; color: #fff; overflow: hidden; }
+.seg .seg-l {
+  font-family: Archivo, sans-serif; font-size: .6rem; font-weight: 600;
+  letter-spacing: .09em; text-transform: uppercase; opacity: .88; white-space: nowrap;
+}
+.seg .seg-v {
+  font-family: "IBM Plex Mono", monospace; font-size: .84rem; font-weight: 600;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.seg-cool { background: var(--cool); }
+.seg-hot  { background: var(--hot); }
+.seg-warm { background: var(--warm); }
+.seg-rest { background: var(--free); opacity: .45; }
+.glance-note { font-size: .86rem; color: var(--ink-3); max-width: var(--measure); }
+
+/* ---------- trace ---------- */
+.trace { border: 1px solid var(--rule); background: var(--surface); box-shadow: var(--shadow); }
+.ruler {
+  display: grid; grid-template-columns: minmax(210px, 1.05fr) minmax(240px, 1.5fr);
+  border-bottom: 1px solid var(--rule); background: var(--surface-2);
+}
+.ruler .r-l {
+  padding: .55rem .9rem; font-family: Archivo, sans-serif; font-size: .62rem;
+  font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3);
+}
+.ruler .r-r { position: relative; padding: .55rem .9rem; border-left: 1px solid var(--rule); }
+.ticks { position: relative; height: 1rem; }
+.tick {
+  position: absolute; top: 0; font-family: "IBM Plex Mono", monospace;
+  font-size: .62rem; color: var(--ink-3); transform: translateX(-50%); white-space: nowrap;
+}
+.tick:first-child { transform: none; }
+
+.phase { display: grid; grid-template-columns: minmax(210px, 1.05fr) minmax(240px, 1.5fr); border-bottom: 1px solid var(--rule-soft); }
+.phase:last-child { border-bottom: 0; }
+.p-left { padding: 1rem .9rem 1rem 2.1rem; position: relative; display: flex; flex-direction: column; gap: .55rem; }
+.p-left::before { content: ""; position: absolute; left: .95rem; top: 0; bottom: 0; width: 2px; background: var(--rule); }
+.phase:first-of-type .p-left::before { top: 1.35rem; }
+.phase:last-child .p-left::before { bottom: calc(100% - 1.35rem); }
+.p-left::after {
+  content: ""; position: absolute; left: calc(.95rem - 4px); top: 1.35rem;
+  width: 10px; height: 10px; border-radius: 50%; background: var(--paper); border: 2px solid var(--structural);
+}
+.phase.is-cost .p-left::after { border-color: var(--hot); background: var(--hot); }
+.phase.is-cost2 .p-left::after { border-color: var(--warm); background: var(--warm); }
+
+.p-title { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+.p-title h3 { font-size: 1rem; }
+.p-share {
+  font-family: "IBM Plex Mono", monospace; font-size: .72rem; font-weight: 600;
+  font-variant-numeric: tabular-nums; padding: .05rem .4rem; border-radius: 2px;
+  background: var(--surface-2); color: var(--ink-2);
+}
+.phase.is-cost .p-share  { background: var(--hot-fill);  color: var(--hot); }
+.phase.is-cost2 .p-share { background: var(--warm-fill); color: var(--warm); }
+
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .38rem; }
+.steps li { font-size: .82rem; line-height: 1.45; color: var(--ink-2); display: flex; gap: .5rem; }
+.steps li::before {
+  content: ""; flex: 0 0 auto; width: 5px; height: 5px; margin-top: .48rem;
+  background: var(--structural); opacity: .5;
+}
+.steps .src { font-family: "IBM Plex Mono", monospace; font-size: .74rem; color: var(--ink-3); }
+
+.p-right {
+  border-left: 1px solid var(--rule-soft); padding: 1rem .9rem;
+  display: flex; flex-direction: column; justify-content: center; gap: .45rem;
+}
+.bar-track { position: relative; height: 26px; background: var(--surface-2); border-radius: 1px; }
+.bar { position: absolute; top: 0; bottom: 0; border-radius: 1px; }
+.bar.hot  { background: var(--hot); }
+.bar.warm { background: var(--warm); }
+.bar.cool { background: var(--cool); }
+.bar.free { background: var(--free); opacity: .55; }
+.bar.ghost { background: repeating-linear-gradient(135deg, var(--free) 0 3px, transparent 3px 7px); opacity: .75; }
+.bar-v {
+  font-family: "IBM Plex Mono", monospace; font-size: .78rem; font-weight: 500;
+  font-variant-numeric: tabular-nums; color: var(--ink-2);
+}
+.bar-v b { font-weight: 600; color: var(--ink); }
+.overlap {
+  font-family: Archivo, sans-serif; font-size: .62rem; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3);
+}
+
+/* ---------- prompt ---------- */
+.prompt-grid {
+  display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(190px, .85fr);
+  border: 1px solid var(--rule); background: var(--surface); box-shadow: var(--shadow);
+}
+.pg-head { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; border-bottom: 1px solid var(--rule); background: var(--surface-2); }
+.pg-head span {
+  padding: .55rem .9rem; font-family: Archivo, sans-serif; font-size: .62rem;
+  font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3);
+}
+.pg-head span + span { border-left: 1px solid var(--rule); }
+
+.region { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; border-bottom: 1px solid var(--rule-soft); }
+.region:last-child { border-bottom: 0; }
+.r-body { padding: .85rem .9rem .85rem 1.5rem; position: relative; min-width: 0; overflow-x: auto; }
+.r-body::before { content: ""; position: absolute; left: .55rem; top: .85rem; bottom: .85rem; width: 3px; }
+.r-body pre {
+  margin: 0; font-family: "IBM Plex Mono", monospace; font-size: .745rem;
+  line-height: 1.55; color: var(--ink-2); white-space: pre-wrap; word-break: break-word;
+}
+.r-body .rl {
+  display: block; font-family: Archivo, sans-serif; font-size: .6rem; font-weight: 600;
+  letter-spacing: .1em; text-transform: uppercase; margin-bottom: .4rem;
+}
+.r-body .elide { color: var(--ink-3); font-style: italic; }
+.r-cached::before { background: var(--cool); }  .r-cached .rl { color: var(--cool); }
+.r-churn::before  { background: var(--hot); }   .r-churn .rl  { color: var(--hot); }
+.r-msg::before    { background: var(--free); }  .r-msg .rl    { color: var(--free); }
+
+.r-meta { border-left: 1px solid var(--rule-soft); padding: .85rem .9rem; display: flex; flex-direction: column; gap: .5rem; }
+.r-meta .tok { font-size: 1.25rem; font-weight: 600; line-height: 1; color: var(--ink); }
+.r-meta .tok small {
+  font-family: Archivo, sans-serif; font-size: .6rem; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-3); margin-left: .3rem;
+}
+.chip {
+  align-self: flex-start; font-family: Archivo, sans-serif; font-size: .6rem; font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase; padding: .18rem .45rem; border-radius: 2px;
+}
+.chip-cached { background: var(--cool-fill); color: var(--cool); }
+.chip-churn  { background: var(--hot-fill);  color: var(--hot); }
+.chip-msg    { background: var(--surface-2); color: var(--ink-3); }
+.r-meta .why { font-size: .76rem; line-height: 1.45; color: var(--ink-3); margin: 0; }
+
+.cutline {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: .7rem; padding: .4rem .9rem;
+  background: var(--cool-fill); border-top: 1px dashed var(--cool); border-bottom: 1px dashed var(--cool);
+}
+.cutline span {
+  font-family: Archivo, sans-serif; font-size: .62rem; font-weight: 600;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--cool);
+}
+.cutline .fill { flex: 1; height: 1px; background: var(--cool); opacity: .4; }
+
+.formula {
+  border: 1px solid var(--rule); border-left: 3px solid var(--structural); background: var(--surface);
+  padding: 1.1rem 1.2rem; font-family: "IBM Plex Mono", monospace; font-size: .84rem;
+  line-height: 1.9; overflow-x: auto;
+}
+.formula .c { color: var(--ink-3); }
+.formula .hotc { color: var(--hot); font-weight: 600; }
+.formula .warmc { color: var(--warm); font-weight: 600; }
+
+.tw { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); box-shadow: var(--shadow); }
+table { width: 100%; border-collapse: collapse; font-size: .84rem; min-width: 620px; }
+th {
+  text-align: left; font-size: .62rem; font-weight: 600; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-3); padding: .6rem .85rem;
+  background: var(--surface-2); border-bottom: 1px solid var(--rule); white-space: nowrap;
+}
+td { padding: .65rem .85rem; border-bottom: 1px solid var(--rule-soft); color: var(--ink-2); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td.n { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink); }
+td.gain { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--cool); white-space: nowrap; }
+td strong { color: var(--ink); font-weight: 600; }
+tr.now td { background: var(--cool-fill); border-top: 2px solid var(--cool); }
+tr.now td strong { color: var(--ink); }
+
+.risk {
+  font-family: Archivo, sans-serif; font-size: .6rem; font-weight: 600; letter-spacing: .07em;
+  text-transform: uppercase; padding: .15rem .4rem; border-radius: 2px; white-space: nowrap;
+}
+.risk-lo { background: var(--cool-fill); color: var(--cool); }
+.risk-md { background: var(--warm-fill); color: var(--warm); }
+.risk-hi { background: var(--hot-fill); color: var(--hot); }
+
+.callout { border: 1px solid var(--rule); border-left: 3px solid var(--warm); background: var(--surface); padding: 1rem 1.2rem; }
+.callout h3 { margin-bottom: .5rem; color: var(--warm); }
+.callout p { font-size: .9rem; color: var(--ink-2); }
+.callout.settled { border-left-color: var(--cool); }
+.callout.settled h3 { color: var(--cool); }
+
+footer { border-top: 1px solid var(--rule); padding-top: 1.25rem; font-size: .78rem; color: var(--ink-3); }
+footer p { max-width: var(--measure); }
+
+@media (max-width: 760px) {
+  .phase, .ruler { grid-template-columns: 1fr; }
+  .p-right, .ruler .r-r { border-left: 0; border-top: 1px solid var(--rule-soft); }
+  .prompt-grid { grid-template-columns: 1fr; }
+  .pg-head { display: none; }
+  .r-meta { border-left: 0; border-top: 1px solid var(--rule-soft); flex-direction: row; align-items: center; flex-wrap: wrap; gap: .75rem; }
+  .r-meta .why { flex-basis: 100%; }
+  .region { grid-template-columns: 1fr; }
+  .ba-row { grid-template-columns: 1fr; }
+  .ba-lab { text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">AI Tutor · English build · target Windows laptop</p>
+    <h1>Anatomy of a Tutor Turn</h1>
+    <p class="standfirst">One student question, from microphone to spoken answer — every stage drawn to the measured millisecond, and the prompt rewrite that took first token from 11.7 seconds to 4.1.</p>
+    <div class="facts">
+      <div class="fact"><span class="lab">Model</span><span class="val">qwen2.5:1.5b Q4_K_M</span></div>
+      <div class="fact"><span class="lab">Embeddings</span><span class="val">nomic-embed-text · 768d</span></div>
+      <div class="fact"><span class="lab">Prefill rate</span><span class="val">18.2 ms / token</span></div>
+      <div class="fact"><span class="lab">Decode rate</span><span class="val">15.6–17.0 tok/s</span></div>
+      <div class="fact"><span class="lab">Time to first token</span><span class="val">4.1 s median</span></div>
+      <div class="fact"><span class="lab">Measured</span><span class="val">9 Sep 2026 · 16:34 IST</span></div>
+    </div>
+  </header>
+
+  <!-- ============ AT A GLANCE ============ -->
+  <section id="glance">
+    <div class="sec-head">
+      <span class="rule-n">The turn at a glance</span>
+      <h2>Four configurations, same laptop, same afternoon</h2>
+      <p>All four bars share one scale. Each is a session mean; the run that shipped is the last.</p>
+    </div>
+
+    <div class="ba">
+      <div class="ba-row">
+        <div class="ba-lab">A · Fresh rebuild<small>old prompt · top-k 3</small></div>
+        <div class="stack">
+          <div class="seg seg-cool" style="width:0.5%"></div>
+          <div class="seg seg-hot" style="width:57.7%"><span class="seg-l">Prefill</span><span class="seg-v">11,608 ms</span></div>
+          <div class="seg seg-warm" style="width:40.8%"><span class="seg-l">Generation</span><span class="seg-v">8,200 ms</span></div>
+        </div>
+      </div>
+      <div class="ba-row">
+        <div class="ba-lab">B · Threads = 4<small>old prompt · top-k 3</small></div>
+        <div class="stack">
+          <div class="seg seg-cool" style="width:0.7%"></div>
+          <div class="seg seg-hot" style="width:41.6%"><span class="seg-l">Prefill</span><span class="seg-v">8,383 ms</span></div>
+          <div class="seg seg-warm" style="width:22.6%"><span class="seg-l">Gen</span><span class="seg-v">4,550</span></div>
+          <div class="seg seg-rest" style="width:35.1%"></div>
+        </div>
+      </div>
+      <div class="ba-row">
+        <div class="ba-lab">C · Prompt restructured<small>new prompt · top-k 3</small></div>
+        <div class="stack">
+          <div class="seg seg-cool" style="width:0.5%"></div>
+          <div class="seg seg-hot" style="width:32.1%"><span class="seg-l">Prefill</span><span class="seg-v">6,462 ms</span></div>
+          <div class="seg seg-warm" style="width:36.6%"><span class="seg-l">Generation</span><span class="seg-v">7,360 ms</span></div>
+          <div class="seg seg-rest" style="width:30.8%"></div>
+        </div>
+      </div>
+      <div class="ba-row">
+        <div class="ba-lab">D · &nbsp;+ top-k = 2<small>new prompt · top-k 2</small></div>
+        <div class="stack tall">
+          <div class="seg seg-cool" style="width:0.5%"></div>
+          <div class="seg seg-hot" style="width:18.2%"><span class="seg-l">Prefill</span><span class="seg-v">3,667</span></div>
+          <div class="seg seg-warm" style="width:13.5%"><span class="seg-l">Gen</span><span class="seg-v">2,720</span></div>
+          <div class="seg seg-rest" style="width:67.8%"></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="glance-note"><strong>20.1 s → 6.7 s per turn; 11.7 s → 4.1 s to first token.</strong> Run B is the control that matters: <code>OLLAMA_NUM_THREAD=4</code> was confirmed applied and moved the per-token rate 18.20 → 18.03 ms — nothing. Its shorter bar is shorter questions, not a faster machine.</p>
+  </section>
+
+  <!-- ============ THE TRACE ============ -->
+  <section id="trace">
+    <div class="sec-head">
+      <span class="rule-n">The request path</span>
+      <h2>Six phases, one thread of control</h2>
+      <p>Configuration D. Bars share a single scale from 0 to 6.7 seconds. Stages under 100 ms are drawn as a hairline because that is how big they are.</p>
+    </div>
+
+    <div class="trace">
+      <div class="ruler">
+        <div class="r-l">Stage &amp; what runs</div>
+        <div class="r-r">
+          <div class="ticks">
+            <span class="tick" style="left:0">0 s</span>
+            <span class="tick" style="left:29.8%">2 s</span>
+            <span class="tick" style="left:59.6%">4 s</span>
+            <span class="tick" style="left:100%">6.7 s</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="p-left">
+          <div class="p-title"><h3>1 · In the browser</h3><span class="p-share">not on the clock</span></div>
+          <ul class="steps">
+            <li><span>Speech in via <code>useOfflineSpeechToText</code>, or the student types</span></li>
+            <li><span><code>POST /api/chat/stream</code> opens an SSE connection <span class="src">api.ts</span></span></li>
+          </ul>
+        </div>
+        <div class="p-right">
+          <div class="bar-track"><div class="bar free" style="left:0;width:1%"></div></div>
+          <div class="bar-v">timer starts at the first byte of the request</div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="p-left">
+          <div class="p-title"><h3>2 · Retrieval</h3><span class="p-share">1.4%</span></div>
+          <ul class="steps">
+            <li><span>Session fetched, question appended, <code>turn_id</code> minted, <code>start</code> frame sent <span class="src">chat.py:_stream_events</span></span></li>
+            <li><span>Question embedded — prefixed <code>search_query:</code>, one HTTP call to Ollama <span class="src">embeddings.py:embed_query</span></span></li>
+            <li><span>Flat KNN over <code>chunk_vectors</code>, filtered to grade + subject <span class="src">store.py:search</span></span></li>
+            <li><span>Hits beyond distance <code>0.42</code> dropped; retry across subjects if none survive</span></li>
+            <li><span>Top <strong>2</strong> packed to a 1,200-char budget, best-first <span class="src">retrieval.py:build_context_block</span></span></li>
+          </ul>
+        </div>
+        <div class="p-right">
+          <div class="bar-track"><div class="bar cool" style="left:0;width:1.4%"></div></div>
+          <div class="bar-v"><b>91 ms</b> <span style="color:var(--ink-3)">— embed ~85 ms · search 3–8 ms · gate &lt;1 ms</span></div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="p-left">
+          <div class="p-title"><h3>3 · Prompt assembly</h3><span class="p-share">free, but decisive</span></div>
+          <ul class="steps">
+            <li><span>Persona and style rule, then the preamble, then the excerpts <span class="src">tutor.py:build_system_prompt</span></span></li>
+            <li><span>Last 2 history messages appended, then the question <span class="src">config.py: max_history_messages</span></span></li>
+          </ul>
+        </div>
+        <div class="p-right">
+          <div class="bar-track"><div class="bar free" style="left:0;width:.6%"></div></div>
+          <div class="bar-v">&lt;1 ms of work that sets the size of the next 3.7 seconds</div>
+        </div>
+      </div>
+
+      <div class="phase is-cost">
+        <div class="p-left">
+          <div class="p-title"><h3>4 · Prefill</h3><span class="p-share">54.6%</span></div>
+          <ul class="steps">
+            <li><span>Ollama reads the prompt before emitting anything — 325 tokens on average</span></li>
+            <li><span>A median <strong>86 tokens</strong> now hit the KV cache; on a repeated leading excerpt, up to 309</span></li>
+            <li><span>The rest at 18.2 ms each — batched matrix work, compute-bound</span></li>
+          </ul>
+        </div>
+        <div class="p-right">
+          <div class="bar-track"><div class="bar hot" style="left:1.4%;width:54.6%"></div></div>
+          <div class="bar-v"><b>3,667 ms</b> — was 11,608 ms before the prompt was reordered</div>
+        </div>
+      </div>
+
+      <div class="phase is-cost2">
+        <div class="p-left">
+          <div class="p-title"><h3>5 · Generation</h3><span class="p-share">40.5%</span></div>
+          <ul class="steps">
+            <li><span>First token crosses the SSE hop and paints in <strong>6 ms</strong></span></li>
+            <li><span>46 tokens at 16.9/s — matrix-vector work, memory-bandwidth-bound</span></li>
+            <li><span>Was 128 tokens. The shorter style rule, not the machine, made this fall</span></li>
+          </ul>
+        </div>
+        <div class="p-right">
+          <div class="bar-track"><div class="bar warm" style="left:56%;width:40.5%"></div></div>
+          <div class="bar-v"><b>2,720 ms</b> — threads do not move this; it scales with memory bandwidth</div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="p-left">
+          <div class="p-title"><h3>6 · Speech out</h3><span class="p-share">overlapped</span></div>
+          <ul class="steps">
+            <li><span><code>drainSentences</code> pulls complete sentences off the growing buffer</span></li>
+            <li><span>First speakable phrase ready <strong>~250 ms</strong> after the first token</span></li>
+            <li><span>Piper WASM synthesises it in <strong>~950 ms</strong> — one pass per sentence</span></li>
+            <li><span>Student hears audio at <strong>5.4 s</strong>, while the model is still decoding</span></li>
+          </ul>
+        </div>
+        <div class="p-right">
+          <div class="bar-track"><div class="bar ghost" style="left:61%;width:39%"></div></div>
+          <div class="bar-v"><span class="overlap">runs inside phase 5</span></div>
+          <div class="bar-v" style="color:var(--ink-3)">Playback then continues past the last token — that is the answer being spoken aloud, not compute.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PROMPT ============ -->
+  <section id="prompt">
+    <div class="sec-head">
+      <span class="rule-n">How the prompt is composed</span>
+      <h2>The persona moved to the front, and the cache followed it</h2>
+      <p>This is the real output of <code>build_chat_messages</code>, abbreviated only where the textbook chunks sit. Token counts are characters ÷ 3.9, the ratio the measured <span class="mono">prompt_tokens</span> column implies for this mix of English prose.</p>
+    </div>
+
+    <div class="prompt-grid">
+      <div class="pg-head"><span>Region</span><span>Cost &amp; churn</span></div>
+
+      <div class="region">
+        <div class="r-body r-cached">
+          <span class="rl">A · Persona and style rule — fixed</span>
+<pre>Patient tutor for a Class 6 student. Subject: Science. Simple
+words, English, never invent facts. Most important rule: reply
+in at most 3-5 sentences - one small hint. Nudge the student
+to think.</pre>
+        </div>
+        <div class="r-meta">
+          <span class="tok">~50<small>tok</small></span>
+          <span class="chip chip-cached">Reused every turn</span>
+          <p class="why">195 characters, down from 613. Moving it to position zero is what made it cacheable — the text never changed, only where it sat.</p>
+        </div>
+      </div>
+
+      <div class="region">
+        <div class="r-body r-cached">
+          <span class="rl">B · Excerpt preamble — fixed</span>
+<pre>Use the student's textbook excerpts when relevant,
+prioritizing their wording and examples over your own
+knowledge.</pre>
+        </div>
+        <div class="r-meta">
+          <span class="tok">~29<small>tok</small></span>
+          <span class="chip chip-cached">Reused every turn</span>
+          <p class="why">115 characters, down from 218. Lifted out of <code>build_context_block</code> so it sits with the persona instead of being re-emitted per retrieval.</p>
+        </div>
+      </div>
+
+      <div class="cutline">
+        <span>Cache boundary — 80 tokens deep, and it runs further when the top excerpt repeats</span>
+        <span class="fill"></span>
+      </div>
+
+      <div class="region">
+        <div class="r-body r-churn">
+          <span class="rl">C · Retrieved excerpts — new every turn</span>
+<pre>[1] Science Class 6 - Separation of Substances - pp. 42-43
+<span class="elide">   ~350 characters of chunk text</span>
+
+[2] Science Class 6 - Changes Around Us - p. 51
+<span class="elide">   ~350 characters of chunk text</span></pre>
+        </div>
+        <div class="r-meta">
+          <span class="tok">~180<small>tok</small></span>
+          <span class="chip chip-churn">3.3 s when nothing repeats</span>
+          <p class="why">Two excerpts now, not three. Because the prefix above is stable, a repeated top hit extends the cache <em>through</em> excerpt [1] — which is where the 309-token cache hits come from.</p>
+        </div>
+      </div>
+
+      <div class="region">
+        <div class="r-body r-msg">
+          <span class="rl">D · Conversation — separate messages</span>
+<pre>user      "<span class="elide">previous question</span>"
+assistant "<span class="elide">previous answer</span>"
+user      "why does it get bigger?"</pre>
+        </div>
+        <div class="r-meta">
+          <span class="tok">~40<small>tok</small></span>
+          <span class="chip chip-msg">Window of 2</span>
+          <p class="why">A sliding window can never be cached: dropping a message off the front shifts every token behind it.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout settled">
+      <h3>Why this flip worked when the last one failed</h3>
+      <p>The reverted attempt moved the excerpts onto the <em>user message</em>, below the whole conversation. Against 12 pronoun-only follow-ups (“why does it get bigger?”), that dropped answering-from-the-conversation from 11/12 to 5/12 — a weak retrieval hit adjacent to the question overrides the dialogue. This change keeps the excerpts inside the system message, above the history; only the persona moved. What made it viable is that the style rule is now short enough to survive being read before a few hundred words of textbook. <strong>That claim is not yet re-measured</strong> — the 12-follow-up eval has not been run against this layout.</p>
+    </div>
+  </section>
+
+  <!-- ============ ARITHMETIC ============ -->
+  <section id="model">
+    <div class="sec-head">
+      <span class="rule-n">The whole device in one equation</span>
+      <h2>Latency here is arithmetic, not tuning</h2>
+    </div>
+
+    <div class="formula">
+turn_ms  =  <span class="hotc">(prompt_tokens − cached_prefix) × 18.2</span>   <span class="c">← prefill, compute-bound</span>
+         +  <span class="warmc">completion_tokens ÷ 15.6 × 1000</span>       <span class="c">← generation, bandwidth-bound</span>
+         +  retrieval_ms  <span class="c">(~91)</span>  +  overhead  <span class="c">(~350)</span>
+
+<span class="c">A  old prompt   627 in / 128 out  ·  ~0 cached  →  20.1 s
+D  new prompt   325 in /  46 out  ·  86 cached  →   6.7 s</span>
+    </div>
+
+    <p><strong>This is why <code>OLLAMA_NUM_THREAD=4</code> changed nothing.</strong> The device is not thread-starved: 55 tokens/s of prefill is roughly what a four-core laptop should manage on a 1.5B Q4 model. The 3.5× prefill-to-generation ratio, against 8.2× on the reference box, describes a machine that is bandwidth-rich and compute-poor. The only way to spend less time is to feed it fewer tokens — which is exactly what the prompt rewrite did.</p>
+  </section>
+
+  <!-- ============ WHERE THE WIN CAME FROM ============ -->
+  <section id="levers">
+    <div class="sec-head">
+      <span class="rule-n">Accounting for 13.4 seconds</span>
+      <h2>Three-fifths is prefill. Two-fifths is the tutor saying less.</h2>
+    </div>
+
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>Change</th><th>Mechanism</th><th class="n">Prefill</th><th class="n">Gen</th><th class="n">Turn</th><th class="n">First token</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>A · Baseline</strong></td>
+            <td>Excerpts at token zero; nothing cacheable behind them</td>
+            <td class="n">11.6 s</td><td class="n">8.2 s</td><td class="n">20.1 s</td><td class="n">11.7 s</td>
+            <td><span class="risk risk-lo">superseded</span></td>
+          </tr>
+          <tr>
+            <td><strong>B · Threads = 4</strong></td>
+            <td>No effect — 18.20 → 18.03 ms/token</td>
+            <td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td>
+            <td><span class="risk risk-lo">falsified</span></td>
+          </tr>
+          <tr>
+            <td><strong>C · Prompt restructured</strong></td>
+            <td>Fixed prefix 213 → 80 tokens, and now cacheable</td>
+            <td class="n">6.5 s</td><td class="n">7.4 s</td><td class="gain">14.0 s</td><td class="gain">6.3 s</td>
+            <td><span class="risk risk-hi">eval outstanding</span></td>
+          </tr>
+          <tr class="now">
+            <td><strong>D · &nbsp;+ top-k = 2</strong></td>
+            <td>One fewer excerpt; shorter answers from the rewritten style rule</td>
+            <td class="n">3.7 s</td><td class="n">2.7 s</td><td class="gain">6.7 s</td><td class="gain">4.1 s</td>
+            <td><span class="risk risk-md">running now</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <h3>Two changes are riding together, and only one is a latency change</h3>
+      <p>Answers fell from 638 characters to 223 — because the socratic rule was rewritten from “at most 3 sentences … your reply MUST end with a question mark” to “at most 3-5 sentences - one small hint”. That is <strong>5.5 of the 13.4 seconds saved</strong>, and it is a pedagogy decision, not a free win. Worth confirming a 223-character answer is still the tutoring you want. One loose end: <code>needs_socratic_retry</code> still tests whether the reply ends in a question mark, which the prompt no longer asks for — and it only runs on the non-streaming endpoint, so it never fires for the UI anyway.</p>
+    </div>
+
+    <p>The 0.5b model swap is no longer needed for latency. First token is at 4.1 s and first audio at 5.4 s, inside the target, on the 1.5b model — which means the eval harness that swap was blocked on can be spent on the retrieval quality question instead.</p>
+  </section>
+
+  <footer>
+    <p>Measured from <code>turns-backend.csv</code>, <code>turns-frontend.csv</code> and <code>launcher.log</code> on the target laptop, 9 September 2026, English build, <code>feature/english-only-latency-opti</code>. Launcher timestamps are IST; CSV timestamps are UTC, offset +5:30 — which is how each run was matched to its override. Rates and stage timings are measured; the per-region token split is derived at 3.9 characters per token. The outlier session of 8 Sep 09:41 — generation collapsed to 6.0 tok/s under machine load — is excluded throughout.</p>
+  </footer>
+
+</div>
+
+</body>
+</html>

@@ -90,7 +90,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 max_tokens=request.max_tokens,
             )
             retry_reply = (retry.get("message") or {}).get("content", "").strip()
-            if retry_reply.endswith("?"):
+            # Accepted only if it is actually shorter. Was a question-mark test,
+            # which the style rule no longer asks for; keeping the original on a
+            # retry that rambled just as long is the point of checking at all.
+            if retry_reply and len(retry_reply) < len(reply):
                 reply, response = retry_reply, retry
     except Exception:
         # Drop the student's turn so a retry does not stack two user messages.

@@ -81,7 +81,9 @@ class Settings(BaseSettings):
     # How many chunks are retrieved and pasted into the prompt. Each one costs
     # prefill time on a CPU-bound model, which is the real latency cost of RAG
     # -- the search itself is under a millisecond.
-    rag_top_k: int = 3
+    # Now 2, measured on the target: dropping the third excerpt took prefill
+    # from 6.5s to 3.7s and first token from 6.3s to 4.1s. RAG_TOP_K overrides.
+    rag_top_k: int = 2
     # Hard ceiling on retrieved text, applied after ranking. rag_top_k alone
     # does not bound latency: prefill costs ~25-30ms per token on the target
     # laptop, and four chunks measured anywhere from 1,178 to 3,376 characters

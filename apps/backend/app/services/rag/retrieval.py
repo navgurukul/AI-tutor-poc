@@ -67,10 +67,13 @@ async def retrieve(
 def build_context_block(hits: List[Retrieved]) -> str:
     """Format retrieved chunks for the prompt.
 
+    Excerpts only. What to do with them is EXCERPT_PREAMBLE in
+    app.services.tutor, which the prompt build places directly above this
+    block -- keeping the instruction there means it stays with the persona and
+    the style rule rather than being repeated per retrieval.
+
     Each excerpt is labelled with its source so the model can point a student
-    at the page, and the instruction is deliberately permissive: a 1.5B model
-    told to answer *only* from context refuses far too often, which reads to a
-    student as the tutor being broken.
+    at the page.
     """
     if not hits:
         return ""
@@ -98,12 +101,7 @@ def build_context_block(hits: List[Retrieved]) -> str:
         )
         label = " - ".join(filter(None, [hit.document_title, hit.heading, pages]))
         parts.append("[{}] {}\n{}".format(index, label, hit.text))
-    return (
-        "Here are excerpts from the student's own textbook. Prefer them over your "
-        "own knowledge where they apply, and use their wording and examples. If "
-        "they do not cover the question, answer normally without mentioning them.\n\n"
-        + "\n\n".join(parts)
-    )
+    return "\n\n".join(parts)
 
 
 def citations(hits: List[Retrieved]) -> List[dict]:
