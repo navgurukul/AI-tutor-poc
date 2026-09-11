@@ -226,8 +226,11 @@ def _hit(chars, page=1):
 
 def test_the_budget_cuts_the_second_passage_behind_a_long_first(monkeypatch):
     """exp004, magnet poles: a 1,193-character exercise page at #1 left no room
-    for the 233-character definition at #2, which was cited but never read."""
+    for the 233-character definition at #2, which was cited but never read.
+    The budget alone, so shortening is off: with it on, the exercise page is
+    cut to 600 and the definition fits (test_passage_shortening)."""
     monkeypatch.setattr(settings, "rag_context_max_chars", 1200)
+    monkeypatch.setattr(settings, "rag_passage_max_chars", 0)
     assert [h.page_start for h in within_budget([_hit(1193, 121), _hit(233, 117)])] == [121]
     assert "[2]" not in build_context_block([_hit(1193, 121), _hit(233, 117)])
 

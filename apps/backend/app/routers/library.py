@@ -126,14 +126,18 @@ async def search(payload: Dict[str, Any]) -> Dict[str, Any]:
     budget cuts -- because a passage can be retrieved and still never be read.
     `context_max_chars` sets that budget as a chat request's own field does,
     so a benchmark sweeping it scores each arm against the prompt that arm
-    actually built.
+    actually built. `prompt_excerpts` is what each of those passages is sent
+    as once shortened to the question -- the answer key has to be looked for
+    there, since a passage can reach the prompt with its answer trimmed off.
+    Being stateless, it shortens every passage fresh; a chat turn resends a
+    passage the previous turn already sent exactly as it was sent then.
     """
     _require_store()
     from app.services.rag.retrieval import (
         citations,
+        prompt_hits,
         retrieval_query,
         retrieve,
-        within_budget,
     )
 
     question = str(payload.get("question") or "").strip()
@@ -149,11 +153,17 @@ async def search(payload: Dict[str, Any]) -> Dict[str, Any]:
         previous_question=previous,
     )
     budget = payload.get("context_max_chars")
-    read = len(within_budget(hits[: settings.rag_top_k], int(budget) if budget else None))
+    shown = prompt_hits(
+        hits[: settings.rag_top_k],
+        retrieval_query(question, previous),
+        int(budget) if budget else None,
+    )
+    read = len(shown)
     return {
         "question": question,
         "query_carried": retrieval_query(question, previous) != question,
         "hits": citations(hits),
         "excerpts": [h.text for h in hits],
         "in_prompt": [i < read for i in range(len(hits))],
+        "prompt_excerpts": [h.text for h in shown] + [None] * (len(hits) - read),
     }

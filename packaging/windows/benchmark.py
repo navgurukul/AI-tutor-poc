@@ -472,6 +472,8 @@ def score_retrieval(base, question, previous_question=None):
     hits = found.get("hits") or []
     excerpts = found.get("excerpts") or []
     in_prompt = found.get("in_prompt")
+    # What each in-prompt passage is sent as, once shortened to the question.
+    sent = found.get("prompt_excerpts")
     if "query_carried" in found:
         out["query_carried"] = bool(found["query_carried"])
     for i, (hit, text) in enumerate(zip(hits, excerpts)):
@@ -486,6 +488,14 @@ def score_retrieval(base, question, previous_question=None):
     else:
         # Not retrieved at all is a definite no, even on an old backend.
         out["answer_in_prompt"] = False
+    if out["answer_rank"] is not None and isinstance(sent, list):
+        # A passage can reach the prompt with its answer sentence shortened
+        # away, so "in the prompt" has to mean the phrase is in what is sent.
+        out["answer_in_prompt"] = any(
+            text is not None
+            and any(p in _norm(f"{hit.get('heading') or ''} {text}") for p in phrases)
+            for hit, text in zip(hits, sent)
+        )
     return out
 
 
@@ -521,6 +531,9 @@ def answer_sentence(score):
     read = score.get("answer_in_prompt")
     if read:
         fate = "and it reached the prompt"
+    elif score.get("answer_shortened"):
+        fate = ("and the passage reached the prompt, but shortening it to the "
+                "question cut the answer out")
     elif read is False:
         fate = ("but the character budget cut it before the prompt" if rank <= 2
                 else "below the passages that reach the prompt")
@@ -740,7 +753,8 @@ function arm(item,b){
   if(a.ptok!=='')c(a.ptok+' tok');
   c(a.passages+' of '+a.sources+' passage'+(a.sources===1?'':'s')+' read', a.passages<a.sources?'warn':'');
   if(a.in_ctx===true)c('book answer in excerpt','ok');
-  else if(a.in_ctx===false)c(a.rank?('book answer ranked #'+a.rank+', not read'):'book answer not retrieved','bad');
+  else if(a.in_ctx===false)c(!a.rank?'book answer not retrieved':(a.rank<=a.passages?
+    'book answer shortened out of #'+a.rank:'book answer ranked #'+a.rank+', not read'),'bad');
   if(a.overlap!=null)c('overlap '+Math.round(a.overlap*100)+'%', a.overlap<0.25?'bad':(a.overlap<0.5?'warn':'ok'));
   if(a.drift!=='' && a.drift!=null)c(a.drift+' pages from topic', a.drift>D.drift_pages?'bad':'');
   box.appendChild(chips);
@@ -1166,6 +1180,12 @@ def main():
             # Budget-correct. score_retrieval judged this against the SITE budget,
             # which is wrong for every other arm; the text the model read is not.
             score["answer_in_prompt"] = in_ctx
+            # The answer's passage was read, just not the part holding the
+            # answer: shortening lost it, not the budget.
+            rank = score.get("answer_rank")
+            score["answer_shortened"] = (
+                in_ctx is False and isinstance(rank, int)
+                and rank <= passages_in(context))
         overlap = excerpt_overlap(r["answer"], context)
         usage = r["usage"]
         total_ms = r["total_ms"]
@@ -1301,17 +1321,18 @@ def main():
     print("  2 read = both passages reached the prompt; answer = the book's answer")
     print("  phrase is in the text the model read. Medians over grounded turns only.")
 
-    # What each smaller budget cost, by name: book answers that were retrieved
-    # in the top two but did not fit. The top passage is always kept, so every
-    # one of these is a #2 the budget dropped.
+    # What each budget cost, by name: book answers retrieved in the top two
+    # that the model still never read -- either the budget dropped their
+    # passage, or the passage was read but shortened to a part without them.
     first = budgets[0]
     for b in budgets:
         cut = [r for r in rows if r["budget"] == b and r["_in_ctx"] is False
                and r["answer_rank"] in (1, 2)]
-        print(f"\nbook answer retrieved but cut at {b}: "
+        print(f"\nbook answer retrieved but not read at {b}: "
               + ("none" if not cut else f"{len(cut)}"))
         for r in cut:
-            print(f"  {r['set_name']}  \"{r['question']}\"")
+            why = "shortened out" if r["_score"].get("answer_shortened") else "budget"
+            print(f"  {r['set_name']}  \"{r['question']}\"  ({why})")
 
     # Retrieval does not depend on the budget -- only the trimming after it does
     # -- so drift is the same at every budget. Reported once.

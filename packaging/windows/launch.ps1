@@ -36,19 +36,25 @@ param(
     # the entire latency cost of RAG; the vector search itself is under a
     # millisecond.
     #
-    # Read RAG_CONTEXT_MAX_CHARS (1200) before turning this up: the character
+    # Read RAG_CONTEXT_MAX_CHARS (800) before turning this up: the character
     # budget is applied after ranking and drops chunks from the end, so raising
     # k past what fits buys nothing except a longer candidate list. Raise the
     # two together, and expect roughly half a second per extra 100 characters.
     [int]$TopK           = 0,
     # RAG_CONTEXT_MAX_CHARS, the site default for how much retrieved textbook
-    # text reaches the prompt (backend default 1200). Prefill is ~18ms per
+    # text reaches the prompt (backend default 800). Prefill is ~25ms per new
     # prompt token here, so every 100 characters is roughly half a second of
     # waiting -- and cutting it trades grounding for that time, because the
     # top passage is always kept and the budget only decides whether the
     # second one fits. For a sweep, benchmark.py sets it per request instead;
     # this is for fixing the value a site actually runs with. 0 keeps the default.
     [int]$ContextChars   = 0,
+    # RAG_PASSAGE_MAX_CHARS, the longest any one passage may be once in the
+    # prompt (backend default 600); a longer one is cut to the sentences that
+    # best match the question. It is what bounds the top passage, which the
+    # budget above always keeps whole. 0 keeps the default; a negative value
+    # turns shortening off, for an A/B run against the same build.
+    [int]$PassageChars   = 0,
     [switch]$NoBrowser
 )
 
@@ -200,6 +206,10 @@ if ($TopK -gt 0) {
 if ($ContextChars -gt 0) {
     $env:RAG_CONTEXT_MAX_CHARS = "$ContextChars"
     Log "RAG_CONTEXT_MAX_CHARS=$ContextChars (override)"
+}
+if ($PassageChars -ne 0) {
+    $env:RAG_PASSAGE_MAX_CHARS = if ($PassageChars -lt 0) { "0" } else { "$PassageChars" }
+    Log "RAG_PASSAGE_MAX_CHARS=$($env:RAG_PASSAGE_MAX_CHARS) (override; 0 = off)"
 }
 
 $backend = Start-Process $python -ArgumentList "-m","app.serve" -WorkingDirectory $appDir `

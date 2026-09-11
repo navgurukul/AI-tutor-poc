@@ -16,7 +16,13 @@ from app.services.ollama_client import OllamaError, build_usage, client
 from app.services import turnlog
 from app.services.sessions import store
 from app.services.rag import service as library
-from app.services.rag.retrieval import build_context_block, citations, retrieve
+from app.services.rag.retrieval import (
+    citations,
+    format_excerpts,
+    prompt_hits,
+    retrieval_query,
+    retrieve,
+)
 from app.services.tutor import (
     build_chat_messages,
     grade_from_profile,
@@ -44,12 +50,17 @@ async def _retrieve_context(
     profile,
     previous_question: Optional[str] = None,
     budget: Optional[int] = None,
+    reuse: Optional[Dict[int, str]] = None,
 ) -> tuple:
-    """Textbook excerpts for this question, as (prompt block, citations).
+    """Textbook excerpts for this question, as (prompt block, citations, sent).
 
     Scoped to the session's grade and subject so a Class 6 question cannot be
     answered out of a Class 11 chapter. `previous_question` is only used when
     this one leans on it ("how can we reduce it?") -- see rag.followup.
+
+    Passages are shortened to the text searched for, except any in `reuse`,
+    which go out exactly as the last turn sent them. `sent` is this turn's
+    version of that map, for the session to hand back next turn.
     """
     hits = await retrieve(
         library.store,
@@ -58,7 +69,14 @@ async def _retrieve_context(
         subject=(profile.subject if profile else None),
         previous_question=previous_question,
     )
-    return build_context_block(hits, budget), citations(hits)
+    shown = prompt_hits(
+        hits, retrieval_query(message, previous_question), budget, reuse
+    )
+    return (
+        format_excerpts(shown),
+        citations(hits),
+        {hit.chunk_id: hit.text for hit in shown},
+    )
 
 
 def _new_turn_id() -> str:
@@ -73,11 +91,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
     session = await store.get_or_create(request.session_id, request.profile)
     session.add("user", request.message)
 
-    context, sources = await _retrieve_context(
+    context, sources, session.excerpts = await _retrieve_context(
         request.message,
         session.profile,
         session.previous_question(),
         budget=request.context_max_chars,
+        reuse=session.excerpts,
     )
     messages = build_chat_messages(
         session.history(
@@ -168,11 +187,12 @@ async def _stream_events(
     retrieval_ms = 0
     try:
         retrieval_started = time.perf_counter()
-        context, sources = await _retrieve_context(
+        context, sources, session.excerpts = await _retrieve_context(
             message,
             session.profile,
             session.previous_question(),
             budget=context_max_chars,
+            reuse=session.excerpts,
         )
         retrieval_ms = int((time.perf_counter() - retrieval_started) * 1000)
         if sources:

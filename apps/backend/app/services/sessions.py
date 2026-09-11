@@ -51,6 +51,12 @@ class Session:
         self.session_id = session_id
         self.profile = profile or TutorProfile()
         self.messages: List[Message] = []
+        # What each passage was sent as on the last turn, by chunk id. A
+        # follow-up that retrieves the same passage sends it again verbatim
+        # instead of re-shortened around its own words, so its prompt still
+        # starts with the last one and Ollama's cache covers it (see
+        # retrieval.prompt_hits). Replaced every turn, so it never grows.
+        self.excerpts: Dict[int, str] = {}
         self.created_at = _now()
         self.updated_at = self.created_at
 

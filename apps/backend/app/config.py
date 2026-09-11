@@ -37,7 +37,13 @@ class Settings(BaseSettings):
     warm_model_on_startup: bool = True
 
     # --- Generation defaults ---------------------------------------------
-    temperature: float = 0.7
+    # 0.3, down from 0.7 (exp006, 11 Sep). At 0.7, 14 of the 24 questions that
+    # got byte-identical excerpts at three budgets were right at one and wrong
+    # at another -- magnet poles came out inverted, correct, then muddled, off
+    # the same text. That is a 1.5B model sampling between readings of its own
+    # evidence, and a tutor should give its most likely reading every time.
+    # Sampling costs nothing measurable, so this is not a latency setting.
+    temperature: float = 0.3
     # Caps the tail of a slow turn. The persona already asks for under 200
     # words (~260 tokens); 800 only ever bought a runaway answer, and on a CPU
     # at ~9 chars/s the difference is minutes.
@@ -117,13 +123,25 @@ class Settings(BaseSettings):
     # token in 3.3s; 1,178 characters of excerpt takes 10.7s; 3,376 takes
     # 28.6s. Roughly 20-27ms per token of prefill, linear.
     #
-    # Now at 1200. Once the excerpts moved out of the system message and the
-    # history window came down to 2, this became the largest remaining piece of
-    # the prompt -- and the only piece that changes every turn, so it is the
-    # part no amount of caching can ever make free. Raise it if a site would
-    # rather wait for better grounding; every 100 characters is roughly half a
-    # second. RAG_CONTEXT_MAX_CHARS overrides.
-    rag_context_max_chars: int = 1200
+    # Now 800, from 1200 (exp006, 30 questions at 1200/1000/800 on the
+    # target). A budget only changes a turn when the top passage is short
+    # enough for a second one to fit -- 6 of the 30 at 800 -- and those turns
+    # got 1.3-6.3s faster: mean first token 4.72s -> 4.06s. The book's answer
+    # reached the model on 19 of 30 at every budget; none of the passages 800
+    # dropped held it, and two had caused wrong answers at 1200. The catch is
+    # that most turns now carry one passage, so which passage ranks first
+    # matters more than it did. RAG_CONTEXT_MAX_CHARS overrides; every 100
+    # characters is roughly half a second.
+    rag_context_max_chars: int = 800
+    # Longest a single passage may be in the prompt. The budget above never
+    # trims the top passage, so it cannot bound a turn by itself: every turn
+    # still over 6s at 800 in exp006 was one passage of 950-1,200 characters,
+    # read whole. A passage over this is cut to the run of sentences that best
+    # matches the question (retrieval.shorten_passage), which bounds the worst
+    # turn at the budget and leaves a short second passage room to fit. At
+    # ~25ms per new token on the target, 1,200 -> 600 characters is ~3s.
+    # RAG_PASSAGE_MAX_CHARS=0 turns it off.
+    rag_passage_max_chars: int = 600
     # Cosine distance above which a hit is treated as irrelevant. Without it a
     # question the textbooks don't cover still drags in the four least-bad
     # chunks and invites the model to answer from them.
