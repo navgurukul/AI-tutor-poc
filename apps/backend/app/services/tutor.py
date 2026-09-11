@@ -15,17 +15,25 @@ STYLE_RULES = {
     # Abstract phrasing like "guide with questions" is ignored by small models;
     # a concrete shape plus a sentence count is what actually lands.
     #
-    # Tuned twice against measured answer length on the target laptop, and it
+    # Tuned against measured answer length on the target laptop, and it
     # overshoots easily in both directions:
     #
     #   "at most 3-5 sentences - one small hint"        -> 223 chars, too curt
     #   "4 to 6 sentences: key idea, example, nudge"    -> 851 chars, too long
-    #   this rule                                       -> targeting ~450
+    #   "3 to 4 sentences, under 80 words: ..."         -> 448 chars (exp004)
+    #   the same as prose, at temperature 0.3           -> 150-370 chars
+    #   this rule                                       -> targeting ~550-700
     #
-    # Naming the three parts is what lifts the length, and it lifts it hard --
-    # far more than the sentence count restrains it. So the count comes down
-    # and a word cap goes in as a hard anchor, because "3 to 4 sentences" alone
-    # licenses three very long ones.
+    # Naming the parts is what lifts the length, and it lifts it hard -- far
+    # more than a sentence count restrains it. The last version pulled the
+    # other way twice over: "under 80 words" was a cap, and "do not explain the
+    # whole topic at once" told a model already inclined to stop that stopping
+    # was the point. After the switch to temperature 0.3 it took that reading
+    # every time: "What is a disaster?" and "What is a shadow?" got one
+    # sentence each, and none of the answers carried the example or the
+    # closing invitation the rule asked for. So this names four parts, drops
+    # both brakes, and anchors on "about 100 words" -- a target, not a cap,
+    # which is what keeps four named parts from running to 851 again.
     #
     # Naming them also gets them echoed. Written as "...: the key idea, one
     # concrete example, then one line that nudges them to think", the model read
@@ -44,11 +52,11 @@ STYLE_RULES = {
     # question mark", which the model obeyed to the letter and made every
     # answer read as interrogation. needs_socratic_retry below changed with it.
     "socratic": (
-        "answer in 3 to 4 plain sentences, under 80 words. Start with the main "
-        "idea, then give one example a student can picture, then end by "
-        "inviting them to think further. Write flowing sentences only -- no "
-        "headings, labels, bullet points or numbered parts. Do not explain the "
-        "whole topic at once."
+        "explain in 5 to 6 plain sentences, about 100 words. Begin by saying "
+        "clearly what it is, then explain how or why it happens, then give one "
+        "everyday example a student can picture, and end with one sentence that "
+        "invites them to think further. Write flowing sentences only -- no "
+        "headings, labels, bullet points or numbered parts."
     ),
     "direct": (
         "Answer clearly and immediately, then add one short worked example."
@@ -331,9 +339,8 @@ def parse_json_content(content: str) -> Dict[str, Any]:
 # inspect. The UI streams, so in practice this guards the buffered API only.
 SOCRATIC_CORRECTION = (
     "That reply explained too much. My question was: \"{question}\". Rewrite it "
-    "in 4 sentences or fewer, strictly about that question: the key idea, one "
-    "example, and a nudge to think further. Do not walk through the whole "
-    "topic. Do not change the subject."
+    "in 5 to 6 plain sentences, about 100 words, strictly about that question. "
+    "Do not walk through the whole topic. Do not change the subject."
 )
 
 # Roughly twice what the style rule asks for. A well-shaped 6-sentence reply
@@ -351,8 +358,9 @@ def needs_socratic_retry(reply: str, profile: Optional[TutorProfile]) -> bool:
     MUST end with a question mark". The rule no longer asks for one, so that
     test would now fire on nearly every reply and buy a wasted second
     generation on every buffered call. Length is the signal that survives the
-    rule change: what the rule actually forbids is explaining the whole topic
-    at once, and that failure is visible in the character count.
+    rule change: the failure worth a second generation is the wholesale topic
+    dump, at twice the ~100 words the rule asks for, and that is visible in the
+    character count.
     """
     if profile is None or profile.style != "socratic":
         return False
