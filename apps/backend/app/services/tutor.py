@@ -15,22 +15,29 @@ STYLE_RULES = {
     # Abstract phrasing like "guide with questions" is ignored by small models;
     # a concrete shape plus a sentence count is what actually lands.
     #
-    # Tuned against measured answer length on the target laptop. "at most 3-5
-    # sentences - one small hint" produced 223-character replies, which read as
-    # curt rather than socratic. Generation runs at ~15.6 tokens/s there, so
-    # this rule costs real time -- but it is time the student spends listening
-    # to an answer already on screen, not waiting for one, and time to first
-    # token is what perceived latency is made of. Naming the three parts is
-    # what lifts the length; "4 to 6 sentences" alone was still undershot.
+    # Tuned twice against measured answer length on the target laptop, and it
+    # overshoots easily in both directions:
+    #
+    #   "at most 3-5 sentences - one small hint"        -> 223 chars, too curt
+    #   "4 to 6 sentences: key idea, example, nudge"    -> 851 chars, too long
+    #   this rule                                       -> targeting ~450
+    #
+    # Naming the three parts is what lifts the length, and it lifts it hard --
+    # far more than the sentence count restrains it. So the count comes down
+    # and a word cap goes in as a hard anchor, because "3 to 4 sentences" alone
+    # licenses three very long ones.
+    #
+    # Length is not free even though the student is reading rather than
+    # waiting: the closing line comes back through the history window on the
+    # next turn (see Session.history), and generation runs at ~15.6 tokens/s.
     #
     # No question-mark requirement. It used to end "your reply MUST end with a
     # question mark", which the model obeyed to the letter and made every
     # answer read as interrogation. needs_socratic_retry below changed with it.
     "socratic": (
-        "reply in 4 to 6 sentences: the key idea, then one concrete example a "
-        "student can picture, then one line that nudges them to think further. "
-        "Do not explain the whole topic at once, and do not list every fact you "
-        "know."
+        "reply in 3 to 4 sentences, under 80 words total: the key idea, one "
+        "concrete example a student can picture, then one line that nudges "
+        "them to think further. Do not explain the whole topic at once."
     ),
     "direct": (
         "Answer clearly and immediately, then add one short worked example."
@@ -82,8 +89,7 @@ def build_system_prompt(
     One incidental gain: the persona and preamble are now a fixed prefix, so
     Ollama's KV cache survives them instead of being invalidated at token zero
     by excerpts that change every turn. It is a small prefix, so expect a small
-    win -- RAG_CONTEXT_MAX_CHARS and MAX_HISTORY_MESSAGES remain the levers
-    that actually move a turn.
+    win -- RAG_CONTEXT_MAX_CHARS is the lever that still moves a turn.
     """
     profile = profile or TutorProfile()
     persona = "Patient tutor"

@@ -68,7 +68,15 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     context, sources = await _retrieve_context(request.message, session.profile)
     messages = build_chat_messages(
-        session.history(settings.max_history_messages), session.profile, context
+        session.history(
+            settings.history_questions,
+            # The nudge only earns its tokens when the style actually ends
+            # every reply with one; direct and exam_prep do not.
+            keep_nudge=session.profile.style == "socratic",
+            nudge_max_chars=settings.history_nudge_max_chars,
+        ),
+        session.profile,
+        context,
     )
     try:
         response = await client.chat(
@@ -153,7 +161,15 @@ async def _stream_events(
             # is grounded in while it is still being written.
             yield _sse({"type": "sources", "sources": sources})
         messages = build_chat_messages(
-            session.history(settings.max_history_messages), session.profile, context
+            session.history(
+                settings.history_questions,
+                # The nudge only earns its tokens when the style actually ends
+                # every reply with one; direct and exam_prep do not.
+                keep_nudge=session.profile.style == "socratic",
+                nudge_max_chars=settings.history_nudge_max_chars,
+            ),
+            session.profile,
+            context,
         )
         # Counted here, not at the end: by the time the row is written the reply
         # has been appended to the session, so reading the window back then

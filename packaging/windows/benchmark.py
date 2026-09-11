@@ -7,6 +7,7 @@ laptop can be checked during provisioning, and two machines can be compared.
     "C:\\Program Files\\AITutor\\runtime\\python\\python.exe" benchmark.py
 
     benchmark.py --label topk2 --repeat 3
+    benchmark.py --fresh-session          # cold-start numbers, no history
     benchmark.py http://127.0.0.1:8757 --label multilang
 
 Every turn is also appended to benchmarks.csv in the log directory, beside the
@@ -15,11 +16,20 @@ so a benchmark run joins straight onto turns-backend.csv:
 
     turn_id -> prompt_tokens, prefill_ms, generation_ms, context_chars
 
+Each pass runs the three questions down ONE session, so questions 2 and 3 carry
+history exactly as a student's would. That matters: history is re-read through
+prefill on every turn, and a run that opens a fresh session per question reports
+a number nobody experiences.
+
 Numbers that matter on a CPU-only device:
   ttft   time to first token -- what a student actually waits for
   total  time to the full reply
   chars/s   generation rate once running
   src    passages retrieved (0 = the answer was ungrounded)
+
+Timings are medianed over GROUNDED turns only. An ungrounded turn carries no
+excerpts, so it prefills ~130 tokens instead of ~650 and finishes in a fifth of
+the time -- averaging it in reports a speed the tutor never delivers.
 
 Unlike the backend's turn logs, this one records the question text. These are
 three fixed strings authored here, not anything a student typed, so the rule
@@ -40,14 +50,28 @@ from pathlib import Path
 
 DEFAULT_BASE = "http://127.0.0.1:8756"
 
-# Deliberately mixed: two the textbook answers, one it does not, so the run
-# reports grounding as well as speed. An off-syllabus question returning 0
-# sources is correct behaviour, not a failure.
+# Grounded questions only. These are what the median is computed over, because
+# a grounded turn is the thing being optimised and the only thing worth
+# comparing between builds.
+#
+# Spread matters more than count: a question whose excerpts fill the 1200-char
+# budget costs roughly four times one whose excerpts are short (measured on
+# target: 537 chars -> 3.4s to first token, 1239 chars -> 12.5s, same top_k,
+# same code). Two questions cannot describe that range, so a median over them
+# is a coin toss. These four span it.
 QUESTIONS = [
     "What is photosynthesis?",
     "What are the three states of matter?",
-    "Who won the 2022 football world cup?",
+    "How can we separate sand from water?",
+    "Why do shadows form?",
 ]
+
+# Run once at the end, reported, and NEVER counted in the timings. An
+# off-syllabus question is a correctness check -- the distance gate should
+# abstain and return zero sources -- and its latency is meaningless next to a
+# grounded turn: no excerpts means ~130 prompt tokens against ~650, which
+# dragged the reported median from 7.6s down to 4.4s when it was in the set.
+ABSTAIN_CHECK = "Who won the 2022 football world cup?"
 
 FIELDS = (
     "ts_utc",
@@ -143,15 +167,25 @@ def search_chars(base, question):
     return sum(len(str(x)) for x in excerpts)
 
 
-def ask(base, question):
-    """One streamed turn.
+def ask(base, question, session_id=None):
+    """One streamed turn, optionally continuing an existing conversation.
 
     Returns a dict of everything the stream gave up: client-side timings, plus
     the turn_id from the start frame and Ollama's own counters from the done
     frame. The latter is what splits a slow turn into prefill and generation --
     the two need different fixes, and ttft alone cannot tell them apart.
+
+    Passing session_id is what makes this measure a conversation rather than a
+    series of first questions. Without it the backend mints a fresh session per
+    call, history stays empty, and the run reports a latency no student ever
+    sees -- 2.4s optimistic on the target, measured 2026-09-10.
     """
-    body = json.dumps({"message": question}).encode()
+    # POST /api/chat/stream reads session_id off the JSON body (ChatRequest);
+    # only the EventSource GET variant takes it as a query parameter.
+    request_body = {"message": question}
+    if session_id:
+        request_body["session_id"] = session_id
+    body = json.dumps(request_body).encode()
     req = urllib.request.Request(
         f"{base}/api/chat/stream",
         data=body,
@@ -206,6 +240,9 @@ def main():
                         help="where benchmarks.csv goes (default: the backend's log directory)")
     parser.add_argument("--no-log", action="store_true",
                         help="print only; do not append to benchmarks.csv")
+    parser.add_argument("--fresh-session", action="store_true",
+                        help="open a new session per question (cold-start numbers, "
+                             "comparable across machines but optimistic vs real use)")
     args = parser.parse_args()
     base = args.base.rstrip("/")
 
@@ -236,7 +273,8 @@ def main():
     print("\nwarming up (first turn absorbs the cold start)...")
     ask(base, "Hello")
 
-    header = (f"{'question':34} {'ttft':>8} {'total':>8} {'ans':>5} "
+    print(f"sessions  {'one per question (--fresh-session)' if args.fresh_session else 'one per pass -- turns build history'}")
+    header = (f"{'turn  question':34} {'ttft':>8} {'total':>8} {'ans':>5} "
               f"{'ptok':>5} {'prefill':>8} {'gtok':>5} {'src':>4} {'search':>7}")
     print()
     print(header)
@@ -246,9 +284,15 @@ def main():
     for pass_no in range(1, args.repeat + 1):
         if args.repeat > 1:
             print(f"pass {pass_no}")
+        # One session per pass, not per run: each pass then yields a turn 1, a
+        # turn 2 and a turn 3, so repeats are samples at the same conversation
+        # depth rather than one ever-lengthening thread.
+        sid = None
         for idx, question in enumerate(QUESTIONS, start=1):
             found = search_chars(base, question)
-            r = ask(base, question)
+            r = ask(base, question, session_id=sid)
+            if not args.fresh_session:
+                sid = r["session_id"]
             usage = r["usage"]
             ttft_ms = r["ttft_ms"] or 0
             total_ms = r["total_ms"]
@@ -277,7 +321,8 @@ def main():
                 "model": r["model"] or model_name,
                 "base_url": base,
             })
-            shown = question if len(question) <= 33 else question[:30] + "..."
+            label = f"{idx}  {question}"
+            shown = label if len(label) <= 33 else label[:30] + "..."
             print(f"{shown:34} {ttft_ms/1000:7.2f}s {total_ms/1000:7.2f}s "
                   f"{r['answer_chars']:5d} "
                   f"{str(usage.get('prompt_tokens', '-')):>5} "
@@ -286,12 +331,73 @@ def main():
                   f"{r['sources']:4d} {found:7d}")
 
     print("-" * len(header))
-    med = lambda key: statistics.median(r[key] for r in rows)          # noqa: E731
-    print(f"{'median':34} {med('ttft_ms')/1000:7.2f}s {med('total_ms')/1000:7.2f}s "
-          f"{med('answer_chars'):5.0f}")
 
-    prefills = [r["prefill_ms"] for r in rows if isinstance(r["prefill_ms"], int)]
-    ptoks = [r["prompt_tokens"] for r in rows if isinstance(r["prompt_tokens"], int)]
+    # Grounded rows only. A question that retrieved nothing did not measure the
+    # thing under test, whatever the reason -- off-syllabus, a corpus without
+    # that chapter, or a gate that abstained. Excluding them by `sources` rather
+    # than by name keeps the median honest against any corpus.
+    grounded = [r for r in rows if r["sources"] > 0]
+    missed = sorted({r["question"] for r in rows if r["sources"] == 0})
+    if not grounded:
+        print("\nNo question retrieved anything -- is the library loaded? "
+              "Check /health.\n")
+        return 1
+
+    med = lambda key: statistics.median(r[key] for r in grounded)      # noqa: E731
+    print(f"{'median (grounded)':34} {med('ttft_ms')/1000:7.2f}s "
+          f"{med('total_ms')/1000:7.2f}s {med('answer_chars'):5.0f}")
+    if missed:
+        print(f"\n  excluded from the median, retrieved nothing: {', '.join(missed)}")
+
+    # Per question, because the spread between them is the point: one that
+    # fills the excerpt budget and one that does not are different workloads,
+    # and a single median hides which of the two a build actually improved.
+    if args.repeat > 1:
+        print(f"\n{'per question, median of ' + str(args.repeat) + ' passes':34} "
+              f"{'ttft':>8} {'ptok':>6} {'ctx':>6}")
+        for q in QUESTIONS:
+            qr = [r for r in grounded if r["question"] == q]
+            if not qr:
+                continue
+            shown = q if len(q) <= 33 else q[:30] + "..."
+            ptoks = [r["prompt_tokens"] for r in qr if isinstance(r["prompt_tokens"], int)]
+            print(f"{shown:34} {statistics.median(r['ttft_ms'] for r in qr)/1000:7.2f}s "
+                  f"{statistics.median(ptoks) if ptoks else 0:6.0f} "
+                  f"{statistics.median(r['search_chars'] for r in qr):6.0f}")
+
+    # --- correctness, not speed -------------------------------------------
+    check = ask(base, ABSTAIN_CHECK)
+    ok = check["sources"] == 0
+    print(f"\nabstain check  \"{ABSTAIN_CHECK}\"")
+    print(f"  {'PASS' if ok else 'FAIL'} - retrieved {check['sources']} sources"
+          f"{' (expected 0; the distance gate let an off-syllabus question through)' if not ok else ''}")
+    rows.append({
+        "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "run_id": run_id,
+        "label": args.label,
+        "pass_no": 0,               # 0 marks the check; filter it out when charting
+        "question_idx": 0,
+        "question": ABSTAIN_CHECK,
+        "turn_id": check["turn_id"],
+        "session_id": check["session_id"],
+        "ttft_ms": check["ttft_ms"] or 0,
+        "total_ms": check["total_ms"],
+        "answer_chars": check["answer_chars"],
+        "chars_per_second": "",
+        "sources": check["sources"],
+        "search_chars": "",
+        "prompt_tokens": check["usage"].get("prompt_tokens", ""),
+        "prefill_ms": check["usage"].get("prompt_eval_ms", ""),
+        "completion_tokens": check["usage"].get("completion_tokens", ""),
+        "generation_ms": check["usage"].get("eval_ms", ""),
+        "tokens_per_second": check["usage"].get("tokens_per_second", ""),
+        "load_ms": check["usage"].get("load_duration_ms", ""),
+        "model": check["model"] or model_name,
+        "base_url": base,
+    })
+
+    prefills = [r["prefill_ms"] for r in grounded if isinstance(r["prefill_ms"], int)]
+    ptoks = [r["prompt_tokens"] for r in grounded if isinstance(r["prompt_tokens"], int)]
     if prefills and ptoks and sum(ptoks):
         print(f"\nprefill   {sum(prefills)/sum(ptoks):.1f} ms per prompt token "
               f"({1000*sum(ptoks)/sum(prefills):.0f} tok/s)")

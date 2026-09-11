@@ -46,22 +46,43 @@ class Settings(BaseSettings):
     num_ctx: int = 4096
 
     # --- Conversation memory ---------------------------------------------
-    # Number of past messages (user + assistant) replayed to the model, the
-    # current question included. Every turn replays this much through prefill.
+    # What the model re-reads of the conversation. NOT what the student sees:
+    # the full reply is streamed, stored and returned unchanged. These two were
+    # one string until they were measured, and that cost 3.9s a turn.
     #
-    # Measured over eight real turns on the target laptop, history at 10 was
-    # 54-71% of the whole prompt -- more than the retrieved textbook excerpts,
-    # and 12-20s of the wait. Assistant replies run 300-600 characters, so each
-    # message carries roughly 63 tokens and each token costs ~20ms of prefill.
+    # The history window used to be a flat "last N messages", which meant the
+    # previous *answer* came back in full. At 851 characters that is ~218
+    # tokens, and at 18.2ms per prompt token it bought ~3.9s of prefill on
+    # every turn after the first -- so answer length was charged twice, once to
+    # generate and again to re-read. Measured on target 2026-09-10: turn 1 at
+    # 5.6s to first token, turn 5 at 9.2s, rising monotonically with the length
+    # of the preceding answer.
     #
-    # Two means the model sees its own last answer and the new question, which
-    # is what "explain that again" actually needs; it loses the student's
-    # previous wording, which is rarely load-bearing. Note that a *sliding*
-    # window is also the reason prompt caching cannot help much here: dropping
-    # a message off the front shifts every token behind it, so only the system
-    # prompt survives as a shared prefix. A short prompt beats a cached long
-    # one -- the re-read part is the same size either way.
-    max_history_messages: int = 2
+    # What is replayed now, and why each part earns its tokens:
+    #
+    #   the previous question   ~6 tok   what a pronoun binds to. "Why does it
+    #                                    get bigger?" resolves against "What is
+    #                                    a shadow?" as well as against any
+    #                                    answer, and costs a twentieth as much.
+    #   the closing nudge      ~28 tok   socratic style only. Every reply ends
+    #                                    by inviting the student to think, so
+    #                                    their next message is often a REPLY to
+    #                                    that -- "because it would go pale?".
+    #                                    Without it the model cannot see the
+    #                                    question it asked, and a perfectly good
+    #                                    answer arrives as a non-sequitur.
+    #   the current question    ~6 tok   always present.
+    #
+    # Everything else in the previous answer -- the worked example, the
+    # elaboration -- is never referred back to, and is dropped.
+    #
+    # One is enough: the immediate antecedent is what pronouns bind to, and a
+    # second question buys ~6 tokens of context for ~0.1s. Raising this is
+    # cheap if follow-ups start losing the thread.
+    history_questions: int = 1
+    # Cap on the retained closing sentence, so a model that ends with a
+    # paragraph instead of a line cannot reintroduce the cost this removed.
+    history_nudge_max_chars: int = 200
     session_ttl_minutes: int = 180
     max_sessions: int = 500
 
