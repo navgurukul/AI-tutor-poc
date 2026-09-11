@@ -5,9 +5,23 @@ from typing import List, Optional
 
 from app.config import settings
 from app.services.rag.embeddings import embed_query
+from app.services.rag.followup import embedding_text
 from app.services.rag.store import LibraryStore, Retrieved, StoreUnavailable
 
 logger = logging.getLogger(__name__)
+
+
+def retrieval_query(question: str, previous_question: Optional[str]) -> str:
+    """The text actually searched for: the question, or for a pronoun
+    follow-up, the previous question and then it.
+
+    One function for both callers -- the chat turn and the library search the
+    benchmark scores against -- so what the benchmark measures is what a
+    student's turn does.
+    """
+    if not settings.rag_carry_followups:
+        return question
+    return embedding_text(question, previous_question)
 
 
 async def retrieve(
@@ -17,6 +31,7 @@ async def retrieve(
     grade: Optional[int],
     subject: Optional[str],
     k: Optional[int] = None,
+    previous_question: Optional[str] = None,
 ) -> List[Retrieved]:
     """Nearest textbook chunks for a question, or [] if retrieval can't run.
 
@@ -27,7 +42,7 @@ async def retrieve(
     if not settings.rag_enabled or not store.is_open or not question.strip():
         return []
     try:
-        vector = await embed_query(question)
+        vector = await embed_query(retrieval_query(question, previous_question))
         limit = k or settings.rag_top_k
         hits = store.search(
             vector,
@@ -64,7 +79,39 @@ async def retrieve(
     return []
 
 
-def build_context_block(hits: List[Retrieved]) -> str:
+def within_budget(
+    hits: List[Retrieved], budget: Optional[int] = None
+) -> List[Retrieved]:
+    """The leading hits that fit rag_context_max_chars -- what the model reads.
+
+    Trimmed from the end until the budget is met. Hits arrive best-first, so a
+    question whose top passage alone exceeds the budget still gets that
+    passage -- an over-long excerpt is better than none, and the cap exists
+    to stop the tail, not the head.
+
+    This regularly drops the second of two retrieved passages: in exp004, 9 of
+    the 20 turns that retrieved anything lost their #2 here, including the
+    magnet-pole definition, behind a 1,193-character exercise page. The
+    citations are built from the untrimmed hits, so a cut passage is still
+    listed as a source.
+
+    `budget` overrides the setting for one turn -- benchmark.py sweeps it per
+    request so every arm shares one warm model and one prompt cache.
+    """
+    budget = budget or settings.rag_context_max_chars
+    kept: List[Retrieved] = []
+    used = 0
+    for hit in hits:
+        if kept and used + len(hit.text) > budget:
+            break
+        kept.append(hit)
+        used += len(hit.text)
+    return kept
+
+
+def build_context_block(
+    hits: List[Retrieved], budget: Optional[int] = None
+) -> str:
     """Format retrieved chunks for the prompt.
 
     Excerpts only. What to do with them is EXCERPT_PREAMBLE in
@@ -78,19 +125,7 @@ def build_context_block(hits: List[Retrieved]) -> str:
     if not hits:
         return ""
 
-    # Trim from the end until the budget is met. Hits arrive best-first, so a
-    # question whose top passage alone exceeds the budget still gets that
-    # passage -- an over-long excerpt is better than none, and the cap exists
-    # to stop the tail, not the head.
-    budget = settings.rag_context_max_chars
-    kept: List[Retrieved] = []
-    used = 0
-    for hit in hits:
-        if kept and used + len(hit.text) > budget:
-            break
-        kept.append(hit)
-        used += len(hit.text)
-    hits = kept
+    hits = within_budget(hits, budget)
 
     parts = []
     for index, hit in enumerate(hits, start=1):

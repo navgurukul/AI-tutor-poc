@@ -133,6 +133,14 @@ class Settings(BaseSettings):
     # "bake bread") scored 0.50-0.58. 0.42 sits in the gap. Re-measure with
     # POST /api/library/search if you change the embedding model.
     rag_max_distance: float = 0.42
+    # A follow-up with a dangling pronoun ("how can we reduce it?") is searched
+    # with the previous question in front of it, because on its own it embeds
+    # to nothing and retrieval wanders into other chapters -- 6 of 10 follow-ups
+    # did in exp004. Questions without one are searched exactly as typed; see
+    # app.services.rag.followup for why this is conditional. Only the search
+    # changes, never the prompt. RAG_CARRY_FOLLOWUPS=0 turns it off, for an
+    # A/B run of the benchmark.
+    rag_carry_followups: bool = True
     # Characters per chunk, and the overlap carried between neighbours so a
     # definition split across a boundary survives in at least one of them.
     rag_chunk_chars: int = 1200

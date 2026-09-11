@@ -72,6 +72,22 @@ class ChatRequest(GenerationOptions):
     profile: Optional[TutorProfile] = Field(
         None, description="Applied when creating a session; updates it if supplied later."
     )
+    # Per-turn override of RAG_CONTEXT_MAX_CHARS, for measuring the budget
+    # without restarting the backend. A restart reloads the model and resets
+    # Ollama's prompt cache, so arms measured across restarts would differ in
+    # more than the budget. Bounded because it is a tuning knob, not an input:
+    # below 200 not even one label survives, above 4000 it exceeds num_ctx.
+    context_max_chars: Optional[int] = Field(
+        None, ge=200, le=4000,
+        description="Characters of retrieved textbook text to put in the prompt.",
+    )
+    # Echo the exact excerpt block the model read in the `sources` frame. For
+    # evaluation only: the citations list every RETRIEVED passage, including
+    # ones the budget cut before the prompt, so grading an answer against the
+    # citations grades it against pages the model never saw.
+    return_context: bool = Field(
+        False, description="Include the excerpt text actually sent to the model."
+    )
 
 
 class Source(BaseModel):

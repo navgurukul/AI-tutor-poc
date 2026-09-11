@@ -119,22 +119,41 @@ async def search(payload: Dict[str, Any]) -> Dict[str, Any]:
     Exposed because when the tutor gives a poor answer, the first question is
     always whether retrieval found the right passage or the model ignored it,
     and this separates the two.
+
+    Send `previous_question` to search the way a follow-up turn does. Hits come
+    back best-first; `in_prompt` marks the ones a chat turn would actually
+    put in front of the model -- the first rag_top_k, less any the character
+    budget cuts -- because a passage can be retrieved and still never be read.
+    `context_max_chars` sets that budget as a chat request's own field does,
+    so a benchmark sweeping it scores each arm against the prompt that arm
+    actually built.
     """
     _require_store()
-    from app.services.rag.retrieval import citations, retrieve
+    from app.services.rag.retrieval import (
+        citations,
+        retrieval_query,
+        retrieve,
+        within_budget,
+    )
 
     question = str(payload.get("question") or "").strip()
     if not question:
         raise HTTPException(status_code=422, detail="A question is required.")
+    previous = str(payload.get("previous_question") or "").strip() or None
     hits = await retrieve(
         service.store,
         question,
         grade=payload.get("grade"),
         subject=payload.get("subject"),
         k=int(payload.get("k") or settings.rag_top_k),
+        previous_question=previous,
     )
+    budget = payload.get("context_max_chars")
+    read = len(within_budget(hits[: settings.rag_top_k], int(budget) if budget else None))
     return {
         "question": question,
+        "query_carried": retrieval_query(question, previous) != question,
         "hits": citations(hits),
         "excerpts": [h.text for h in hits],
+        "in_prompt": [i < read for i in range(len(hits))],
     }

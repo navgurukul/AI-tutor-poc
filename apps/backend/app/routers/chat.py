@@ -39,19 +39,26 @@ def _sse(payload: Dict[str, Any]) -> str:
     return "data: {}\n\n".format(json.dumps(payload, ensure_ascii=False))
 
 
-async def _retrieve_context(message: str, profile) -> tuple:
+async def _retrieve_context(
+    message: str,
+    profile,
+    previous_question: Optional[str] = None,
+    budget: Optional[int] = None,
+) -> tuple:
     """Textbook excerpts for this question, as (prompt block, citations).
 
     Scoped to the session's grade and subject so a Class 6 question cannot be
-    answered out of a Class 11 chapter.
+    answered out of a Class 11 chapter. `previous_question` is only used when
+    this one leans on it ("how can we reduce it?") -- see rag.followup.
     """
     hits = await retrieve(
         library.store,
         message,
         grade=grade_from_profile(profile),
         subject=(profile.subject if profile else None),
+        previous_question=previous_question,
     )
-    return build_context_block(hits), citations(hits)
+    return build_context_block(hits, budget), citations(hits)
 
 
 def _new_turn_id() -> str:
@@ -66,7 +73,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
     session = await store.get_or_create(request.session_id, request.profile)
     session.add("user", request.message)
 
-    context, sources = await _retrieve_context(request.message, session.profile)
+    context, sources = await _retrieve_context(
+        request.message,
+        session.profile,
+        session.previous_question(),
+        budget=request.context_max_chars,
+    )
     messages = build_chat_messages(
         session.history(
             settings.history_questions,
@@ -127,6 +139,8 @@ async def _stream_events(
     temperature: Optional[float],
     max_tokens: Optional[int],
     profile=None,
+    context_max_chars: Optional[int] = None,
+    return_context: bool = False,
 ) -> AsyncIterator[str]:
     """Server-Sent Events: one `start`, many `token`, then `done` (or `error`).
 
@@ -154,12 +168,24 @@ async def _stream_events(
     retrieval_ms = 0
     try:
         retrieval_started = time.perf_counter()
-        context, sources = await _retrieve_context(message, session.profile)
+        context, sources = await _retrieve_context(
+            message,
+            session.profile,
+            session.previous_question(),
+            budget=context_max_chars,
+        )
         retrieval_ms = int((time.perf_counter() - retrieval_started) * 1000)
         if sources:
             # Emitted before the first token so the UI can show what the answer
             # is grounded in while it is still being written.
-            yield _sse({"type": "sources", "sources": sources})
+            frame: Dict[str, Any] = {"type": "sources", "sources": sources}
+            if return_context:
+                # What the model actually read, after the budget. Not the same
+                # as `sources`, which lists every retrieved passage including
+                # any the budget cut -- so an answer can only be graded fairly
+                # against this.
+                frame["context"] = context
+            yield _sse(frame)
         messages = build_chat_messages(
             session.history(
                 settings.history_questions,
@@ -241,6 +267,8 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
             request.temperature,
             request.max_tokens,
             request.profile,
+            context_max_chars=request.context_max_chars,
+            return_context=request.return_context,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
