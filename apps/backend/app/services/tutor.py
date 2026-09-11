@@ -27,6 +27,15 @@ STYLE_RULES = {
     # and a word cap goes in as a hard anchor, because "3 to 4 sentences" alone
     # licenses three very long ones.
     #
+    # Naming them also gets them echoed. Written as "...: the key idea, one
+    # concrete example, then one line that nudges them to think", the model read
+    # the colon-list as a template and emitted "Key points:" and "Nudge them"
+    # as literal headings in the reply. Two fixes, both needed: the shape is
+    # prose rather than a list, and the label words the model was copying
+    # ("key idea", "nudges") are gone. The ban on headings is explicit because
+    # a 1.5B model will reintroduce structure from almost any enumerated
+    # instruction.
+    #
     # Length is not free even though the student is reading rather than
     # waiting: the closing line comes back through the history window on the
     # next turn (see Session.history), and generation runs at ~15.6 tokens/s.
@@ -35,9 +44,11 @@ STYLE_RULES = {
     # question mark", which the model obeyed to the letter and made every
     # answer read as interrogation. needs_socratic_retry below changed with it.
     "socratic": (
-        "reply in 3 to 4 sentences, under 80 words total: the key idea, one "
-        "concrete example a student can picture, then one line that nudges "
-        "them to think further. Do not explain the whole topic at once."
+        "answer in 3 to 4 plain sentences, under 80 words. Start with the main "
+        "idea, then give one example a student can picture, then end by "
+        "inviting them to think further. Write flowing sentences only -- no "
+        "headings, labels, bullet points or numbered parts. Do not explain the "
+        "whole topic at once."
     ),
     "direct": (
         "Answer clearly and immediately, then add one short worked example."

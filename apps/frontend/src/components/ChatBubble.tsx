@@ -10,23 +10,27 @@ function secs(ms: number): string {
 /**
  * What the turn cost, on the same row as the citations.
  *
- * `wait` is time to the first word, which is the number a student actually
- * experiences; `reply` is the whole answer. On a CPU-only laptop most of the
- * wait is prefill over the retrieved passages, so seeing it beside the source
- * count makes the trade legible: more citations means a longer wait.
+ * Time to the first word only. That is the number a student actually
+ * experiences as waiting -- once text is on screen they are reading, and the
+ * time the rest of the answer takes to arrive is spent, not waited. Showing
+ * both invited the two to be read as one budget, and the total is the half
+ * that cannot be optimised without making the answer shorter.
+ *
+ * The whole-reply figure is not lost, just demoted to the tooltip, where it
+ * still explains a turn that felt slow after the first word appeared.
  */
 function TurnCost({ metrics }: { metrics: TurnMetrics }) {
   const rate = metrics.totalMs > 0 ? (metrics.chars / metrics.totalMs) * 1000 : 0;
   return (
     <span
       className="turn-cost"
-      title={`${metrics.chars} characters at about ${rate.toFixed(0)} per second`}
+      title={
+        `full reply ${secs(metrics.totalMs)} - ` +
+        `${metrics.chars} characters at about ${rate.toFixed(0)} per second`
+      }
     >
       <span className="turn-cost__item">
-        wait <b>{secs(metrics.ttftMs)}</b>
-      </span>
-      <span className="turn-cost__item">
-        reply <b>{secs(metrics.totalMs)}</b>
+        Response (TTFT) <b>{secs(metrics.ttftMs)}</b>
       </span>
     </span>
   );
