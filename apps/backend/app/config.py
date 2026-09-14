@@ -37,7 +37,28 @@ class Settings(BaseSettings):
     warm_model_on_startup: bool = True
     # A small model on CPU is usually quick, but a long answer plus a cold model
     # load can still take a while, so the read timeout is generous.
+    # CPU threads Ollama decodes with. 0 = omit the option and let Ollama
+    # auto-detect, which is the right default on unknown hardware.
+    #
+    # Set it to the PHYSICAL core count, not the thread count: oversubscribing
+    # hyperthreads makes the cores contend and costs ~10-20% on decode. The
+    # 2026-09-07 target box is an i7-6600U -- 2 physical cores / 4 threads, 15 W
+    # Skylake -- so 2, not 4.
+    #
+    # `OLLAMA_NUM_THREAD` sat in .env for weeks doing nothing: there was no field
+    # here, extra="ignore" dropped it, and it is not a variable the Ollama daemon
+    # reads either. Thread count was left entirely to auto-detection.
+    ollama_num_thread: int = 0
     ollama_timeout_seconds: float = 180.0
+    # Re-read each answer in the background as soon as it is written, so the
+    # next question does not pay for it. Ollama 0.34 runs gemma2 on llama.cpp's
+    # server, which for a sliding-window model can only resume from a
+    # checkpoint -- and saves one only at the end of each PROMPT, before the
+    # reply. Every follow-up therefore re-read the previous answer (65-129
+    # tokens, 2.5-5 s) while the student waited. Measured 2026-09-10, same
+    # prompt, 4 rounds: next-turn prefill 5.3-6.0 s without, 2.5-2.6 s with.
+    # The prime itself (~3.5 s) runs while the answer is being spoken.
+    ollama_reprime_after_reply: bool = True
     ollama_connect_timeout_seconds: float = 5.0
 
     # --- Generation defaults ---------------------------------------------
@@ -55,6 +76,17 @@ class Settings(BaseSettings):
     # the biggest CPU-latency lever, and Hindi costs 2-4x more tokens per word.
     # Raise it if answers get cut off mid-sentence.
     max_tokens: int = 200
+    # Devanagari costs 2-4x more tokens per word than English, so the same answer
+    # needs a bigger token cap to land its final sentence instead of being cut
+    # off mid-word. Kept as its own setting rather than a multiplier because the
+    # two are tuned against different failure modes: English against padding,
+    # Devanagari against truncation.
+    #
+    # This field is new as of 2026-09-07. `MAX_TOKENS_NON_ENGLISH` had been in
+    # .env (and in the decision record) for weeks with no field behind it, so
+    # pydantic's extra="ignore" silently dropped it and non-English turns used
+    # `max_tokens` the whole time.
+    max_tokens_non_english: int = 240
     # Sized for the worst Devanagari case, not the English one. Four 2,000-
     # character Hindi passages are ~5,800 tokens on their own; with the system
     # prompt, breadcrumbs and replayed history the window has to hold roughly
@@ -153,6 +185,21 @@ class Settings(BaseSettings):
     # changing either means re-embedding -- which is now a background job
     # rather than a redistribution, because chunks.text is already on device.
     rag_embedding_dims: int = 1024
+    # keep_alive for the *query* embed only (ingestion keeps ollama_keep_alive).
+    # At runtime bge-m3 only embeds the question (~10 words, ~1.1s); the corpus
+    # vectors are already in the DB, so in principle it need not stay resident
+    # through the ~30s generation turn that follows.
+    #
+    # MEASURED 2026-09-07 on the 8 GB target, and it does NOT pay off here:
+    #   "0"   -> warm-up wall 23.5s -> 10.7s, prefill -5s, BUT a cold 1.2 GB
+    #            reload every turn cost +7.5s on retrieval. Net zero.
+    #   "30s" -> turns are 40-80s apart so it never spans two, i.e. same reload
+    #            every turn, and the reload degraded to 10-20s as the box
+    #            thrashed. Turn total went UP (to 80s). Strictly worse.
+    # So: keep it pinned and eat the ~5s paging tax on prefill -- cheaper than
+    # any reload this disk can do. Revisit ("0" or "20s") only on a box with
+    # headroom, or once the generator moves off-box (LAN Ollama host).
+    rag_embed_query_keep_alive: str = "-1"
     # How many chunks are retrieved and pasted into the prompt.
     #
     # MEASURED 2026-09-04 with the per-turn metrics, and the number this whole
@@ -213,7 +260,12 @@ class Settings(BaseSettings):
     # different corpus. 0.45 sat 0.011 above the worst correct English hit --
     # one noisier book from being wrong.
     rag_ceiling_en: float = 0.51
-    rag_ceiling_hi: float = 0.58
+    # Re-measured 2026-09-10 on clean text (PyMuPDF + doubled-matra repair),
+    # Class 6 Hindi, bge-m3: 12 answerable questions scored 0.27-0.47 (one
+    # bare-title outlier at 0.532), 10 off-syllabus ones 0.53-0.61. The old
+    # 0.58 was tuned on mis-decoded text and let 4 of the 10 off-syllabus
+    # questions through with a textbook citation; 0.50 sits in the gap.
+    rag_ceiling_hi: float = 0.50
     rag_ceiling_mr: float = 0.59
     # Romanized Hindi/Marathi ("gharshan bal kya hai"): DELIBERATELY BELOW THE
     # NOISE FLOOR, so these questions retrieve nothing and the tutor answers
@@ -266,6 +318,123 @@ class Settings(BaseSettings):
     # totals 4,613 of 6,144. Passages are added whole; k falls before a
     # passage is cut.
     rag_context_token_budget: int = 4000
+    # Per-passage cap, applied AFTER ranking and BEFORE the prompt is built.
+    # 0 disables trimming and ships whole chunks, which is what shipped before
+    # 2026-09-09.
+    #
+    # A chunk is 1,200 characters because that is the size that *embeds* well --
+    # the vector needs surrounding context to rank correctly. The model does not
+    # need all of it to answer, and on this CPU every prompt token is re-read
+    # before the student hears anything: measured 2026-09-09, prompt tokens cost
+    # ~22ms each and three passages ran 538-617 tokens, i.e. 12-14s of the wait.
+    #
+    # 90 tokens is roughly the definition plus one example -- about half what a
+    # passage carries now. Sentences are picked by overlap with the question
+    # (see trim_passage), so this should raise precision as well as cut tokens:
+    # the same session that motivated this returned a groundwater passage for a
+    # question about "भूमिका" and the model recited it.
+    #
+    # Raise it if answers start missing detail the passage clearly had; set 0
+    # to rule the trimmer out while chasing a retrieval bug.
+    #
+    # OFF (0) as of 2026-09-09, after it silently broke an answer.
+    #
+    # Asked "संज्ञा और उसके भेदों का विवरण करें", the trimmer kept
+    #     "संज्ञा के तीन मुख्य भेद माने जाते हैं।"   (there are three types)
+    # and dropped
+    #     "व्यक्तिवाचक ... जातिवाचक ... भाववाचक ..."  (what the three types ARE)
+    # so the model was told a list existed, not what was in it, and invented
+    # "प्राधिकारिक, प्रमाणिक और अनोखे". The same question answered correctly
+    # before trimming was switched on.
+    #
+    # The cause is structural, not a bad threshold: sentences are scored by
+    # overlap with the question, and a topic sentence repeats the question's
+    # words ("संज्ञा", "भेद") while the sentences carrying the answer use
+    # different ones. Lexical scoring therefore prefers headlines and discards
+    # substance -- exactly the silent truncation fit_to_budget refuses to do.
+    #
+    # It also never paid here: this corpus chunks at 97-349 characters, so a
+    # "passage" is already about one cap's worth. Trimming is only worth
+    # reopening for 1000+ character chunks, and then only if the scorer keeps
+    # the sentences AROUND the best match rather than the best match alone.
+    # RE-ENABLED 2026-09-10 at 110, with a DIFFERENT algorithm.
+    #
+    # The version that broke an answer selected the best-MATCHING sentences and
+    # dropped the rest. It now keeps the HEAD in order, which has neither
+    # failure mode -- see trim_passage.
+    #
+    # 110 because retrieved passages dominate the cost of a turn: they are
+    # always NEW tokens, and a new token costs ~50ms against ~2ms for a cached
+    # one. Measured the same day, a single passage was arriving at 341-375
+    # estimated tokens -- roughly 14s of a 22s prefill, for one chunk. The
+    # median chunk in this corpus is 125 estimated tokens, so this barely
+    # touches a typical passage and cuts only the outliers (largest: 1009).
+    #
+    # Raise it if answers start missing detail the passage clearly had; 0 turns
+    # trimming off entirely.
+    rag_passage_token_cap: int = 110
+    # Pin the WHOLE corpus into the system prompt instead of retrieving per
+    # question, whenever it fits in this many tokens. 0 disables pinning.
+    #
+    # This is a latency setting, and it is the largest one measured on this box.
+    # Ollama reuses a cached KV prefix only against the request that immediately
+    # preceded it -- not against any older one that happens to share a prefix.
+    # Per-question retrieval therefore changes the prompt every turn, consecutive
+    # prompts diverge right after the persona, and the 568-token persona is
+    # re-prefilled every single question. Measured 2026-09-09:
+    #
+    #     per-question retrieval : 15-26s of prefill, every turn
+    #     pinned corpus          : 1.6-3.1s (turn 1 / 2 / 3)
+    #
+    # Same model, same hardware. The cost is a one-time ~47s prime at startup,
+    # which the background warm-up absorbs before any student asks anything.
+    #
+    # Only honest while the corpus is small: over budget, this falls back to
+    # per-question retrieval rather than truncating. The live corpus is ~1105
+    # estimated tokens (7 chunks), so 1500 leaves room without letting a real
+    # textbook through. A full book needs the pinned block scoped to a chapter
+    # instead -- same mechanism, different unit.
+    #
+    # Two settings must move with it, or the cache is thrown away anyway:
+    #   NUM_CTX               big enough for persona + corpus + a session of history
+    #   MAX_HISTORY_MESSAGES  large enough not to SLIDE mid-session; dropping the
+    #                         oldest message rewrites the prefix and loses the cache
+    rag_pin_corpus_max_tokens: int = 1500
+    # Skip pasting a passage this session has already been given.
+    #
+    # Excerpts live inside the turn they belong to (tutor.build_turn_message),
+    # so a chunk retrieved earlier is still in the conversation and still in
+    # Ollama's KV cache. Sending it again costs ~110 NEW tokens -- about 5.5s at
+    # the measured ~50ms per new token -- to repeat something the model can
+    # already read a few lines up.
+    #
+    # Measured 2026-09-10, the cost of a turn is:
+    #     prefill ~= (new tokens x ~50ms) + (total tokens x ~2ms)
+    # so what a turn adds matters far more than how long the prompt is. With
+    # dedup on, a follow-up on the same topic adds nothing and runs ~5s, while a
+    # new topic adds one passage and runs ~9s -- fast exactly where it is earned,
+    # and never ungrounded where it is not.
+    #
+    # Citations and groundedness still see every hit; only the text pasted into
+    # this turn shrinks. Set false to paste the passages on every turn.
+    rag_dedup_context: bool = True
+    # A short follow-up that refers back ("इसका एक उदाहरण दीजिए", "explain this
+    # again") keeps the previous passage instead of searching on its own words.
+    # Searched alone, "इसका एक उदाहरण दीजिए" matched an unrelated passage on
+    # 2026-09-10 and the answer was nonsense (groundedness 0.00). Kept, the
+    # passage is already in the conversation, so the turn adds no new tokens.
+    rag_followup_reuse: bool = True
+    # The reply rules (plain sentences, word budget, no closing question, reply
+    # language) live at the END of the cached persona, and each turn repeats only
+    # a short reminder. Sent with every turn they are new tokens every time: 56
+    # real tokens on a Hindi textbook turn, 47 in English, against 10 and 7 for
+    # the reminder -- about 1.5-1.7 s less before the first word at ~38 ms per
+    # new token. Quality check 2026-09-11 (7 questions, Hindi + English, same
+    # seed): key fact 7/7 against 5/7 with the rules on every turn, all replies
+    # in the right language, none talking about the text. Moving the rules with
+    # NO reminder was worse -- answers ran to 118-159 words -- which is why the
+    # reminder stays. Set false to put the full rules back on every turn.
+    tutor_rules_in_persona: bool = True
     # Chunk bounds, in CHARACTERS -- splitting is a text operation. These are
     # not a context budget: 2,000 characters of English is about 500 tokens and
     # 2,000 characters of Hindi can be three times that, which is why the

@@ -109,6 +109,26 @@ export interface ClientTurnMetrics extends TurnMetrics {
   client_ttft_ms?: number;
   /** Question submitted → last token rendered. */
   client_total_ms?: number;
+
+  /**
+   * Mic closed → transcript ready, from the dictation that produced this
+   * question. Absent when the question was typed, and ~0 for the streaming
+   * browser engine, which has no batch decode to wait on.
+   *
+   * Carried forward from before the turn began rather than measured inside it:
+   * the student dictates, edits the draft, then sends, so this time is spent
+   * before the request exists. It still belongs on the card — it is part of
+   * the wait between speaking and being answered.
+   */
+  stt_ms?: number;
+  /**
+   * First sentence handed to the synthesizer → first audio out of the speaker.
+   * NOT a stage that follows decode: synthesis overlaps generation, so this
+   * runs while the model is still writing the rest of the answer.
+   */
+  tts_first_audio_ms?: number;
+  /** Question submitted → the last word finished playing. */
+  spoken_total_ms?: number;
 }
 
 export interface ChatMessage {

@@ -9,6 +9,7 @@ import {
   type LibraryDocument,
   type LibraryStatus,
 } from "../services/library";
+import { MEDIUMS } from "../config/curriculum";
 
 const SUBJECTS = [
   "Mathematics",
@@ -45,13 +46,20 @@ interface SetupPageProps {
 export function SetupPage({ onBack }: SetupPageProps) {
   const [status, setStatus] = useState<LibraryStatus | null>(null);
   const [documents, setDocuments] = useState<LibraryDocument[]>([]);
-  const [job, setJob] = useState<IngestJob | null>(null);
+  // One entry per file in the batch. A class's subject is usually split across
+  // several PDFs — nine chapter files for Class 5 Science, say — and uploading
+  // them one at a time means re-picking class, subject and medium nine times.
+  const [jobs, setJobs] = useState<IngestJob[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [grade, setGrade] = useState(6);
   const [subject, setSubject] = useState(SUBJECTS[0]);
+  // The language the BOOK is written in. Pinning scopes by (class, subject,
+  // medium), so a Hindi-medium and an English-medium Class 6 science book have
+  // to be distinguishable -- otherwise both get pasted into the prompt.
+  const [medium, setMedium] = useState<string>(MEDIUMS[0]);
   const [title, setTitle] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -72,42 +80,72 @@ export function SetupPage({ onBack }: SetupPageProps) {
     void refresh();
   }, [refresh]);
 
-  // Poll only while a job is actually running.
+  // Poll only while something is still running. The backend serialises
+  // ingestion behind a lock, so nine uploads queue rather than competing for
+  // the same two cores — but they all need watching, because a failure in file
+  // three must not be hidden by files four to nine still working.
+  const pending = jobs.filter((j) => j.status !== "done" && j.status !== "error");
+  const pendingIds = pending.map((j) => j.id).join(",");
+
   useEffect(() => {
-    if (!job || job.status === "done" || job.status === "error") return;
+    if (!pendingIds) return;
+    const ids = pendingIds.split(",");
     const timer = window.setInterval(async () => {
       try {
-        const next = await fetchJob(job.id);
-        setJob(next);
-        if (next.status === "done") void refresh();
+        const updated = await Promise.all(ids.map((id) => fetchJob(id)));
+        setJobs((prev) =>
+          prev.map((j) => updated.find((u) => u.id === j.id) ?? j),
+        );
+        if (updated.some((u) => u.status === "done")) void refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [job, refresh]);
+  }, [pendingIds, refresh]);
 
   async function handleUpload(event: React.FormEvent) {
     event.preventDefault();
-    if (!file) return;
+    if (files.length === 0) return;
     setError(null);
     setBusy(true);
-    try {
-      const started = await uploadTextbook({
-        file,
-        grade,
-        subject,
-        title: title.trim() || undefined,
-      });
-      setJob(started);
-      setFile(null);
+    setJobs([]);
+
+    // Posted one at a time, not with Promise.all. Each POST carries a whole
+    // PDF, and firing nine at once on this hardware means nine multi-megabyte
+    // bodies in flight against a backend that will process them serially
+    // anyway. Sequential also keeps the job list in the order the files were
+    // picked, which is usually chapter order.
+    const started: IngestJob[] = [];
+    const failures: string[] = [];
+    for (const file of files) {
+      try {
+        const job = await uploadTextbook({
+          file,
+          grade,
+          subject,
+          language: medium,
+          // A per-file title makes no sense for a batch, so the filename is
+          // the title — which is why chapter files should be named usefully.
+          title: files.length === 1 ? title.trim() || undefined : undefined,
+        });
+        started.push(job);
+        setJobs([...started]);
+      } catch (err) {
+        // One bad file must not abandon the other eight.
+        failures.push(
+          `${file.name}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    if (failures.length) setError(failures.join(" · "));
+    if (started.length) {
+      setFiles([]);
       setTitle("");
       if (fileInputRef.current) fileInputRef.current.value = "";
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   }
 
   async function handleDelete(doc: LibraryDocument) {
@@ -174,15 +212,26 @@ export function SetupPage({ onBack }: SetupPageProps) {
         <h2 className="setup__cardTitle">Add a textbook</h2>
 
         <label className="setup__field">
-          <span>PDF file</span>
+          <span>
+            PDF files <em>(select several — they share the class and subject below)</em>
+          </span>
           <input
             ref={fileInputRef}
             type="file"
             accept="application/pdf,.pdf"
+            multiple
             disabled={!status?.available || busy}
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
           />
         </label>
+
+        {files.length > 1 && (
+          <p className="setup__hint">
+            {files.length} files queued. They are ingested one after another —
+            the backend deliberately does not run them in parallel, because on
+            this hardware that would only make each one slower.
+          </p>
+        )}
 
         <div className="setup__row">
           <label className="setup__field">
@@ -214,17 +263,39 @@ export function SetupPage({ onBack }: SetupPageProps) {
               ))}
             </select>
           </label>
+
+          <label className="setup__field">
+            <span>Medium</span>
+            <select
+              value={medium}
+              disabled={!status?.available || busy}
+              onChange={(e) => setMedium(e.target.value)}
+            >
+              {MEDIUMS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <label className="setup__field">
           <span>
-            Title <em>(optional — defaults to the file name)</em>
+            Title{" "}
+            <em>
+              {files.length > 1
+                ? "(each file keeps its own name)"
+                : "(optional — defaults to the file name)"}
+            </em>
           </span>
           <input
             type="text"
-            value={title}
+            value={files.length > 1 ? "" : title}
             placeholder="e.g. Science — Chapter 6: Tissues"
-            disabled={!status?.available || busy}
+            // One title cannot name nine chapters, and naming them all the same
+            // makes the library list useless. Filenames win for a batch.
+            disabled={!status?.available || busy || files.length > 1}
             onChange={(e) => setTitle(e.target.value)}
           />
         </label>
@@ -232,9 +303,13 @@ export function SetupPage({ onBack }: SetupPageProps) {
         <button
           className="setup__submit"
           type="submit"
-          disabled={!file || !status?.available || busy}
+          disabled={files.length === 0 || !status?.available || busy}
         >
-          {busy ? "Uploading…" : "Add to library"}
+          {busy
+            ? "Uploading…"
+            : files.length > 1
+              ? `Add ${files.length} files to library`
+              : "Add to library"}
         </button>
         <p className="setup__note">
           A chapter takes seconds; a whole textbook can take several minutes on
@@ -242,37 +317,48 @@ export function SetupPage({ onBack }: SetupPageProps) {
         </p>
       </form>
 
-      {job && (
-        <div
-          className={`setup__job setup__job--${job.status === "error" ? "error" : job.status === "done" ? "done" : "active"}`}
-        >
-          <div className="setup__jobHead">
-            <strong>{job.title}</strong>
-            <span>{STATUS_LABEL[job.status]}</span>
-          </div>
-          {job.status !== "error" && (
-            <>
-              <div className="setup__progress">
-                <div
-                  className="setup__progressFill"
-                  style={{ width: `${Math.round(job.progress * 100)}%` }}
-                />
-              </div>
-              <div className="setup__jobMeta">
-                {job.chunks_total > 0
-                  ? `${job.chunks_done} / ${job.chunks_total} passages`
-                  : job.stage_detail}
-                {" · "}
-                {job.elapsed_seconds}s
-              </div>
-            </>
-          )}
-          {job.error && (
-            <div className="setup__jobError">
-              {job.error}
-              {job.hint && <div className="setup__hint">{job.hint}</div>}
+      {jobs.length > 0 && (
+        <div className="setup__jobs">
+          {jobs.length > 1 && (
+            <div className="setup__jobsHead">
+              {jobs.filter((j) => j.status === "done").length} of {jobs.length} added
+              {pending.length > 0 && " · still working"}
             </div>
           )}
+          {jobs.map((job) => (
+            <div
+              key={job.id}
+              className={`setup__job setup__job--${job.status === "error" ? "error" : job.status === "done" ? "done" : "active"}`}
+            >
+              <div className="setup__jobHead">
+                <strong>{job.title}</strong>
+                <span>{STATUS_LABEL[job.status]}</span>
+              </div>
+              {job.status !== "error" && (
+                <>
+                  <div className="setup__progress">
+                    <div
+                      className="setup__progressFill"
+                      style={{ width: `${Math.round(job.progress * 100)}%` }}
+                    />
+                  </div>
+                  <div className="setup__jobMeta">
+                    {job.chunks_total > 0
+                      ? `${job.chunks_done} / ${job.chunks_total} passages`
+                      : job.stage_detail}
+                    {" · "}
+                    {job.elapsed_seconds}s
+                  </div>
+                </>
+              )}
+              {job.error && (
+                <div className="setup__jobError">
+                  {job.error}
+                  {job.hint && <div className="setup__hint">{job.hint}</div>}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

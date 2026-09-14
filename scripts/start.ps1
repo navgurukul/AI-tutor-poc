@@ -87,6 +87,26 @@ if (Test-UrlOk "http://localhost:11434/api/version") {
     Write-Host "  Continuing anyway; answers show 'model unavailable' until it's reachable." -ForegroundColor DarkGray
 }
 
+# Give Ollama the CPU ahead of the browser.
+#
+# This box has TWO physical cores. Ollama, Chrome and the desktop shell compete
+# as equals by default, but they are not equals: prefill is the student's whole
+# wait (measured 2026-09-09: 20 of the 25.5s before the first spoken word),
+# while the browser is drawing a "Thinking..." spinner. The same prompt that
+# prefills in ~7.3s against an idle daemon took ~20s with the app in front of
+# it -- a ~2x penalty that no amount of prompt trimming recovers.
+#
+# AboveNormal, not High: High starves input handling and makes the UI feel
+# broken, which is a worse trade than a slower answer. Resets whenever Ollama
+# restarts, which is why it is re-applied here on every start.
+$ollamaProcs = Get-Process ollama -ErrorAction SilentlyContinue
+if ($ollamaProcs) {
+    foreach ($p in $ollamaProcs) {
+        try { $p.PriorityClass = 'AboveNormal' } catch {}
+    }
+    Write-Host "Ollama priority set to AboveNormal (it competes with the browser for 2 cores)." -ForegroundColor DarkGray
+}
+
 Write-Host ""
 Write-Host "==> Starting backend on http://localhost:8000 ..." -ForegroundColor Cyan
 Start-Process -FilePath $backendPython `

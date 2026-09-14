@@ -2,7 +2,7 @@
 .SYNOPSIS
   One-shot setup for the AI Tutor POC: installs frontend, desktop, and backend
   dependencies, creates local .env files, and downloads the speech model files
-  (English + Hindi TTS voices, and the IndicConformer speech-to-text model).
+  (backend TTS voices, and the speech-to-text models).
 
 .USAGE
   From the repo root:  powershell -File scripts\setup.ps1
@@ -19,8 +19,8 @@
       ollama pull <model>                # the model set in apps/backend/.env
                                          # (OLLAMA_MODEL, default gemma2:2b ~1.6 GB)
     The exact 'ollama pull ...' line is printed at the end of this script.
-  - ~700 MB of one-time model downloads happen below (IndicConformer ~470 MB,
-    Whisper EN ~145 MB, Piper voices ~130 MB). Resumable - just re-run if the
+  - ~850 MB of one-time model downloads happen below (IndicConformer ~470 MB,
+    Whisper EN ~145 MB, backend TTS voices ~200 MB). Resumable - just re-run if the
     connection drops.
 
   After this finishes, start everything with:
@@ -34,7 +34,6 @@ $repoRoot    = Split-Path -Parent $PSScriptRoot
 $frontendDir = Join-Path $repoRoot "apps\frontend"
 $desktopDir  = Join-Path $repoRoot "apps\desktop"
 $backendDir  = Join-Path $repoRoot "apps\backend"
-$modelsDir   = Join-Path $frontendDir "public\models"
 
 function Step($message) {
     Write-Host ""
@@ -114,10 +113,7 @@ function Find-Python {
     return $null
 }
 
-# 1. Frontend dependencies. In theory npm's postinstall hooks handle the
-#    Piper WASM assets and the onnxruntime-web copy automatically - but npm's
-#    allow-scripts guard blocks react-sts-hooks' own postinstall on some
-#    machines (seen in testing), so step 1b below runs it explicitly too.
+# 1. Frontend dependencies.
 Step "Installing frontend dependencies..."
 Push-Location $frontendDir
 try {
@@ -127,31 +123,6 @@ try {
     Pop-Location
 }
 
-# 1b. Piper WASM assets (worker script + phonemizer wasm/data). Not covered
-#     by our own postinstall - only react-sts-hooks' setup script fetches
-#     these, and it's the one most likely to get silently skipped.
-#
-#     Gate on piper_phonemize.data specifically, not piper_worker.js - the
-#     small files (including piper_worker.js) get copied first and always
-#     succeed quickly, while the ~18MB data file is what actually fails on a
-#     slow/dropped connection. Gating on the wrong file would make a failed
-#     run look "done" on the next pass and skip re-fetching for good.
-$piperDataPath = Join-Path $frontendDir "public\piper-wasm\piper_phonemize.data"
-if (-not (Test-ValidFile $piperDataPath (10MB))) {
-    Step "Fetching Piper WASM assets (react-sts-hooks postinstall didn't run, or was incomplete)..."
-    Push-Location $frontendDir
-    try {
-        npx react-sts-setup
-        if ($LASTEXITCODE -ne 0) { throw "react-sts-setup failed in apps/frontend" }
-    } finally {
-        Pop-Location
-    }
-    if (-not (Test-ValidFile $piperDataPath (10MB))) {
-        throw "Piper WASM assets still missing/incomplete after react-sts-setup ran. Check the output above."
-    }
-} else {
-    Step "Piper WASM assets already present - skipping."
-}
 
 # 2. Desktop launcher (no real dependencies today, but keep this consistent
 #    in case any get added later).
@@ -222,40 +193,30 @@ if (-not (Test-Path $envPath)) {
     Step "apps/frontend/.env already exists - leaving it as-is."
 }
 
-# 5. Piper voice model files - not an npm dependency, so nothing else fetches
-#    these. Downloaded once from the official rhasspy/piper-voices repo.
-#    Size-checked the same way as step 1b, and downloaded via Get-FileSafely
-#    so an interrupted download can't masquerade as a completed one.
-if (-not (Test-Path $modelsDir)) {
-    New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
-}
-
-# en_US-amy-low (16 kHz), not -medium: on a single-thread WASM CPU the medium
-# model takes 20-30 s to synthesize a first sentence. Low is ~2-3x faster, same
-# voice. ~15 MB.
-$onnxPath = Join-Path $modelsDir "en_US-amy-low.onnx"
-$jsonPath = Join-Path $modelsDir "en_US-amy-low.json"
-$baseUrl  = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/low"
-
-if (-not (Test-ValidFile $onnxPath (5MB))) {
-    Step "Downloading Piper voice model (~15MB, one-time)..."
-    Get-FileSafely "$baseUrl/en_US-amy-low.onnx" $onnxPath
+# 5. Backend text-to-speech voices: Piper, run by sherpa-onnx on the backend.
+#    scripts/package_tts_voices.py downloads English/Hindi/Marathi from the
+#    official rhasspy/piper-voices repo and repackages them into
+#    apps/backend/models/tts/. It needs the `onnx` package, which the tutor
+#    itself does not, so it is installed here rather than in requirements.txt.
+#    (Answers used to be spoken in the browser -- Piper WASM, voices under
+#    apps/frontend/public/models. That path is gone; nothing is downloaded
+#    into the frontend any more.)
+$ttsHindi = Join-Path $backendDir "models\tts\hindi\model.onnx"
+if (-not (Test-ValidFile $ttsHindi (10MB))) {
+    Step "Packaging the backend TTS voices (English/Hindi/Marathi, ~200MB, one-time)..."
+    & $backendPython -m pip install --quiet onnx
+    if ($LASTEXITCODE -ne 0) { throw "pip install onnx failed" }
+    & $backendPython (Join-Path $repoRoot "scripts\package_tts_voices.py")
+    if ($LASTEXITCODE -ne 0) { throw "scripts/package_tts_voices.py failed" }
 } else {
-    Step "Voice model (.onnx) already present - skipping download."
-}
-
-if (-not (Test-ValidFile $jsonPath 100)) {
-    Step "Downloading Piper voice config..."
-    Get-FileSafely "$baseUrl/en_US-amy-low.onnx.json" $jsonPath
-} else {
-    Step "Voice model config already present - skipping download."
+    Step "Backend TTS voices already present - skipping."
 }
 
 # 6. Offline speech-to-text model for the Indian languages: AI4Bharat's
 #    IndicConformer-600M (CTC), run by the backend via sherpa-onnx (the wheel
 #    is installed with the other Python packages in step 3 - prebuilt, no
 #    compiler). One multilingual model covers Hindi/Marathi (English speech
-#    input is handled on-device by the browser). The fp32 export (~470MB) is
+#    is handled by Whisper, step 6b). The fp32 export (~470MB) is
 #    used by default; int8 (~188MB) roughly doubles the word-error rate.
 $indicDir    = Join-Path $backendDir "models\indicconformer"
 $indicModel  = Join-Path $indicDir "model.onnx"
@@ -302,24 +263,6 @@ if (-not (Get-ChildItem (Join-Path $enSttDir "*tokens.txt") -ErrorAction Silentl
     Step "English STT model already present - skipping download."
 }
 
-# 7. Hindi Piper voice for the browser's TTS (react-sts-hooks `usePiper`) - the
-#    `.onnx` + `.json` pair, served from public/models/ like the English voice
-#    in step 5. Marathi has no Piper voice (falls back to the OS voice).
-$hiOnnx = Join-Path $modelsDir "hi_IN-priyamvada-medium.onnx"
-$hiJson = Join-Path $modelsDir "hi_IN-priyamvada-medium.json"
-$hiBase = "https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/priyamvada/medium"
-if (-not (Test-ValidFile $hiOnnx (10MB))) {
-    Step "Downloading Hindi Piper voice (~60MB, one-time)..."
-    Get-FileSafely "$hiBase/hi_IN-priyamvada-medium.onnx" $hiOnnx
-} else {
-    Step "Hindi Piper voice (.onnx) already present - skipping download."
-}
-if (-not (Test-ValidFile $hiJson 100)) {
-    Step "Downloading Hindi Piper voice config..."
-    Get-FileSafely "$hiBase/hi_IN-priyamvada-medium.onnx.json" $hiJson
-} else {
-    Step "Hindi Piper voice config already present - skipping."
-}
 
 $ollamaModel = Get-OllamaModel
 
@@ -330,6 +273,7 @@ Write-Host "One prerequisite start.ps1 does NOT install for you:" -ForegroundCol
 Write-Host "  Ollama must be installed and running, with the model pulled:" -ForegroundColor Yellow
 Write-Host "    winget install Ollama.Ollama" -ForegroundColor Yellow
 Write-Host "    ollama pull $ollamaModel   # OLLAMA_MODEL in apps\backend\.env" -ForegroundColor Yellow
+Write-Host "    ollama pull bge-m3          # textbook search (embeddings)" -ForegroundColor Yellow
 Write-Host "  Without it the app still opens but replies show 'model unavailable'." -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "Then: powershell -File scripts\start.ps1" -ForegroundColor Green

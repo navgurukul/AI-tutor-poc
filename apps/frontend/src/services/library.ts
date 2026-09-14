@@ -49,9 +49,20 @@ export interface LibraryStatus {
   documents?: number;
   chunks?: number;
   db_path?: string;
+  /**
+   * The (class, subject, medium) combinations that actually have books.
+   *
+   * The lobby builds its Class and Subject dropdowns from this rather than
+   * from a hard-coded list, so it can only ever offer a combination there is a
+   * textbook for. A static list drifts: the upload page offered classes 1-12
+   * while the lobby offered 6-8, so a Class 5 Science book could be ingested
+   * and then never selected.
+   */
   coverage?: Array<{
     grade: number;
     subject: string;
+    /** Medium the book is written in. '' for books ingested before it existed. */
+    language?: string;
     documents: number;
     chunks: number;
   }>;
@@ -101,12 +112,23 @@ export async function uploadTextbook(params: {
   file: File;
   grade: number;
   subject: string;
+  /**
+   * The medium the book is written in — Hindi, English or Marathi.
+   *
+   * The backend has always accepted this and the frontend never sent it, so
+   * every document ingested before 2026-09-10 carries an empty language. It
+   * matters now: the prompt pins whole books scoped by class, subject AND
+   * medium, so without it a Hindi-medium and an English-medium Class 6 science
+   * book are indistinguishable and both get pasted into the prompt.
+   */
+  language?: string;
   title?: string;
 }): Promise<IngestJob> {
   const form = new FormData();
   form.append("file", params.file);
   form.append("grade", String(params.grade));
   form.append("subject", params.subject);
+  if (params.language) form.append("language", params.language);
   if (params.title) form.append("title", params.title);
 
   // No Content-Type header: the browser has to set it itself so it can add the

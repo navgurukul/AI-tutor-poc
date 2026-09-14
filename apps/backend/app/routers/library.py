@@ -7,6 +7,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.config import settings
 from app.services.rag import service
+from app.services.rag.retrieval import reset_pinned_cache
 from app.services.rag.store import StoreUnavailable
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,10 @@ async def delete_document(document_id: int) -> Dict[str, Any]:
         raise HTTPException(status_code=503, detail=exc.detail)
     if not removed:
         raise HTTPException(status_code=404, detail="No such document.")
+    # Same reason as after an ingest: the pinned block is memoised per
+    # (grade, subject, medium), so a deleted book would go on being pasted into
+    # the prompt until the backend restarted.
+    reset_pinned_cache()
     return {"deleted": True, "id": document_id}
 
 

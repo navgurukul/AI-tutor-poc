@@ -26,6 +26,32 @@ class Session:
         self.messages: List[Message] = []
         self.created_at = _now()
         self.updated_at = self.created_at
+        # Chunk ids retrieved so far this session, in the order they arrived.
+        #
+        # Each passage is pasted into the conversation once (rag_dedup_context):
+        # a chunk that arrived on an earlier turn is still in the conversation a
+        # few messages up, so sending it again would only add new prompt tokens
+        # -- ~38 ms each on this CPU -- to say something the model can already
+        # read. A follow-up on the same topic therefore adds no passage at all.
+        self.context_chunk_ids: List[int] = []
+        # The passages the most recent question was answered from (empty when it
+        # was answered without the library). A follow-up like "give an example of
+        # this" is about these, and they are already in the conversation.
+        self.last_hit_ids: List[int] = []
+
+    def remember_chunks(self, chunk_ids: List[int]) -> List[int]:
+        """Add newly retrieved chunk ids, preserving order and skipping repeats.
+
+        Returns the full accumulated list. Order is append-only on purpose --
+        re-sorting by relevance would rewrite the prefix and cost exactly what
+        this exists to avoid.
+        """
+        known = set(self.context_chunk_ids)
+        for cid in chunk_ids:
+            if cid not in known:
+                self.context_chunk_ids.append(cid)
+                known.add(cid)
+        return self.context_chunk_ids
 
     def add(self, role: str, content: str) -> Message:
         message = Message(role=role, content=content, created_at=_now())

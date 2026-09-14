@@ -10,7 +10,7 @@ interface MicButtonProps {
 
 const LABELS: Record<TutorStage, string> = {
   idle: "Speak",
-  listening: "Send",
+  listening: "Stop",
   thinking: "Thinking…",
   speaking: "Speaking…",
   error: "Speak",

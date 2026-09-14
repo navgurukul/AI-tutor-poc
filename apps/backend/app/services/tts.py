@@ -69,11 +69,14 @@ def _espeak_dir(voice_dir: Path) -> Path | None:
     return None
 
 
-@lru_cache(maxsize=3)
-def _engine(language: str):
-    """Cached per language. maxsize bounds resident memory: a medium Piper voice
-    is ~60-75 MB, so three loaded at once is ~225 MB — enough to hold the whole
-    current language set without growing as more are added."""
+@lru_cache(maxsize=1)
+def _load_engine(language: str):
+    """Cached for the one language in use. A session speaks a single language
+    (the frontend tears down and re-inits TTS on a language switch), so holding
+    more than one voice resident just spends ~60-75 MB per extra language for
+    nothing on an 8 GB box. maxsize=1 means a mid-session language switch pays
+    one cold voice load (~1-3s, measured once per switch); maxsize=2 is the
+    fallback if that proves annoying in practice."""
     d = _voice_dir(language)
     onnx = next(iter(sorted(d.glob("*.onnx"))), None)
     tokens = d / "tokens.txt"
@@ -107,6 +110,35 @@ def _engine(language: str):
     tts = sherpa_onnx.OfflineTts(config)
     logger.info("%s TTS voice ready (%d Hz)", language, tts.sample_rate)
     return tts
+
+
+def _key(language: str) -> str:
+    """The cache key for a voice: the folder name it loads from.
+
+    The folder is looked up lowercased, but the cache was keyed on the raw
+    string -- so "Hindi" from the frontend and "hindi" from anywhere else were
+    two cache entries for one voice, and with maxsize=1 each evicted the other:
+    a full reload (measured 11.5 s under load on 2026-09-11) on a switch that
+    was not a switch at all.
+    """
+    return (language or "").strip().lower()
+
+
+# The voice whose first synthesis has already been paid. onnxruntime allocates
+# its arenas and espeak loads its data on the FIRST generate(), not at load, so
+# a voice that is loaded but never spoken still makes the first real sentence
+# wait. Reset whenever a (re)load happens.
+_warmed_key: str | None = None
+
+
+def _engine(language: str):
+    global _warmed_key
+    key = _key(language)
+    misses = _load_engine.cache_info().misses
+    engine = _load_engine(key)
+    if _load_engine.cache_info().misses != misses:
+        _warmed_key = None  # freshly loaded: not yet spoken
+    return engine
 
 
 def _has_voice_files(d: Path) -> bool:
@@ -156,14 +188,18 @@ def warm(language: str) -> bool:
     """Load a language's voice and speak one throwaway sentence, so the first
     real sentence pays neither the graph load nor onnxruntime's first-inference
     cost. Returns False (not raises) when the files are missing."""
+    global _warmed_key
     try:
         tts = _engine(language)
     except TtsUnavailable as exc:
         logger.warning("TTS unavailable for %s: %s", language, exc)
         return False
+    if _warmed_key == _key(language):
+        return True  # already spoken once since it was loaded
     try:
         with _lock:
             tts.generate(_warmup_text(language), sid=_SPEAKER_ID, speed=settings.tts_speed)
+        _warmed_key = _key(language)
     except Exception as exc:  # pragma: no cover - warm-up is best-effort
         logger.warning("TTS warm synthesis failed for %s (non-fatal): %s", language, exc)
     return True
@@ -175,9 +211,11 @@ def synthesize(text: str, language: str) -> bytes:
     if not text:
         return b""
 
+    global _warmed_key
     tts = _engine(language)
     with _lock:
         audio = tts.generate(text, sid=_SPEAKER_ID, speed=settings.tts_speed)
+    _warmed_key = _key(language)
 
     samples = audio.samples
     samples = samples.tolist() if hasattr(samples, "tolist") else list(samples)

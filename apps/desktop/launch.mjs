@@ -149,6 +149,13 @@ async function main() {
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+  // When an earlier run's server was reused there is no child process to keep
+  // Node alive, and the browser was spawned detached -- so this script used to
+  // exit the moment the window opened. start.ps1 reads that exit as "the window
+  // was closed" and stops the backend, leaving a window with no backend behind
+  // it (seen 2026-09-11). Stay alive until Ctrl+C, as the message above says.
+  if (!serverProcess) setInterval(() => {}, 1 << 30);
 }
 
 main().catch((err) => {

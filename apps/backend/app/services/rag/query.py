@@ -103,7 +103,6 @@ def build_match_query(question: str) -> str:
 # characters per token, Devanagari about 1.3. Both are rounded down.
 _CHARS_PER_TOKEN_LATIN = 3.6
 _CHARS_PER_TOKEN_DEVANAGARI = 1.2
-_CHARS_PER_TOKEN_OTHER = 2.0
 
 _DEVANAGARI_RANGE = re.compile(r"[ऀ-ॿ꣠-ꣿ]")
 

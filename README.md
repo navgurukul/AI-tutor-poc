@@ -2,10 +2,11 @@
 
 Proof of concept for an AI tutor that runs **entirely offline**. Speak or type a question
 and get an answer back: inference happens locally through [Ollama](https://ollama.com) with
-`gemma2:2b` for every language on the backend; speech-to-text is on the backend
-(sherpa-onnx), and the spoken answer is synthesized in the browser (Piper WASM for
-English/Hindi, the OS voice for Marathi). No cloud API, no internet needed once the model
-and voice assets are downloaded.
+`gemma2:2b` for every language, grounded in the textbook PDFs you upload (bge-m3
+embeddings + sqlite-vec). Speech-to-text and text-to-speech both run on the backend
+through sherpa-onnx: IndicConformer (Hindi/Marathi) and Whisper (English) for speech in,
+Piper voices (English/Hindi/Marathi) for speech out. No cloud API, no internet needed once
+the models are downloaded.
 
 ```
 apps/backend/     FastAPI service wrapping the local Ollama model    (ready)
@@ -25,6 +26,7 @@ else:
 
 ```powershell
 ollama pull gemma2:2b        # ~1.6 GB, one-time, needs internet ONCE
+ollama pull bge-m3           # ~1.2 GB, textbook search (embeddings)
 ollama serve                 # skip if it already runs as a service
 
 powershell -File scripts\setup.ps1   # install: backend + frontend + desktop deps
@@ -38,6 +40,7 @@ powershell -File scripts\create-shortcut.ps1   # optional: "AI Tutor" icon on th
 ```bash
 brew install ollama && ollama serve &   # or from https://ollama.com
 ollama pull gemma2:2b
+ollama pull bge-m3
 
 ./scripts/setup.sh     # install deps for all 3 apps + model downloads + .env files
 ./scripts/start.sh     # backend + borderless tutor window  (./scripts/stop.sh to shut down)
@@ -45,12 +48,11 @@ ollama pull gemma2:2b
 ```
 
 `setup.ps1` installs everything (backend Python venv, frontend/desktop npm packages) and
-downloads the model files — backend speech-to-text (IndicConformer ~470 MB for Hindi/Marathi,
-Whisper base.en ~155 MB for English) and the browser Piper voices for English and Hindi
-(`en_US-amy-low`, `hi_IN-priyamvada-medium`). It also creates each app's `.env` from its
-template. About 700 MB of one-time, resumable downloads; safe to re-run — every step is
-skipped if already done. Marathi has no Piper voice, so its spoken answer falls back to the
-OS speechSynthesis voice (add the Windows Marathi speech pack, or it stays silent).
+downloads the model files — speech-to-text (IndicConformer ~470 MB for Hindi/Marathi,
+Whisper base.en ~155 MB for English) and the backend Piper voices for English, Hindi and
+Marathi (~200 MB, packaged by `scripts/package_tts_voices.py`). It also creates each app's
+`.env` from its template. About 850 MB of one-time, resumable downloads; safe to re-run —
+every step is skipped if already done.
 
 `start.ps1` starts the backend, waits for `/health`, then launches the desktop app in dev
 mode (Vite + HMR) and opens the borderless window. Closing the window, or Ctrl+C in the
@@ -104,7 +106,7 @@ indexed on the device. Ask a question afterwards and the reply is grounded in
 those pages, with the chapter and page number cited back.
 
 ```
-ollama pull nomic-embed-text     # one-time, ~274 MB, the retrieval model
+ollama pull bge-m3               # one-time, ~1.2 GB, the retrieval model (Hindi + English)
 ```
 
 Retrieval is **additive**: with no library, or with the store unavailable, the

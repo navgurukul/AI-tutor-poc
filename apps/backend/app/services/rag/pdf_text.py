@@ -15,7 +15,9 @@ import logging
 import re
 import unicodedata
 from collections import Counter
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
+
+from app.services.rag import legacy_hindi
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +69,7 @@ _MULTI_SPACE = re.compile(r"[ \t]{2,}")
 # could not be seen at all while the corpus was English-only.
 _MOSTLY_SYMBOLS = re.compile(r"^[^\w]{3,}$", re.UNICODE)
 
-# Ligatures and typographic characters that pypdf hands back verbatim. NFKC
+# Ligatures and typographic characters that PDF text comes back with. NFKC
 # handles the ligatures, but not the quotes and dashes, and a chunk containing
 # a curly apostrophe tokenises differently from one containing a straight one.
 _PUNCTUATION_MAP = {
@@ -90,7 +92,20 @@ def _normalise_characters(text: str) -> str:
     """
     for source, target in _PUNCTUATION_MAP.items():
         text = text.replace(source, target)
-    return unicodedata.normalize("NFKC", text)
+    text = unicodedata.normalize("NFKC", text)
+    return _DOUBLED_MATRA.sub(r"\1", text)
+
+
+# The same dependent vowel sign twice in a row. No Hindi or Marathi word has
+# one -- a matra modifies the consonant before it, and a second identical one
+# has nothing to modify -- so collapsing it cannot damage real text.
+#
+# PyMuPDF produces it on some NCERT fonts, where the matra is drawn as two
+# overlapping glyphs and both are mapped. Measured 2026-09-10: ehve102.pdf
+# ("न्याय की कुर्सी") at 6.9 per 100 Devanagari characters -- "न्यााय",
+# "बााहर", "थाा" -- so the chapter's own title word matched zero chunks and
+# questions about the story missed it entirely.
+_DOUBLED_MATRA = re.compile(r"([ा-ौॢॣ])\1+")
 
 
 def _page_lines(page_text: str) -> List[str]:
@@ -102,7 +117,7 @@ def _running_head_stem(line: str) -> str:
 
     Removing every non-alphanumeric character rather than merely collapsing
     runs of whitespace is deliberate: textbook running heads are frequently
-    letter-spaced for effect, and pypdf hands them back with the spacing
+    letter-spaced for effect, and extraction hands them back with the spacing
     intact -- "MA TTER  IN O UR  S URROUNDING S 7". Only by discarding the
     spaces entirely does that land on the same key as its neighbours.
     """
@@ -223,11 +238,26 @@ _MAX_HEADING_CHARS = 90
 # A heading may end in a question mark -- textbooks are full of them ("What
 # are Tissues?", "Why do we fall ill?") -- so only the punctuation that ends
 # a *sentence mid-prose* disqualifies a line.
-_SENTENCE_END = re.compile(r"[.,;:]$")
+#
+# The danda (\u0964) and double danda (\u0965) are the Devanagari full stop, and
+# leaving them out meant a plain Hindi sentence ending a paragraph
+# ("\u0924\u0930\u093e\u0908 \u092e\u0947\u0902 \u0906\u092e\u0924\u094c\u0930 \u092a\u0930 \u092a\u093e\u0908 \u091c\u093e\u0924\u0940 \u0939\u0948\u0964") was read as a heading, and so became a
+# hard cut. Measured 2026-09-14 on the Class 10 Hindi Geography book: 45-48%
+# of its paragraphs were classified as headings, against 0-4% for the English
+# Science books.
+_SENTENCE_END = re.compile(r"[.,;:\u0964\u0965]$")
 # A line this much shorter than the page's full measure ended its paragraph
 # rather than wrapping. 0.78 is deliberately generous: a false split costs one
 # extra paragraph boundary, a missed one merges two topics into a chunk.
 _SHORT_LINE_RATIO = 0.78
+# Which line IS the full measure. The longest line on the page was the obvious
+# answer and is the wrong one: a two-column page holds a column of ~46-character
+# body lines plus the odd full-width heading or table row, so max() put the
+# threshold above every body line and each one closed a paragraph -- mid
+# sentence, "\u0915\u093e\u0932\u0940 \u092e\u0943\u0926\u093e \u0915\u092a\u093e\u0938 \u0915\u0940 \u0916\u0947\u0924\u0940 \u0915\u0947 \u0932\u093f\u090f" ended one and "\u0909\u091a\u093f\u0924 \u0938\u092e\u091d\u0940 \u091c\u093e\u0924\u0940 \u0939\u0948"
+# began the next. The 90th percentile is the widest line the BODY actually
+# reaches, so a stray wide line no longer sets the bar for the page.
+_FULL_MEASURE_PERCENTILE = 0.9
 # Devanagari (Hindi, Marathi) plus the Devanagari extended block. Used to spot
 # a script with no case distinction, where every capitalisation test below is
 # vacuously false and would leave the numbered-heading regex as the only rule
@@ -237,6 +267,18 @@ _DEVANAGARI = re.compile(r"[\u0900-\u097F\uA8E0-\uA8FF]")
 # this is deliberately tighter than the 12-word Latin limit -- a wrong hard cut
 # costs a merged topic and a mislabelled citation.
 _MAX_CASELESS_HEADING_WORDS = 8
+# ...and short in CHARACTERS, which is the test the word count could not make.
+# A wrapped line of Hindi body text in a two-column textbook is 6-8 words and
+# ~46 characters, so the word rule alone called half the book's paragraphs
+# headings -- and every one of those is a hard cut, which is why the Geography
+# book chunked to a median of 101 characters against a 1,200 target while the
+# English Science books sat at 724.
+#
+# 30 characters keeps the real ones in these books ("\u0938\u092e\u0915\u093e\u0932\u0940\u0928 \u092d\u093e\u0930\u0924-2" 14,
+# "\u0938\u0902\u0938\u093e\u0927\u0928 \u090f\u0935\u0902 \u0935\u093f\u0915\u093e\u0938" 16) and drops the wrapped prose. Measured
+# 2026-09-14, pages 21-40 of that book: median chunk 101 -> 415 characters,
+# 172 -> 79 chunks, with the English books character-identical.
+_MAX_CASELESS_HEADING_CHARS = 30
 # Words that appear in a figure or table label rather than a section heading.
 # "Xylem Vessels" and "Fig. 6.2 Xylem Vessels" are both title-cased; only the
 # second is reliably not a heading.
@@ -294,7 +336,8 @@ def looks_like_heading(line: str) -> bool:
     # does not end like a sentence, in a script where paragraphs do not look
     # like this.
     if _DEVANAGARI.search(stripped):
-        return len(words) <= _MAX_CASELESS_HEADING_WORDS
+        return (len(words) <= _MAX_CASELESS_HEADING_WORDS
+                and len(stripped) <= _MAX_CASELESS_HEADING_CHARS)
 
     if _LABEL_PREFIX.match(stripped):
         # "Fig. 6.2 Xylem Vessels" is a caption, not a section boundary.
@@ -329,12 +372,14 @@ def _reflow(text: str) -> str:
     """
     text = _HYPHEN_BREAK.sub(r"\1\2", text)
     lines = text.splitlines()
-    measured = [len(l.strip()) for l in lines if l.strip()]
+    measured = sorted(len(l.strip()) for l in lines if l.strip())
     if not measured:
         return ""
-    # The full measure is the widest line; on a normal page most body lines sit
-    # close to it, and only paragraph-final lines fall short.
-    threshold = max(measured) * _SHORT_LINE_RATIO
+    # The full measure is the widest line the body text reaches -- see
+    # _FULL_MEASURE_PERCENTILE for why this is not simply max().
+    full_measure = measured[min(len(measured) - 1,
+                                int(len(measured) * _FULL_MEASURE_PERCENTILE))]
+    threshold = full_measure * _SHORT_LINE_RATIO
 
     paragraphs: List[str] = []
     current: List[str] = []
@@ -362,29 +407,81 @@ def _reflow(text: str) -> str:
     return "\n\n".join(paragraphs)
 
 
+def _page_text(page) -> str:
+    """One page's plain text, with legacy-font Hindi converted to Unicode.
+
+    A page with no legacy font takes exactly the old path. Otherwise the page
+    is rebuilt from PyMuPDF's span list, line by line in the same order
+    get_text() uses, and only spans set in a legacy font are converted --
+    Arial digits and real English beside them are left alone. Consecutive
+    legacy spans in a line are converted together, because the i-matra and the
+    reph move across glyphs and a word can straddle a span boundary.
+    """
+    if not any(legacy_hindi.is_legacy_font(f[3]) for f in page.get_fonts()):
+        return page.get_text() or ""
+    lines = []
+    for block in page.get_text("dict").get("blocks", []):
+        for line in block.get("lines", []):
+            parts, run = [], []
+            for span in line.get("spans", []):
+                if legacy_hindi.is_legacy_font(span.get("font", "")):
+                    run.append(span.get("text", ""))
+                    continue
+                if run:
+                    parts.append(legacy_hindi.to_unicode("".join(run)))
+                    run = []
+                parts.append(span.get("text", ""))
+            if run:
+                parts.append(legacy_hindi.to_unicode("".join(run)))
+            lines.append("".join(parts))
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def devanagari_share(pages: Sequence[str]) -> float:
+    """Share of letters that are Devanagari, 0-1.
+
+    A Hindi-medium book that comes out near 0 was set in a legacy font this
+    pipeline does not recognise (NeoMitra, for one): the words are there but
+    encoded as Latin symbols, so it will match nothing.
+    """
+    text = "\n".join(pages)
+    deva = len(_DEVA_ANY.findall(text))
+    latin = sum(1 for ch in text if ("a" <= ch <= "z") or ("A" <= ch <= "Z"))
+    return deva / (deva + latin) if (deva + latin) else 0.0
+
+
 def extract_pages(data: bytes) -> List[str]:
-    """Raw per-page text, in reading order. Raises PdfExtractionError."""
+    """Raw per-page text, in reading order. Raises PdfExtractionError.
+
+    PyMuPDF only. It replaced pypdf on 2026-09-10: pypdf ignores the ToUnicode
+    maps of NCERT's Hindi subset fonts and returns valid-looking Devanagari that
+    is the wrong words. Measured on ehve101.pdf, page 3:
+
+        pypdf    "किरन ने ्ूसरी ्ुकनया में जाने िी िात कयों िही होगी?"
+        pymupdf  "किरन ने दूसरी दुनिया में जाने की बात कयों कही होगी?"
+
+    English came back character-identical either way, and pypdf also returned
+    some text layers twice (42 duplicate chunk groups across the Class 5
+    Science books), so nothing was lost by dropping it. PyMuPDF also reports
+    each span's font, which is what lets legacy Chanakya/Kruti text be
+    converted (see _page_text).
+    """
     try:
-        from pypdf import PdfReader
+        import pymupdf
     except ImportError as exc:  # pragma: no cover - dependency is declared
         raise PdfExtractionError(
-            "pypdf is not installed. Run: pip install -r requirements.txt"
+            "PyMuPDF is not installed. Run: pip install -r requirements.txt"
         ) from exc
 
-    import io
-
     try:
-        reader = PdfReader(io.BytesIO(data))
-        if reader.is_encrypted:
+        with pymupdf.open(stream=data, filetype="pdf") as doc:
             # An empty password unlocks the common "no printing" case; a real
             # password is a genuine failure the user has to resolve.
-            try:
-                reader.decrypt("")
-            except Exception as exc:
+            if doc.needs_pass and not doc.authenticate(""):
                 raise PdfExtractionError(
                     "This PDF is password-protected. Remove the password and try again."
-                ) from exc
-        return [(page.extract_text() or "") for page in reader.pages]
+                )
+            return [_page_text(page) for page in doc]
     except PdfExtractionError:
         raise
     except Exception as exc:
@@ -407,6 +504,66 @@ def clean_pages(pages: Sequence[str]) -> List[str]:
         reflowed = _reflow(stripped)
         cleaned.append(_EXCESS_BLANKS.sub("\n\n", _TRAILING_SPACE.sub("\n", reflowed)).strip())
     return cleaned
+
+
+# -- Devanagari integrity --------------------------------------------------
+#
+# A broken font map produces *valid* Devanagari that is the wrong words, so
+# nothing downstream can see the problem: the text has the right script, the
+# right length and the right punctuation, it embeds without complaint, and it
+# retrieves nothing. The first Hindi corpus loaded here was 100% corrupt and
+# the only symptom was "Hindi accuracy is poor".
+#
+# What gives it away is structure rather than vocabulary, which means no
+# dictionary and no word list. Devanagari has combining signs that can only
+# ever follow a consonant, so a matra opening a token, two viramas in a row,
+# or a matra separated from its consonant by a space are all *impossible* in
+# correctly encoded text -- and all common in mis-decoded text.
+_DEVA_DEPENDENT = "ा-ॏॕ-ॗॢॣ"
+_DEVA_VIRAMA = "्"
+_DEVA_ANY = re.compile(r"[ऀ-ॿ]")
+
+_DEVA_BREAKAGE = (
+    # A dependent sign opening a whitespace-delimited token: "िरते", "्ूसरी".
+    re.compile(r"(?:^|\s)[" + _DEVA_DEPENDENT + _DEVA_VIRAMA + r"]"),
+    # Two viramas with nothing between them: "शब््ों".
+    re.compile(_DEVA_VIRAMA + r"\s*" + _DEVA_VIRAMA),
+    # A virama followed by a matra -- no consonant to carry either.
+    re.compile(_DEVA_VIRAMA + r"[" + _DEVA_DEPENDENT + r"]"),
+    # A matra orphaned between spaces: "क े", "वाल े".
+    re.compile(r"\s[" + _DEVA_DEPENDENT + r"](?:\s|$)"),
+    # A virama ending a token, with no following consonant to join.
+    re.compile(_DEVA_VIRAMA + r"(?:\s|$)"),
+)
+
+# Breakages per 100 Devanagari characters. Clean NCERT text measured 0.0-0.3
+# (a genuine trailing virama in "सम्" style abbreviations is rare but real);
+# every mis-decoded book measured 4.4-7.3. The gap is wide enough that the
+# threshold does not need to be precise.
+_DEVA_BREAKAGE_LIMIT = 1.5
+# Below this there is not enough Devanagari to judge -- an English book with a
+# few Hindi terms in it must not trip the check.
+_DEVA_MIN_CHARS = 400
+
+
+def devanagari_breakage_rate(pages: Sequence[str]) -> Optional[float]:
+    """Structural breakages per 100 Devanagari characters, or None.
+
+    None means "not enough Devanagari to have an opinion", which is not the
+    same as zero and must not be compared against the limit.
+    """
+    text = "\n".join(pages)
+    total = len(_DEVA_ANY.findall(text))
+    if total < _DEVA_MIN_CHARS:
+        return None
+    breakages = sum(len(rx.findall(text)) for rx in _DEVA_BREAKAGE)
+    return breakages / total * 100.0
+
+
+def looks_mis_decoded(pages: Sequence[str]) -> bool:
+    """True when the Devanagari in this PDF did not survive extraction."""
+    rate = devanagari_breakage_rate(pages)
+    return rate is not None and rate > _DEVA_BREAKAGE_LIMIT
 
 
 def looks_like_scan(cleaned_pages: Sequence[str]) -> bool:

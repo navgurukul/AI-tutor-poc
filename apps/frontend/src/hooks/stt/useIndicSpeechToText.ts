@@ -25,27 +25,50 @@ const FINAL_MAX_SEC = 30;
 const SPEECH_RMS = 0.012;
 const SILENCE_HANGOVER_MS = 1100;
 
-/** Average-resample a mono Float32 buffer to 16 kHz. */
-function downsample(buffer: Float32Array, inRate: number): Float32Array {
-  if (inRate === TARGET_RATE) return buffer;
+/** Resample a mono Float32 buffer to 16 kHz, the rate IndicConformer expects.
+ *
+ * Two directions, because the capture rate is the device's, not ours. Asking
+ * for a 16 kHz AudioContext is a request, not a guarantee: a laptop mic
+ * usually gives 44.1/48 kHz, and a Bluetooth headset in call mode gives 8 kHz.
+ *
+ * Downwards, each output sample is the average of the input window it covers,
+ * which low-passes as it decimates. Upwards, neighbours are interpolated. The
+ * upward case used to fall into the averaging branch with an EMPTY window and
+ * write a zero between every real sample -- a buzzing, aliased copy of the
+ * speech, which is what makes a recogniser repeat words and stretch vowels.
+ */
+function resampleTo16k(buffer: Float32Array, inRate: number): Float32Array {
+  if (inRate === TARGET_RATE || buffer.length === 0) return buffer;
   const ratio = inRate / TARGET_RATE;
-  const outLen = Math.round(buffer.length / ratio);
+  const outLen = Math.max(1, Math.round(buffer.length / ratio));
   const out = new Float32Array(outLen);
-  let iOut = 0;
-  let iIn = 0;
-  while (iOut < outLen) {
-    const nextIn = Math.round((iOut + 1) * ratio);
-    let acc = 0;
-    let count = 0;
-    for (let i = iIn; i < nextIn && i < buffer.length; i++) {
-      acc += buffer[i];
-      count++;
+
+  if (ratio >= 1) {
+    let iIn = 0;
+    for (let iOut = 0; iOut < outLen; iOut++) {
+      const nextIn = Math.min(buffer.length, Math.round((iOut + 1) * ratio));
+      let acc = 0;
+      let count = 0;
+      for (let i = iIn; i < nextIn; i++) {
+        acc += buffer[i];
+        count++;
+      }
+      out[iOut] = count ? acc / count : buffer[Math.min(iIn, buffer.length - 1)];
+      iIn = nextIn;
     }
-    out[iOut++] = count ? acc / count : 0;
-    iIn = nextIn;
+    return out;
+  }
+
+  for (let iOut = 0; iOut < outLen; iOut++) {
+    const pos = iOut * ratio;
+    const i0 = Math.floor(pos);
+    const i1 = Math.min(buffer.length - 1, i0 + 1);
+    const frac = pos - i0;
+    out[iOut] = buffer[i0] * (1 - frac) + buffer[i1] * frac;
   }
   return out;
 }
+
 
 /** Float32 [-1,1] mono @ 16 kHz -> a 16-bit PCM WAV blob. */
 function encodeWav(samples: Float32Array): Blob {
@@ -119,6 +142,9 @@ export function useIndicSpeechToText({ active, language }: EngineHookArgs): Tuto
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const finishedRef = useRef(false);
+  // True from the moment a recording is being opened until it is finished, so
+  // a second tap cannot open a second microphone into the same buffer.
+  const startingRef = useRef(false);
   const partialInFlightRef = useRef(false);
   const lastPartialSamplesRef = useRef(0);
   const speechHeardRef = useRef(false);
@@ -193,6 +219,7 @@ export function useIndicSpeechToText({ active, language }: EngineHookArgs): Tuto
     (transcribe: boolean) => {
       if (finishedRef.current) return;
       finishedRef.current = true;
+      startingRef.current = false;
       teardownMic();
       setIsListening(false);
 
@@ -203,12 +230,22 @@ export function useIndicSpeechToText({ active, language }: EngineHookArgs): Tuto
 
       setIsTranscribing(true);
       const clipSeconds = samples.length / TARGET_RATE;
+      // Loudness travels with the timing line: a clip that is nearly silent, or
+      // one that clips at 1.0, explains a bad transcript on its own.
+      let sumSq = 0;
+      let peak = 0;
+      for (let i = 0; i < samples.length; i++) {
+        sumSq += samples[i] * samples[i];
+        if (Math.abs(samples[i]) > peak) peak = Math.abs(samples[i]);
+      }
+      const rms = samples.length ? Math.sqrt(sumSq / samples.length) : 0;
       const startedAt = performance.now();
       void postWav(samples, languageRef.current)
         .then((text) => {
           console.log(
             `[timing] STT round-trip: ${(performance.now() - startedAt).toFixed(0)}ms ` +
-              `(${clipSeconds.toFixed(1)}s clip -> ${text.length} chars)`,
+              `(${clipSeconds.toFixed(1)}s clip, rms ${rms.toFixed(3)}, peak ${peak.toFixed(2)} ` +
+              `-> ${text.length} chars)`,
           );
           if (text) setTranscript((prev) => (prev ? `${prev} ${text}` : text));
         })
@@ -225,9 +262,25 @@ export function useIndicSpeechToText({ active, language }: EngineHookArgs): Tuto
   );
 
   const startListening = useCallback(async () => {
-    if (!ready || isListening) return;
+    // Guarded on a ref, not on `isListening`: setState is asynchronous, so two
+    // taps in the same tick both saw `false` and opened two microphones.
+    if (!ready || startingRef.current) return;
+    startingRef.current = true;
+    // Anything still open from a previous utterance goes first. A surviving
+    // ScriptProcessor keeps firing into chunksRef.current -- which by then is
+    // the NEW recording's array -- so the recogniser received the speaker
+    // twice, interleaved, and returned every word twice.
+    teardownMic();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: TARGET_RATE,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       streamRef.current = stream;
 
       const AC: typeof AudioContext =
@@ -242,8 +295,27 @@ export function useIndicSpeechToText({ active, language }: EngineHookArgs): Tuto
       sourceRef.current = source;
       nodeRef.current = node;
 
+      // Captured per recording, not read from the ref on every callback: this
+      // is the other half of the guard above.
+      const chunks: Float32Array[] = [];
+      chunksRef.current = chunks;
       const inRate = ctx.sampleRate;
-      chunksRef.current = [];
+      // Names the device and the rate actually in use. Without it a bad
+      // transcript is indistinguishable between "wrong mic", "wrong rate" and
+      // "the model is bad at this speaker".
+      const track = stream.getAudioTracks()[0];
+      const trackRate = track?.getSettings?.().sampleRate;
+      console.log(
+        `[stt] mic "${track?.label || "unknown"}" | track ${trackRate ?? "?"} Hz | ` +
+          `AudioContext ${inRate} Hz -> ${TARGET_RATE} Hz ` +
+          `${
+            inRate === TARGET_RATE
+              ? "(no resampling)"
+              : inRate > TARGET_RATE
+                ? "(downsampling)"
+                : "(UPSAMPLING - low-rate mic)"
+          }`,
+      );
       finishedRef.current = false;
       partialInFlightRef.current = false;
       lastPartialSamplesRef.current = 0;
@@ -253,7 +325,7 @@ export function useIndicSpeechToText({ active, language }: EngineHookArgs): Tuto
 
       node.onaudioprocess = (ev) => {
         const input = ev.inputBuffer.getChannelData(0);
-        chunksRef.current.push(downsample(new Float32Array(input), inRate));
+        chunks.push(resampleTo16k(new Float32Array(input), inRate));
         let sum = 0;
         for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
         const rms = Math.sqrt(sum / input.length);
@@ -280,7 +352,7 @@ export function useIndicSpeechToText({ active, language }: EngineHookArgs): Tuto
         }
         // Live interim: re-decode the clip-so-far.
         if (partialInFlightRef.current || finishedRef.current) return;
-        const total = chunksRef.current.reduce((n, p) => n + p.length, 0);
+        const total = chunks.reduce((n, p) => n + p.length, 0);
         if (total - lastPartialSamplesRef.current < PARTIAL_MIN_NEW_SEC * TARGET_RATE) return;
         lastPartialSamplesRef.current = total;
         partialInFlightRef.current = true;
@@ -294,10 +366,11 @@ export function useIndicSpeechToText({ active, language }: EngineHookArgs): Tuto
           });
       }, PARTIAL_INTERVAL_MS);
     } catch (err) {
+      startingRef.current = false;
       teardownMic();
       setError(err instanceof Error ? err.message : "Couldn't access the microphone.");
     }
-  }, [ready, isListening, teardownMic, finish, collect]);
+  }, [ready, teardownMic, finish, collect]);
 
   const resetTranscript = useCallback(() => {
     setTranscript("");

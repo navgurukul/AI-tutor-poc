@@ -318,8 +318,3 @@ class ModelListResponse(BaseModel):
     default_model: str
     models: List[ModelInfo]
 
-
-class ErrorResponse(BaseModel):
-    detail: str
-    hint: Optional[str] = None
-    context: Optional[Dict[str, Any]] = None

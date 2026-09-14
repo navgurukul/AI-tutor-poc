@@ -59,6 +59,7 @@ export function TurnMetricsPanel({ metrics }: { metrics: ClientTurnMetrics }) {
   // Ordered as the turn happens, so the bar reads left to right as the wait
   // did. Zero-length stages are dropped rather than rendered as slivers.
   const segments: Segment[] = [
+    { key: "stt", label: "Transcribe", value: metrics.stt_ms ?? 0 },
     { key: "retrieval", label: "Retrieval", value: metrics.retrieval_ms },
     { key: "load", label: "Model load", value: metrics.load_ms },
     { key: "prefill", label: "Prefill", value: metrics.prefill_ms },
@@ -69,11 +70,21 @@ export function TurnMetricsPanel({ metrics }: { metrics: ClientTurnMetrics }) {
 
   const measured = segments.reduce((sum, s) => sum + s.value, 0) || 1;
 
+  // Speech is deliberately NOT a segment on that bar. Synthesis overlaps
+  // decoding — the first sentence is spoken while the model is still writing
+  // the rest — so laying it end-to-end would draw time that was never spent.
+  // It gets its own group below, where the overlap can be stated instead of
+  // implied.
+  const endToEnd = metrics.spoken_total_ms ?? metrics.client_total_ms;
+
   return (
     <details className="metrics">
       <summary className="metrics__summary">
         <span className="citations__chevron" aria-hidden="true" />
-        Timing &amp; retrieval · {ms(metrics.total_ms)}
+        Timing &amp; retrieval · {ms(endToEnd ?? metrics.total_ms)}
+        {endToEnd !== undefined && (
+          <span className="metrics__summary-note"> spoken · {ms(metrics.total_ms)} server</span>
+        )}
       </summary>
 
       <div className="metrics__bar" role="img" aria-label="Where the time went">
@@ -112,7 +123,7 @@ export function TurnMetricsPanel({ metrics }: { metrics: ClientTurnMetrics }) {
         <Row
           label="Prefill"
           value={ms(metrics.prefill_ms)}
-          hint={`${metrics.prompt_tokens} prompt tokens read before the first one is written`}
+          hint={`${metrics.prompt_tokens} prompt tokens in total; most come from the cache and only the new part is read`}
         />
         <Row
           label="Decode"
@@ -140,6 +151,29 @@ export function TurnMetricsPanel({ metrics }: { metrics: ClientTurnMetrics }) {
             hint="the model was not resident; keep_alive should normally prevent this"
           />
         )}
+      </div>
+
+      <div className="metrics__group">
+        <h4 className="metrics__heading">Voice</h4>
+        <Row
+          label="Transcription"
+          value={ms(metrics.stt_ms)}
+          hint={
+            metrics.stt_ms === undefined
+              ? "this question was typed, not spoken"
+              : "mic closed → transcript ready; the talking itself is not counted"
+          }
+        />
+        <Row
+          label="First audio"
+          value={ms(metrics.tts_first_audio_ms)}
+          hint="synthesising sentence one — it plays while the model is still writing the rest, so this is not added to the bar above"
+        />
+        <Row
+          label="Spoken to the end"
+          value={ms(metrics.spoken_total_ms)}
+          hint="question sent → last word played. Longer than the server total because speech runs on after the text is finished"
+        />
       </div>
 
       <div className="metrics__group">

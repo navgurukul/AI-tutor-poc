@@ -7,36 +7,62 @@ import { MicButton } from "../components/MicButton";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StopSpeechButton } from "../components/StopSpeechButton";
 import { VoiceToggle } from "../components/VoiceToggle";
-import { LanguageSelect } from "../components/LanguageSelect";
 
 interface TutorPageProps {
   schoolClass: SchoolClass;
   subject: Subject;
+  /**
+   * Displayed, not editable. Language, class and subject are chosen ONLY in the
+   * lobby; this page shows them and offers Back.
+   *
+   * This header used to carry a language picker, and it quietly behaved
+   * differently from the lobby. The lobby re-primes and hands over a warm
+   * session, so the next question costs ~1.8s; switching here warmed in the
+   * background and left the next question paying full price. Worse, it changed
+   * the persona mid-session, which broke the cached prompt prefix and left the
+   * replayed history in the previous language. One route in means one
+   * behaviour.
+   */
   language: TutorLanguage;
-  onLanguageChange: (code: string) => void;
+  /**
+   * Session the lobby already warmed. Continuing it is what makes the first
+   * question fast: a question in a NEW session re-prefills the whole persona
+   * and pinned textbook (19.5s measured), while one that continues the primed
+   * session extends a cache that already holds them (1.8s).
+   */
+  primedSessionId?: string;
+  /**
+   * Back to the lobby, where language, class and subject are chosen.
+   * Omitted, the button is hidden.
+   */
+  onBack?: () => void;
   /** Opens the textbook library. Omitted, the button is hidden. */
   onOpenSetup?: () => void;
 }
 
 const STAGE_CAPTION: Record<string, string> = {
-  idle: "Tap the mic and ask a question",
-  listening: "Listening — tap to send",
+  idle: "Tap the mic to speak, or type — then check it and Send",
+  listening: "Listening — tap to stop",
   thinking: "Thinking…",
   speaking: "Speaking the answer…",
-  error: "Tap the mic and ask a question",
+  error: "Tap the mic to speak, or type — then check it and Send",
 };
 
 export function TutorPage({
   schoolClass,
   subject,
   language,
-  onLanguageChange,
+  primedSessionId,
+  onBack,
   onOpenSetup,
 }: TutorPageProps) {
   const {
     messages,
     stage,
     error,
+    draft,
+    setDraft,
+    sendDraft,
     transcript,
     interimTranscript,
     isTranscribing,
@@ -56,6 +82,7 @@ export function TutorPage({
     subjectName: subject.name,
     level: schoolClass.name,
     language,
+    primedSessionId,
   });
 
   const logRef = useRef<HTMLDivElement>(null);
@@ -75,6 +102,10 @@ export function TutorPage({
   // the question. Only the recognizer has to be there to press it; the status
   // pill still reports the warm-up, and a question asked early simply waits.
   const micDisabled = !sttSupported || sttLoading;
+  // Lock the question box while the mic is capturing (its transcript lands here
+  // when it closes) and while the tutor is mid-turn.
+  const inputLocked =
+    stage === "listening" || stage === "thinking" || stage === "speaking";
 
   // The offline speech models report a real percentage while streaming in; on a
   // cache hit there's no signal, so fall back to an indeterminate bar.
@@ -108,21 +139,28 @@ export function TutorPage({
     <div className="app-shell">
       <header className="app-bar">
         <div className="app-brand">
+          {onBack && (
+            <button
+              className="appbar__back"
+              type="button"
+              onClick={onBack}
+              title="Change language, class or subject"
+              aria-label="Back to setup"
+            >
+              ‹
+            </button>
+          )}
           <span className="app-logo" aria-hidden="true">AI</span>
           <div className="app-titles">
             <span className="app-name">AI Tutor POC</span>
             <span className="app-context">
-              {[schoolClass.name, subject.name].filter(Boolean).join(" · ") ||
-                "Ask a question in any subject"}
+              {[language.native, schoolClass.name, subject.name]
+                .filter(Boolean)
+                .join(" · ")}
             </span>
           </div>
         </div>
         <div className="app-bar-actions">
-          <LanguageSelect
-            code={language.code}
-            onChange={onLanguageChange}
-            disabled={stage === "thinking" || stage === "speaking"}
-          />
           {onOpenSetup && (
             <button className="appbar__setup" type="button" onClick={onOpenSetup}>
               Library
@@ -193,6 +231,36 @@ export function TutorPage({
         </div>
 
         <div className="tutor-controls">
+          <form
+            className="tutor-input"
+            onSubmit={(e) => {
+              e.preventDefault();
+              sendDraft();
+            }}
+          >
+            <textarea
+              className="tutor-input-field"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendDraft();
+                }
+              }}
+              placeholder="Speak or type your question, then check it here before sending…"
+              rows={2}
+              dir="auto"
+              disabled={inputLocked}
+            />
+            <button
+              type="submit"
+              className="tutor-send"
+              disabled={inputLocked || !draft.trim()}
+            >
+              Send
+            </button>
+          </form>
           <MicButton
             stage={stage}
             disabled={micDisabled}

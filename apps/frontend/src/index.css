@@ -503,12 +503,20 @@ button {
   min-width: 2px;
 }
 
+.metrics__seg--stt       { background: #a78bfa; }
 .metrics__seg--retrieval { background: #38bdf8; }
 .metrics__seg--load      { background: #f87171; }
 .metrics__seg--prefill   { background: var(--accent); }
 .metrics__seg--decode    { background: #34d399; }
 .metrics__seg--retry     { background: var(--warning); }
 .metrics__seg--overhead  { background: var(--text-muted); }
+
+/* The server total, kept beside the spoken total so the gap between them —
+   speech still playing after the text finished — is readable at a glance. */
+.metrics__summary-note {
+  color: var(--text-muted);
+  font-weight: 400;
+}
 
 .metrics__legend {
   display: flex;
@@ -588,6 +596,64 @@ button {
   align-items: center;
   gap: 10px;
   padding-top: 20px;
+}
+
+/* Reviewable question box — STT fills it, the student edits, then Send. */
+.tutor-input {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  max-width: 640px;
+}
+
+.tutor-input-field {
+  flex: 1;
+  resize: vertical;
+  min-height: 46px;
+  max-height: 160px;
+  padding: 10px 12px;
+  font: inherit;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.tutor-input-field:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.tutor-input-field:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.tutor-send {
+  flex-shrink: 0;
+  align-self: flex-end;
+  padding: 0 20px;
+  height: 46px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent-contrast);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.tutor-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tutor-send:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .app-bar-actions {
@@ -1022,3 +1088,150 @@ button {
   padding: 6px 12px;
 }
 .appbar__setup:hover { border-color: var(--accent); color: var(--accent); }
+
+/* --- Start page (the lobby) ------------------------------------------------
+   Loading happens here rather than on the student's first question. On the
+   target hardware a cold first turn was 18.5s to first token against 3.6-3.9s
+   once warm (2026-09-09) -- the work is unavoidable, so this page is about
+   moving the wait somewhere it reads as setup rather than as a broken tutor. */
+.start-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.start-card {
+  width: 100%;
+  max-width: 460px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-md);
+  padding: 28px;
+}
+
+.start-title { color: var(--text-h); font-size: 1.5rem; margin: 0; }
+.start-sub { color: var(--text-muted); font-size: 0.92rem; margin: 6px 0 22px; }
+
+.start-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.start-row-label { color: var(--text); font-size: 0.92rem; font-weight: 500; }
+
+.start-steps { list-style: none; margin: 18px 0 0; padding: 0; }
+
+.start-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 9px 0;
+}
+
+/* Fixed width so the label column does not shift as marks change. */
+.start-step-mark {
+  flex: 0 0 18px;
+  text-align: center;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+.start-step-done .start-step-mark { color: var(--success); }
+.start-step-failed .start-step-mark { color: var(--warning); }
+.start-step-running .start-step-mark { color: var(--accent); }
+
+.start-step-text { display: flex; flex-direction: column; gap: 1px; }
+.start-step-label { color: var(--text-h); font-size: 0.92rem; }
+.start-step-hint { color: var(--text-muted); font-size: 0.82rem; }
+.start-step-waiting .start-step-label { color: var(--text-muted); }
+
+.start-warn {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--warning-bg);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.start-actions { display: flex; gap: 10px; align-items: center; margin-top: 22px; }
+
+.start-primary {
+  flex: 1;
+  padding: 11px 18px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.start-primary:disabled { opacity: 0.6; cursor: default; }
+
+.start-secondary {
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.start-note { color: var(--text-muted); font-size: 0.82rem; margin: 14px 0 0; }
+
+.start-select {
+  appearance: none;
+  padding: 7px 30px 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-h);
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+  /* Room for the caret drawn by the background image below. */
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.start-select:disabled { opacity: 0.55; cursor: default; }
+
+/* Back to the lobby, where language / class / subject are chosen. Sits in the
+   brand group rather than the actions group: it is navigation, not a control. */
+.appbar__back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-right: 2px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.appbar__back:hover { background: var(--accent-bg); color: var(--accent); }
+
+/* Batch ingestion: one card per file, since a subject usually arrives as a set
+   of chapter PDFs. The backend serialises them, so most sit at 0% for a while
+   — showing all of them is what makes that legible rather than looking stuck. */
+.setup__jobs { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.setup__jobsHead {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 0 2px 2px;
+}

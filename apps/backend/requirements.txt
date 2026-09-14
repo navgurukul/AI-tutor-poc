@@ -14,8 +14,11 @@ python-dotenv==1.0.1
 sherpa-onnx==1.13.6
 
 # --- Retrieval (RAG) ---------------------------------------------------
-# pypdf is pure Python, so there is no wheel to miss on any target machine.
-pypdf==6.16.2
+# PyMuPDF extracts the PDFs. It replaced pypdf, which returned NCERT's Hindi
+# as valid-looking but wrong words (4-7 broken clusters per 100 characters,
+# against PyMuPDF's 0.2-0.5), and it reports each span's font, which is what
+# lets legacy Chanakya/Kruti Hindi be converted to Unicode on upload.
+pymupdf==1.28.2
 # sqlite-vec ships the SQLite extension the vector search runs on. It needs a
 # Python built with extension loading; macOS's system 3.9 is not one, so the
 # backend now expects 3.11+ (Windows: winget install Python.Python.3.12).

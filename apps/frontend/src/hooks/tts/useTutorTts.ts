@@ -3,6 +3,8 @@ import type { TutorLanguage } from "../../config/languages";
 
 export interface TutorTtsApi {
   speak: (text: string) => void;
+  /** The turn's last sentence has been queued; release the playback prebuffer. */
+  endTurn: () => void;
   cancel: () => void;
   /** Resume the audio pipeline from a user gesture. No-op here. */
   primeAudio: () => void;
@@ -26,6 +28,7 @@ export function useTutorTts(language: TutorLanguage): TutorTtsApi {
 
   return {
     speak: tts.speak,
+    endTurn: tts.endTurn,
     cancel: tts.stop,
     primeAudio: () => {},
     isSupported: !tts.error,

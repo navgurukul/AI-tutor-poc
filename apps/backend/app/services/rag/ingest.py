@@ -20,6 +20,7 @@ from typing import Dict, List, Optional
 from app.config import settings
 from app.services.ollama_client import OllamaError
 from app.services.rag import pdf_text
+from app.services.rag.retrieval import reset_pinned_cache
 from app.services.rag.chunking import chunk_pages
 from app.services.rag.embeddings import embed_documents
 from app.services.rag.store import LibraryStore, StoreUnavailable
@@ -155,7 +156,7 @@ class IngestionService:
 
         job.status = "extracting"
         job.stage_detail = "Reading and cleaning the PDF"
-        # pypdf is synchronous and CPU-bound; off the event loop it would block
+        # Extraction is synchronous and CPU-bound; off the event loop it would block
         # every chat request for the duration of a large book.
         pages, raw_page_count = await asyncio.to_thread(pdf_text.extract_and_clean, data)
         job.pages = raw_page_count
@@ -168,6 +169,35 @@ class IngestionService:
                 "then upload the result."
             )
             return
+
+        # Mis-decoded Devanagari is the one failure that looks like success.
+        # The text has the right script and the right length, it embeds without
+        # complaint, and it retrieves nothing -- so the only symptom is a tutor
+        # that is vaguely bad in Hindi, which is indistinguishable from the
+        # model being bad in Hindi. It is named here, where the cause is still
+        # visible, rather than left to become a fortnight of prompt tuning.
+        #
+        # But uploads are never refused for text quality -- the person uploading
+        # has no other copy of the book, and a refusal just moves the problem to
+        # them. Legacy Chanakya/Kruti fonts are converted during extraction
+        # (legacy_hindi); anything still wrong is stored WITH a warning, so the
+        # setup page says why answers from this book may be poor.
+        warning = ""
+        if pdf_text.looks_mis_decoded(pages):
+            rate = pdf_text.devanagari_breakage_rate(pages)
+            warning = (
+                "Some Hindi text did not extract cleanly ({:.1f} broken letters per "
+                "100 characters); answers from this book may be less accurate."
+            ).format(rate or 0.0)
+        elif (job.language or "").strip().lower() in ("hindi", "marathi") and \
+                pdf_text.devanagari_share(pages) < 0.2:
+            warning = (
+                "Very little Hindi text came out of this PDF -- it may use an old "
+                "font that could not be converted. Answers from it may be poor."
+            )
+        if warning:
+            job.hint = warning
+            logger.warning("Ingesting %s with a warning: %s", job.filename, warning)
 
         chunks = chunk_pages(
             pages,
@@ -223,9 +253,13 @@ class IngestionService:
             raise
 
         job.status = "done"
+        # The pinned block is memoised per (grade, subject, medium) and would
+        # otherwise keep serving the library as it was before this upload — the
+        # new book simply would not appear until the backend restarted.
+        reset_pinned_cache()
         job.stage_detail = "Added {} chunks from {} pages".format(
             job.chunks_done, raw_page_count
-        )
+        ) + (" -- warning: " + warning if warning else "")
         logger.info(
             "Ingested %s (class %s %s): %d pages -> %d chunks in %.1fs",
             job.title, job.grade, job.subject, raw_page_count, job.chunks_done,

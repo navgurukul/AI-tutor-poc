@@ -167,21 +167,26 @@ def test_the_ceiling_lets_the_tutor_decline():
         assert survivors == [], language
 
 
-def test_the_relative_gate_normalises_the_language_offset():
-    """A correct Hindi hit must survive at a distance that fails on English.
+def test_the_hindi_gate_keeps_answers_and_drops_off_syllabus():
+    """Correct Hindi hits survive; an off-syllabus Hindi question abstains.
 
-    Measured on the Class 6 corpus, correct chunks sit at 0.313-0.536 for a
-    Hindi question and 0.286-0.439 for an English one, so the ceilings are
-    0.58 and 0.51. A hit at 0.536 is the Hindi student's right answer and an
-    English student's noise -- which is the whole reason one global threshold
-    cannot serve both, and why it failed silently for exactly the students the
-    feature exists for.
+    Re-measured 2026-09-10 on clean text (PyMuPDF + doubled-matra repair),
+    Class 6 Hindi: answerable questions scored 0.27-0.47, off-syllabus ones
+    0.53-0.61, so the Hindi ceiling is 0.50.
+
+    This used to assert the opposite shape -- correct Hindi hits out at 0.536,
+    a 0.58 ceiling above English's 0.51 -- but those distances were measured on
+    mis-decoded Devanagari, where every word was misspelled and nothing sat
+    close. The "Hindi needs more headroom than English" offset was mostly the
+    corruption, and the 0.58 it justified let 4 of 10 off-syllabus questions
+    through with a textbook citation.
     """
-    hindi_shaped = [_hit(1, 0.536), _hit(2, 0.56), _hit(3, 0.82)]
-    survivors, _ = gate_dense_hits(hindi_shaped, "hi")
-    assert [h.chunk_id for h in survivors] == [1, 2]
-    # The same distances, judged as English, do not clear the ceiling at all.
-    assert gate_dense_hits(hindi_shaped, "en")[0] == []
+    answerable = [_hit(1, 0.39), _hit(2, 0.46), _hit(3, 0.82)]
+    survivors, _ = gate_dense_hits(answerable, "hi")
+    assert [h.chunk_id for h in survivors] == [1, 2]  # margin drops the tail
+
+    off_syllabus = [_hit(4, 0.53), _hit(5, 0.55)]
+    assert gate_dense_hits(off_syllabus, "hi")[0] == []
 
 
 def test_the_margin_drops_the_off_topic_tail():

@@ -15,17 +15,6 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _keep_alive() -> Any:
-    """Ollama's `keep_alive` wants an int (seconds; -1 = never unload) OR a
-    duration string *with a unit* ("30m"). The bare string "-1" is rejected
-    ("missing unit in duration"), so coerce a plain number to int."""
-    raw = str(settings.ollama_keep_alive).strip()
-    try:
-        return int(raw)
-    except ValueError:
-        return raw
-
-
 class OllamaError(Exception):
     """Raised for any failure talking to Ollama, carrying an HTTP status to surface."""
 
@@ -36,16 +25,35 @@ class OllamaError(Exception):
         self.hint = hint
 
 
-def _keep_alive() -> Any:
+def _coerce_keep_alive(raw: Any) -> Any:
     """Ollama takes `keep_alive` as either seconds (a number) or a duration
     string. Settings arrive as strings via env vars, so send whichever form the
     configured value actually is -- "-1" must go as the number -1, not the text.
     """
-    raw = str(settings.ollama_keep_alive).strip()
+    text = str(raw).strip()
     try:
-        return int(raw)
+        return int(text)
     except ValueError:
-        return raw
+        return text
+
+
+def _keep_alive() -> Any:
+    return _coerce_keep_alive(settings.ollama_keep_alive)
+
+
+def _load_options() -> Dict[str, Any]:
+    """The options that KEY the resident model in Ollama.
+
+    Ollama identifies a loaded model by these, so `warm()` and every chat call
+    have to send identical values -- warming at one `num_ctx` and then asking at
+    another silently reloads the model and wastes the whole warm-up. `num_thread`
+    behaves the same way, so both live here rather than being repeated at each
+    call site where they could drift apart.
+    """
+    options: Dict[str, Any] = {"num_ctx": settings.num_ctx}
+    if settings.ollama_num_thread > 0:
+        options["num_thread"] = settings.ollama_num_thread
+    return options
 
 
 class OllamaClient:
@@ -125,23 +133,29 @@ class OllamaClient:
 
     # -- embeddings --------------------------------------------------------
     async def embed(
-        self, inputs: List[str], model: Optional[str] = None
+        self,
+        inputs: List[str],
+        model: Optional[str] = None,
+        keep_alive: Any = None,
     ) -> List[List[float]]:
         """Embed a batch of strings with the retrieval model.
 
         Ollama's /api/embed takes a list and returns vectors in the same order,
         so ingestion sends batches rather than paying HTTP overhead per chunk.
-        The embedding model is a different model from the chat one, and asking
-        for it keeps it resident alongside -- both are small enough that this
-        is cheaper than reloading either.
+
+        `keep_alive` defaults to the shared `ollama_keep_alive`; the query path
+        overrides it with `rag_embed_query_keep_alive` ("0") so bge-m3's 1.2 GB
+        doesn't stay resident through the generation turn that follows on an
+        8 GB box. Ingestion passes nothing and keeps the model hot across batches.
         """
         if not inputs:
             return []
         target = model or settings.rag_embedding_model
+        ka = _keep_alive() if keep_alive is None else _coerce_keep_alive(keep_alive)
         try:
             response = await self.client.post(
                 "/api/embed",
-                json={"model": target, "input": inputs, "keep_alive": _keep_alive()},
+                json={"model": target, "input": inputs, "keep_alive": ka},
             )
             self._raise_for_response(response, target)
             vectors = response.json().get("embeddings") or []
@@ -176,11 +190,13 @@ class OllamaClient:
             # ~10-20s and Ollama otherwise unloads after 5 min idle.
             "keep_alive": _keep_alive(),
             "options": {
+                # num_ctx / num_thread -- shared with warm() so the resident
+                # model isn't re-keyed and silently reloaded.
+                **_load_options(),
                 "temperature": (
                     settings.temperature if temperature is None else temperature
                 ),
                 "num_predict": settings.max_tokens if max_tokens is None else max_tokens,
-                "num_ctx": settings.num_ctx,
                 # Stops a small model looping a phrase, which it does badly in
                 # Hindi; Ollama's own defaults (1.1 / 64) are too weak here.
                 "repeat_penalty": settings.repeat_penalty,
@@ -200,15 +216,16 @@ class OllamaClient:
         straight away (`done_reason: "load"`), so this costs the load time and
         no decoding at all.
 
-        `num_ctx` has to match what real requests send: Ollama keys a resident
-        model by its options, so warming at one context size and then asking at
-        another silently reloads the model and wastes the whole exercise.
+        The options here have to match what real requests send: Ollama keys a
+        resident model by them, so warming at one context size (or thread count)
+        and then asking at another silently reloads the model and wastes the
+        whole exercise. `_load_options()` is the single source for both.
         """
         payload: Dict[str, Any] = {
             "model": model or settings.ollama_model,
             "messages": [],
             "keep_alive": _keep_alive(),
-            "options": {"num_ctx": settings.num_ctx},
+            "options": _load_options(),
         }
         try:
             response = await self.client.post("/api/chat", json=payload)
@@ -218,6 +235,38 @@ class OllamaClient:
             raise self._unreachable(exc)
         except httpx.HTTPError as exc:
             raise OllamaError("Failed to warm the model: {}".format(exc))
+
+    async def prime(
+        self, messages: List[Dict[str, str]], model: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Prefill `messages` and stop, leaving a cache checkpoint at their end.
+
+        For gemma2 on llama.cpp's server, cached work can only be resumed from a
+        checkpoint, and one is saved only where a prompt ends -- never after the
+        generated reply. Sending the conversation up to and including the reply
+        (the last message is the assistant's, which the template renders as an
+        open turn) puts a checkpoint exactly where the next question will start.
+
+        One token, not zero: `num_predict: 0` is not "generate nothing" to
+        Ollama -- measured, it carried on until the model stopped on its own.
+        Load options are the shared ones, so this can never re-key and reload
+        the resident model.
+        """
+        payload: Dict[str, Any] = {
+            "model": model or settings.ollama_model,
+            "messages": messages,
+            "stream": False,
+            "keep_alive": _keep_alive(),
+            "options": {**_load_options(), "num_predict": 1},
+        }
+        try:
+            response = await self.client.post("/api/chat", json=payload)
+            self._raise_for_response(response, payload["model"])
+            return response.json()
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            raise self._unreachable(exc)
+        except httpx.HTTPError as exc:
+            raise OllamaError("Prime request failed: {}".format(exc))
 
     async def chat(
         self,

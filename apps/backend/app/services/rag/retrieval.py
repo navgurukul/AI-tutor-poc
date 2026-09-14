@@ -15,7 +15,9 @@ ranks -- the distances the gate needs are gone.
 """
 
 import logging
+import re
 import time
+from dataclasses import replace
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from app.config import settings
@@ -75,6 +77,85 @@ def _abstain_reason(
     )
 
 
+# Markers of a workbook item rather than an explanation: fill-in blanks,
+# imperative instructions, and the science books' activity boxes. 14-18% of the
+# library's chunks carry several (measured 2026-09-11).
+_EXERCISE_INSTRUCTIONS = re.compile(
+    r"\.{6,}|_{4,}"
+    r"|बनाइए|लिखिए|कीजिए|चुनिए|भरिए"
+    r"|Activity \d|Let us (?:explore|investigate|experiment|record|identify)"
+    r"|Fill in|Tick|Match the",
+    re.IGNORECASE,
+)
+# Lettered and numbered sub-parts: (क) (ख), (a) (b), (i) ... (x).
+#
+# Counted ONLY alongside an instruction or a run of questions, because on their
+# own they are how an NCERT chapter enumerates the thing it is explaining. The
+# Class 10 Geography book teaches resource classification as
+#     "(क) उत्पत्ति के आधार पर - जैव और अजैव (ख) समाप्यता के आधार पर ..."
+# and when lettered parts counted by themselves, that list -- the literal answer
+# to "संसाधनों के वर्गीकरण से आप क्या समझते हैं" -- was classed as an exercise and
+# pushed behind a less relevant fragment (2026-09-14). An exercise is lettered
+# parts PLUS something that asks the student to do or answer something.
+_LETTERED_PARTS = re.compile(
+    r"\((?:क|ख|ग|घ|ङ|a|b|c|d|e|i|ii|iii|iv|v|vi|vii|viii|ix|x)\)",
+    re.IGNORECASE,
+)
+# Several questions in one chunk read as a question list. A single one does not:
+# explanations open with rhetorical questions ("क्या आप भी ... समझते हैं?").
+_MIN_QUESTIONS_FOR_A_LIST = 2
+
+
+def looks_like_exercise(text: str) -> bool:
+    """A chunk that asks questions rather than answers them."""
+    instructions = len(_EXERCISE_INSTRUCTIONS.findall(text))
+    questions = text.count("?")
+    asks = instructions > 0 or questions >= _MIN_QUESTIONS_FOR_A_LIST
+    if not asks:
+        return False
+    marks = (instructions
+             + len(_LETTERED_PARTS.findall(text))
+             + (1 if questions >= _MIN_QUESTIONS_FOR_A_LIST else 0))
+    return marks >= 3 or (marks >= 2 and len(text.split()) < 60)
+
+
+# How much further away an explanation may be and still displace an exercise.
+# Without a bound the reorder promotes anything that is not an exercise: for
+# "What are the types of motion?" it would have put "The SI unit of length is
+# metre" (0.371) ahead of the activity on linear motion (0.364). In the science
+# books an activity box is often where the content is; only an explanation that
+# is about as relevant deserves its place.
+_EXPLANATION_SLACK = 0.03
+
+
+def _explanations_first(hits: Sequence[Retrieved]) -> List[Retrieved]:
+    """Fused order, except an exercise yields to a nearly-as-relevant explanation.
+
+    An exercise often ranks well because it repeats the lesson's sentences as
+    fill-in items -- "(क) उज्जैन की प्राचीन और ऐतिहासिक नगरी के बाहर ..." --
+    but it hands the model a question where it needed an answer: asked what
+    संज्ञा is, the model was given "(क) इस वाक्य में संज्ञा शब्द कौन-सा है?" and
+    cited it. Exercises are never dropped: they already cleared the gate, and
+    when nothing explanatory is close, the story lines inside one still beat an
+    unaided answer.
+
+    Distances are the dense leg's; a lexical-only hit carries the 1.0
+    placeholder and so can never displace anything.
+    """
+    ordered = list(hits)
+    for i in range(len(ordered)):
+        current = ordered[i]
+        if not looks_like_exercise(current.text):
+            continue
+        for j in range(i + 1, len(ordered)):
+            candidate = ordered[j]
+            if (not looks_like_exercise(candidate.text)
+                    and candidate.distance <= current.distance + _EXPLANATION_SLACK):
+                ordered.insert(i, ordered.pop(j))
+                break
+    return ordered
+
+
 async def retrieve(
     store: LibraryStore,
     question: str,
@@ -88,9 +169,14 @@ async def retrieve(
     """The passages worth putting in front of the model, or [].
 
     Never raises. A tutor that answers from the model alone is a working
-    tutor; one that 500s because the library is missing is not. `subject` is
-    accepted and ignored -- it is already inside every vector via the
-    breadcrumb, and filtering on it could only ever return fewer results.
+    tutor; one that 500s because the library is missing is not.
+
+    Both legs are scoped to the lobby's grade, `subject` and medium
+    (`language`). Subject used to be ignored on the theory that the breadcrumb
+    already carried it -- true while each grade held one book, false the moment
+    a grade holds two: bge-m3 is cross-lingual, so a Hindi question in a Class
+    6 Hindi session can rank a Class 6 English Science passage first, and the
+    breadcrumb is a few words against a whole passage of shared meaning.
 
     `metrics`, when supplied, is filled in place stage by stage. In place
     rather than returned because of the paragraph above: on every path where
@@ -123,7 +209,9 @@ async def retrieve(
         trace.candidates = candidates
 
         dense_started = time.perf_counter()
-        dense = store.search(vector, grade=grade, subject=None, k=candidates)
+        dense = store.search(
+            vector, grade=grade, subject=subject, language=language, k=candidates
+        )
         trace.dense_ms = elapsed_ms(dense_started)
         trace.dense_hits = len(dense)
         if dense:
@@ -157,7 +245,10 @@ async def retrieve(
         trace.lexical_query = bool(match_query)
         lexical_started = time.perf_counter()
         lexical = (
-            store.search_lexical(match_query, grade=grade, k=candidates)
+            store.search_lexical(
+                match_query, grade=grade, subject=subject, language=language,
+                k=candidates,
+            )
             if match_query
             else []
         )
@@ -174,7 +265,7 @@ async def retrieve(
         lexical = [h for h in lexical if h.chunk_id in eligible]
         trace.lexical_eligible = len(lexical)
 
-        fused = _rrf([survivors, lexical], k=settings.rag_rrf_k)
+        fused = _explanations_first(_rrf([survivors, lexical], k=settings.rag_rrf_k))
         trace.fused = len(fused)
         limit = k or settings.rag_top_k
         hits = fused[:limit]
@@ -206,11 +297,11 @@ def _label(hit: Retrieved) -> str:
     return " - ".join(filter(None, [hit.document_title, hit.heading, pages]))
 
 
-_PREAMBLE = (
-    "Here are excerpts from the student's own textbook. Prefer them over your "
-    "own knowledge where they apply, and use their wording and examples. If "
-    "they do not cover the question, answer normally without mentioning them."
-)
+# How to USE the excerpts now lives in the persona as `tutor.RETRIEVAL_RULE`,
+# because the persona is the cached half of the prompt and this paragraph never
+# changes. What stays here is only the excerpts themselves, which change every
+# turn and are re-prefilled every turn no matter where they sit.
+_EXCERPT_HEADER = "Textbook excerpts:"
 
 
 def fit_to_budget(
@@ -228,7 +319,7 @@ def fit_to_budget(
     would fit four English passages and overrun on four Hindi ones.
     """
     budget = token_budget or settings.rag_context_token_budget
-    used = estimate_tokens(_PREAMBLE)
+    used = estimate_tokens(_EXCERPT_HEADER)
     kept: List[Retrieved] = []
     for hit in hits:
         cost = estimate_tokens("[{}] {}\n{}".format(len(kept) + 1, _label(hit), hit.text))
@@ -257,6 +348,64 @@ def fit_to_budget(
     return kept
 
 
+# A danda always ends a sentence; a Latin terminator needs whitespace after it
+# so "3.14" and "p. 12" are not split mid-number. Same rule the frontend uses to
+# decide when a sentence is safe to speak.
+_SENTENCE_SPLIT = re.compile(r"(?<=[।॥])\s*|(?<=[.!?])\s+")
+def trim_passage(text: str, query: str, max_tokens: int) -> str:
+    """Cut one passage to its leading sentences, within a token cap.
+
+    A retrieved chunk is sized for *embedding* quality -- 1,200 characters, so
+    the vector has enough context to rank well. That is far more than the model
+    needs to answer from, and on this CPU every one of those tokens is re-read
+    before the student hears a word (measured 2026-09-09: ~22ms per prompt
+    token, and three passages ran 538-617 tokens).
+
+    So the chunk that goes into the *prompt* is not the chunk that was ranked:
+    it is cut to its opening sentences, in order, until the cap is reached.
+    Picking the sentences that share the most words with the question was
+    tried first and broke an answer (see the comment in the body), which is why
+    `query` is accepted but no longer used.
+    """
+    if max_tokens <= 0 or estimate_tokens(text) <= max_tokens:
+        return text
+    sentences = [s.strip() for s in _SENTENCE_SPLIT.split(text) if s and s.strip()]
+    if len(sentences) <= 1:
+        return text
+
+    # Keep the HEAD, in order, until the cap. Not the best-matching sentences.
+    #
+    # Selecting by overlap with the question was tried on 2026-09-09 and broke
+    # an answer: asked about संज्ञा's types it kept "there are three main types"
+    # -- which repeats the question's words -- and dropped the sentence naming
+    # them, so the model invented them. Lexical scoring prefers topic sentences,
+    # which are exactly the ones that carry no content.
+    #
+    # Taking the head has neither problem. Textbook paragraphs lead with the
+    # definition and trail into elaboration, so the first sentences are the ones
+    # worth paying for, and order is preserved so the passage still reads as
+    # prose.
+    kept: List[str] = []
+    used = 0
+    for sentence in sentences:
+        cost = estimate_tokens(sentence)
+        if kept and used + cost > max_tokens:
+            break
+        kept.append(sentence)
+        used += cost
+    return " ".join(kept)
+
+
+def trim_passages(
+    hits: Sequence[Retrieved], query: str, max_tokens: Optional[int] = None
+) -> List[Retrieved]:
+    """`trim_passage` over every hit. Cap of 0 disables trimming entirely."""
+    cap = settings.rag_passage_token_cap if max_tokens is None else max_tokens
+    if cap <= 0:
+        return list(hits)
+    return [replace(h, text=trim_passage(h.text, query, cap)) for h in hits]
+
+
 def build_context_block(hits: Sequence[Retrieved]) -> str:
     """Format retrieved chunks for the prompt.
 
@@ -270,7 +419,85 @@ def build_context_block(hits: Sequence[Retrieved]) -> str:
     parts = [
         "[{}] {}\n{}".format(i, _label(h), h.text) for i, h in enumerate(hits, start=1)
     ]
-    return _PREAMBLE + "\n\n" + "\n\n".join(parts)
+    return _EXCERPT_HEADER + "\n\n" + "\n\n".join(parts)
+
+
+# Keyed by (grade, subject, language) -- the same three things the student
+# picks in the lobby, because those decide which book gets pinned. One entry
+# per selection: the block is static for a given selection, and rebuilding it
+# per turn would cost a full table read for no reason.
+#
+# Keying on all three also means switching subject or medium mid-session picks
+# up a different pinned block rather than silently reusing the old one.
+_PinKey = Tuple[Optional[int], str, str]
+_PINNED: Dict[_PinKey, Optional[Tuple[str, List[Retrieved]]]] = {}
+
+
+def pinned_context(
+    store,
+    *,
+    grade: Optional[int] = None,
+    subject: Optional[str] = None,
+    language: Optional[str] = None,
+) -> Optional[Tuple[str, List[Retrieved]]]:
+    """The whole corpus as one fixed prompt block, or None if it will not fit.
+
+    Why this exists at all: Ollama reuses a cached KV prefix only against the
+    request that immediately preceded it. Per-question retrieval puts different
+    passages in every prompt, so consecutive prompts diverge right after the
+    persona and NOTHING is ever reused -- measured 2026-09-09 at 15-26s of
+    prefill per turn, re-reading the same 568-token persona every time.
+
+    Pin the corpus instead and the block is byte-identical every turn, so each
+    turn extends the last and the cache actually holds. Same model, same box:
+    prefill fell to 1.6-3.1s.
+
+    This is only honest while the corpus is small. Above the budget it returns
+    None and the caller falls back to per-question retrieval, because a book
+    that does not fit cannot be pinned and pretending otherwise would silently
+    truncate the prompt.
+    """
+    budget = settings.rag_pin_corpus_max_tokens
+    if budget <= 0:
+        return None
+    key: _PinKey = (grade, (subject or "").lower(), (language or "").lower())
+    if key in _PINNED:
+        return _PINNED[key]
+
+    try:
+        hits = store.all_chunks(grade=grade, subject=subject, language=language)
+    except Exception as exc:  # StoreUnavailable, or a corpus that predates this
+        logger.info("Corpus pinning unavailable (%s); using per-question retrieval.", exc)
+        _PINNED[key] = None
+        return None
+
+    if not hits:
+        _PINNED[key] = None
+        return None
+
+    block = build_context_block(hits)
+    cost = estimate_tokens(block)
+    if cost > budget:
+        logger.info(
+            "Corpus is %d tokens, over the %d-token pin budget: using per-question "
+            "retrieval instead.", cost, budget,
+        )
+        _PINNED[key] = None
+        return None
+
+    logger.info(
+        "Pinned %d chunks (~%d tokens) for grade=%s subject=%s medium=%s. "
+        "Retrieval is skipped; the block is identical every turn so Ollama "
+        "reuses its KV cache.",
+        len(hits), cost, grade, subject or "any", language or "any",
+    )
+    _PINNED[key] = (block, hits)
+    return _PINNED[key]
+
+
+def reset_pinned_cache() -> None:
+    """Forget the pinned block. Call after ingestion changes the corpus."""
+    _PINNED.clear()
 
 
 def citations(hits: Sequence[Retrieved]) -> List[dict]:

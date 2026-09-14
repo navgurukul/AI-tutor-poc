@@ -1,0 +1,8 @@
+# Test tools, on top of the runtime requirements. The async tests
+# (test_retrieval, test_metrics, test_reprime, test_followup, ...) need
+# pytest-asyncio; without it pytest collects them and fails every one.
+#   pip install -r requirements-dev.txt
+#   python -m pytest -q
+-r requirements.txt
+pytest==9.1.1
+pytest-asyncio==1.4.0

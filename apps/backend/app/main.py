@@ -21,6 +21,7 @@ from app.services import stt as stt_service
 from app.services import tts as tts_service
 from app.services.ollama_client import OllamaError, client
 from app.services.rag import service as rag_service
+from app.services.rag.embeddings import embed_query
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s"
@@ -88,6 +89,44 @@ async def _warm_tts() -> None:
         logger.info("TTS warm-up skipped (%s voice not installed).", lang)
 
 
+async def _warm_embeddings() -> None:
+    """Load the embedding model so the FIRST question doesn't pay for it.
+
+    Everything else about a turn was warmed here already -- the LLM, the
+    recognizer, the voice -- but not bge-m3, and it is the one model the lobby
+    warm-up can never touch: that call deliberately skips retrieval, because
+    the phrase "warm up" would pull noise passages and leave a prefix no real
+    question matches.
+
+    So the first real question loaded 1.2 GB from disk while the student
+    waited. Measured 2026-09-14 on the first turn after a two-day-cold start:
+    `retrieval 11211ms (embed 10774)` of an 18.0 s wait to the first token.
+
+    The model stays resident afterwards (rag_embed_query_keep_alive = -1).
+    Best-effort: a failure here costs a slow first question, not a broken
+    server, and the store may be unavailable entirely.
+    """
+    if not settings.rag_enabled:
+        logger.info("Embedding warm-up skipped (retrieval disabled).")
+        return
+    # The STORE's model, not config's: after a re-embed cutover they differ,
+    # and warming the wrong one leaves the real one cold.
+    model = rag_service.store.embedding_model if rag_service.store.is_open else None
+    started = time.monotonic()
+    logger.info("Warming up the embedding model in the background...")
+    try:
+        await embed_query("warm up", model=model)
+        logger.info(
+            "Embedding warm-up done in %.1fs (%s).",
+            time.monotonic() - started,
+            model or settings.rag_embedding_model,
+        )
+    except OllamaError as exc:
+        logger.warning("Embedding warm-up skipped: %s", exc.detail)
+    except Exception:  # noqa: BLE001 - a background task must never die silently
+        logger.exception("Unexpected failure warming the embedding model")
+
+
 async def _warm_in_order(include_model: bool) -> None:
     """Warm-ups run one after another rather than in parallel.
 
@@ -95,12 +134,16 @@ async def _warm_in_order(include_model: bool) -> None:
     one the UI actually waits on — the LLM, which gates the mic — is the one
     that gets starved: a boot where Ollama reported `load_duration 54ms` still
     took 55s to answer its warm-up prompt, all of it contention. Speech models
-    aren't needed until the user has finished speaking, so they queue behind it.
+    aren't needed until the user has finished speaking, so they queue behind it,
+    and the embedding model queues behind those.
     """
     if include_model:
         await _warm_model()
     await _warm_stt()
     await _warm_tts()
+    # Last: the lobby's readiness check waits on the three above, while this one
+    # is not needed until the student has actually asked something.
+    await _warm_embeddings()
 
 
 @asynccontextmanager

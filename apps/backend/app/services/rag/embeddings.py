@@ -46,7 +46,11 @@ async def embed_query(text: str, model: Optional[str] = None) -> List[float]:
     """
     model = model or settings.rag_embedding_model
     prepared = _QUERY_PREFIX + text if _needs_prefix(model) else text
-    vectors = await client.embed([prepared], model=model)
+    vectors = await client.embed(
+        [prepared],
+        model=model,
+        keep_alive=settings.rag_embed_query_keep_alive,
+    )
     if not vectors:
         raise OllamaError("Embedding model returned no vector for the query.")
     return vectors[0]

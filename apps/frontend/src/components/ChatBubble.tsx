@@ -21,7 +21,21 @@ function pageLabel({ page_start, page_end }: Citation): string {
  * reader: the citations are for the student checking the answer, the metrics
  * are for whoever is tuning the tutor that produced it.
  */
+/**
+ * Below this, the answer shares almost no wording with the passage it was
+ * given, so the passage did not shape it -- labelling it "From your textbook"
+ * turns a page number into false proof. Deliberately low: groundedness is word
+ * overlap, and a correct paraphrase of the right passage measured 0.075 on
+ * 2026-09-11, while the answers that ignored theirs scored 0.00-0.02.
+ */
+const UNSUPPORTED_BELOW = 0.05;
+
 export function ChatBubble({ role, text, sources, metrics }: ChatMessage) {
+  // null means "not measurable" (e.g. a Hindi answer from an English page),
+  // which is not evidence either way -- only a real low score changes the label.
+  const unsupported =
+    typeof metrics?.groundedness === "number" &&
+    metrics.groundedness < UNSUPPORTED_BELOW;
   return (
     <div className={`chat-bubble chat-bubble--${role}`}>
       {text}
@@ -29,7 +43,9 @@ export function ChatBubble({ role, text, sources, metrics }: ChatMessage) {
         <details className="citations">
           <summary className="citations__summary">
             <span className="citations__chevron" aria-hidden="true" />
-            From your textbook · {sources.length}
+            {unsupported
+              ? `Not drawn from your textbook · closest page ${sources.length}`
+              : `From your textbook · ${sources.length}`}
           </summary>
           <ol className="citations__list">
             {sources.map((source, index) => (

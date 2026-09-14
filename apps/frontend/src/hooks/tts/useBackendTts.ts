@@ -3,9 +3,27 @@ import { API_BASE_URL } from "../../services/api";
 
 const TTS_URL = `${API_BASE_URL}/api/tts`;
 
+/**
+ * No prebuffer: every clip plays the instant synthesis returns it.
+ *
+ * A cushion (hold the first clip until N are ready) was tried for Devanagari to
+ * smooth a mid-answer stutter, since the model decodes at about the rate the
+ * voice reads. On this box it backfired — it delayed the first word by a whole
+ * synthesis AND turned the space between sentence 1 and 2 into a multi-second
+ * hole while the next clip was generated. That gap was worse than the
+ * occasional catch-up pause the cushion prevented. Any remaining gap between
+ * sentences is the model still writing the next one, which no buffering here
+ * can fix. See git history for PREBUFFER_BY_SCRIPT if it needs to come back.
+ */
+
 export interface BackendTts {
   /** Queue a sentence. Sentences are spoken in the order they arrive. */
   speak: (text: string) => void;
+  /**
+   * No more sentences are coming this turn. Kicks playback in case a tail clip
+   * finished synthesising after the queue had already drained.
+   */
+  endTurn: () => void;
   /** Drop everything queued and stop the audio that's playing. */
   stop: () => void;
   isReady: boolean;
@@ -128,6 +146,7 @@ export function useBackendTts(language: string): BackendTts {
           const done = () => {
             audio.onended = null;
             audio.onerror = null;
+            audio.onplaying = null;
             liveAudioRef.current.delete(audio);
             if (pendingResolveRef.current === resolve) pendingResolveRef.current = null;
             URL.revokeObjectURL(url);
@@ -135,11 +154,29 @@ export function useBackendTts(language: string): BackendTts {
           };
           audio.onended = done;
           audio.onerror = done;
+          // Proof that sound actually started, as opposed to a clip that was
+          // created, dropped, and counted as "spoken".
+          audio.onplaying = () => console.log("[tts] clip playing");
           if (seq !== cancelSeqRef.current) {
             done();
             return;
           }
-          audio.play().catch(done);
+          // A rejected play() used to be swallowed by `.catch(done)`, which is
+          // indistinguishable from a working voice with the volume down: the
+          // backend logs 200 for every sentence and the room stays silent.
+          // Name the reason instead -- the browser's autoplay policy and a
+          // missing output device need completely different fixes.
+          audio.play().catch((err: unknown) => {
+            const name = err instanceof Error ? err.name : "Error";
+            const detail = err instanceof Error ? err.message : String(err);
+            console.error(`[tts] playback failed (${name}): ${detail}`);
+            setError(
+              name === "NotAllowedError"
+                ? "The browser blocked the answer audio. Tap the mic once, then ask again."
+                : `Couldn't play the answer audio (${name}). Check the output device and volume.`,
+            );
+            done();
+          });
         });
       }
     } finally {
@@ -160,10 +197,27 @@ export function useBackendTts(language: string): BackendTts {
         const text = synthesisQueueRef.current.shift();
         if (!text) continue;
         try {
-          const blob = await synthesize(text);
+          // One retry. After the app has sat idle for a few minutes, the first
+          // request can go out on a keep-alive connection the backend already
+          // closed and fail at the network level without ever reaching it --
+          // seen 2026-09-11: every /api/tts in the backend log was 200, yet the
+          // page reported the voice as broken. Browsers do not retry a POST
+          // themselves, so a single retry is what keeps the sentence.
+          const blob = await synthesize(text).catch(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            return synthesize(text);
+          });
           if (seq !== cancelSeqRef.current) break;
+          // A clip came back, so the voice works: clear any earlier failure
+          // rather than leaving a "voice didn't load" banner up for the rest of
+          // the session while the answer is being spoken underneath it.
+          setError(null);
           audioQueueRef.current.push(blob);
-          if (!playingRef.current) void playQueue();
+          // Play whatever is ready, immediately — see the note on prebuffering
+          // at the top of this file.
+          if (!playingRef.current && audioQueueRef.current.length > 0) {
+            void playQueue();
+          }
         } catch (err) {
           console.error("TTS synthesis error:", err);
           setError(err instanceof Error ? err.message : "Speech failed.");
@@ -184,6 +238,12 @@ export function useBackendTts(language: string): BackendTts {
     [processSynthesisQueue],
   );
 
+  const endTurn = useCallback(() => {
+    // Nothing more will be queued this turn; if a tail clip is sitting idle
+    // because playback had drained, start it.
+    if (!playingRef.current && audioQueueRef.current.length > 0) void playQueue();
+  }, [playQueue]);
+
   const stop = useCallback(() => {
     cancelSeqRef.current += 1;
     synthesisQueueRef.current = [];
@@ -195,6 +255,7 @@ export function useBackendTts(language: string): BackendTts {
     for (const a of liveAudioRef.current) {
       a.onended = null;
       a.onerror = null;
+      a.onplaying = null;
       a.pause();
       a.src = "";
     }
@@ -205,5 +266,5 @@ export function useBackendTts(language: string): BackendTts {
   // A language switch mid-answer must not leave the previous voice talking.
   useEffect(() => stop, [language, stop]);
 
-  return { speak, stop, isReady, isPlaying, error };
+  return { speak, endTurn, stop, isReady, isPlaying, error };
 }

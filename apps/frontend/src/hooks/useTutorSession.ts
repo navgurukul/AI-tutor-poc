@@ -1,15 +1,30 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { askTutorStream, warmupTutor } from "../services/api";
 import { useTutorTts } from "./tts/useTutorTts";
 import { useTutorSpeechToText } from "./stt/useTutorSpeechToText";
 import type { TutorLanguage } from "../config/languages";
-import type { ChatMessage, Citation, ClientTurnMetrics } from "../types";
+import type {
+  ChatMessage,
+  Citation,
+  ClientTurnMetrics,
+  TutorProfile,
+} from "../types";
 
 export type TutorStage = "idle" | "listening" | "thinking" | "speaking" | "error";
 
 interface UseTutorSessionArgs {
   subjectName: string;
   level: string;
+  /**
+   * A session the lobby already warmed, continued instead of starting fresh.
+   *
+   * This is the single largest thing separating a fast first question from a
+   * slow one. Ollama reuses a cached prompt prefix only when the new prompt
+   * *extends* the previous one; a question asked in a new session shares the
+   * persona and pinned textbook and then forks, and a fork reuses nothing at
+   * all. Measured 2026-09-09: 19.5s forking, 1.8s continuing.
+   */
+  primedSessionId?: string;
   /** Drives `profile.language` ("Reply in <name>.") and the STT engine. */
   language: TutorLanguage;
 }
@@ -43,23 +58,39 @@ const stripForSpeech = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-// The reply is spoken one sentence at a time as the model decodes — the first
-// sentence starts playing while the rest is still being written, and the Piper
-// queue plays them back-to-back with no gaps. Sentences shorter than this are
-// merged with the next one before being spoken, so a lone two-word opener
-// doesn't play out in a second and leave dead air while the LLM writes more.
-// 45, not 60: at ~5 tok/s the model writes slower than the voice reads, so the
-// gap before a chunk is spoken is mostly the wait for enough text to exist.
-// Halving that wait costs slightly choppier phrasing and is the cheapest lever
-// on the pause after the opener — synthesis itself runs at RTF ~0.12 and is not
-// what the queue is waiting for.
-const MIN_SPEECH_CHARS = 45;
-
-// ...except the *first* chunk of a turn, which is queued as soon as it clears
-// this lower bar — Piper synth time scales with length, so starting on a ~30-
-// char opener is audible much sooner. Not 1: a trivially short opener ("ये है:")
-// plays out in a blink and leaves dead air while the next sentence synthesizes.
-const FIRST_CHUNK_MIN_CHARS = 30;
+// The reply is spoken in clips as the model decodes: the first starts playing
+// while the rest is still being written, and the backend TTS queue plays them
+// back to back.
+//
+// Clip sizes RAMP, and every clip is capped. The model writes Hindi at ~12.7
+// chars/s and the voice reads at ~13 chars/s, so once speech is flowing the two
+// keep pace -- a silence only opens when the next clip is much LONGER than the
+// one playing, because it has to be written in full (and synthesised) before it
+// can start. The old rule was a short opener (18-28 chars) followed by whole
+// sentences of 45+ chars with no cap, and a Hindi sentence often runs 90-160
+// characters without a danda. Simulated 2026-09-11 on three real Hindi answers
+// with rates measured on this box (synth ~0.02 s + 0.0198 s/char under load,
+// speech ~0.7 s + chars/13.3):
+//
+//     total silence after first audio   12.2 / 5.0 / 7.6 s  ->  1.5 / 1.9 / 1.7 s
+//     gap between clip 1 and clip 2      9.6 / 1.4 / 2.8 s  ->  0.4 / 0.5 / 0.5 s
+//
+// First audio is unchanged. The cost is more, shorter clips: a clip ends at a
+// sentence end or a comma when one exists in range, and at a word boundary when
+// none does -- a slightly flatter phrase ending, against multi-second holes.
+//
+// `min` is the shortest clip worth sending (below ~15 chars a clip plays out in
+// a blink and leaves dead air); `max` is where it is cut at the last space if
+// no boundary has appeared. The first entry is the opener: its cap is what sets
+// time-to-first-audio (see git history for the 2026-09-09 measurements behind
+// 18/28).
+const SPEECH_CLIP_RAMP: ReadonlyArray<{ min: number; max: number }> = [
+  { min: 18, max: 28 },
+  { min: 20, max: 40 },
+  { min: 24, max: 52 },
+];
+// Every clip after the ramp.
+const SPEECH_CLIP_STEADY = { min: 30, max: 64 };
 
 /**
  * Pulls every *complete* sentence off the front of a growing token buffer.
@@ -76,6 +107,7 @@ function drainSentences(
   buffer: string,
   minChars: number,
   breakOnClause = false,
+  maxChars = 0,
 ): { sentences: string[]; rest: string } {
   const sentences: string[] = [];
   // A `.` right after a digit is a list marker ("1. ") or a decimal, not a
@@ -98,7 +130,21 @@ function drainSentences(
   for (;;) {
     boundary.lastIndex = searchFrom;
     const match = boundary.exec(rest);
-    if (!match) break;
+    if (!match) {
+      // No boundary anywhere in what has been written so far. For the opening
+      // chunk only (`maxChars` is 0 everywhere else), stop waiting once enough
+      // text exists and cut at the last space that still leaves a chunk longer
+      // than `minChars`. If the only spaces are too early, keep waiting —
+      // a five-character opener plays out in a blink and leaves dead air.
+      if (maxChars && rest.length >= maxChars) {
+        const cut = rest.slice(0, maxChars).lastIndexOf(" ");
+        if (cut >= minChars) {
+          sentences.push(rest.slice(0, cut).trim());
+          rest = rest.slice(cut);
+        }
+      }
+      break;
+    }
 
     const end = match.index + match[0].length;
     const candidate = rest.slice(0, end).trim();
@@ -116,12 +162,33 @@ function drainSentences(
   return { sentences, rest };
 }
 
-export function useTutorSession({ subjectName, level, language }: UseTutorSessionArgs) {
+export function useTutorSession({
+  subjectName,
+  level,
+  language,
+  primedSessionId,
+}: UseTutorSessionArgs) {
   const langName = language.name;
+
+  // ONE profile object for the warm-up and for every turn. These must agree
+  // exactly: the warm-up's whole purpose is to leave the system prompt in
+  // Ollama's KV cache so the first question reuses it, and reuse is by prefix,
+  // so any difference makes the warm-up worthless. Two call sites each building
+  // their own literal is how they drift -- on 2026-09-09 the warm-up assembled
+  // 526 prompt tokens and the first question 487, and turn 1 prefilled at
+  // 31ms/token while turn 2 (which extended turn 1, so it did hit) managed 6.7.
+  const profile = useMemo<TutorProfile>(
+    () => ({ subject: subjectName, level, language: langName }),
+    [subjectName, level, langName],
+  );
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stage, setStage] = useState<TutorStage>("idle");
   const [error, setError] = useState<string | null>(null);
+  // The editable question box. STT drops its transcript here instead of firing
+  // straight at the LLM, so the student can fix a misheard word — or just type —
+  // before pressing Send.
+  const [draft, setDraft] = useState("");
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   // True once the page-load warm-up has settled — the model is resident, or the
   // attempt failed and the first question pays the cold start as it used to.
@@ -133,7 +200,24 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
   const cancelledRef = useRef(false);
   // One submission per utterance, whichever path (Send or silence) triggers it.
   const submittingRef = useRef(false);
-  const sessionIdRef = useRef<string | undefined>(undefined);
+  // Seeded from the lobby's warm-up so the first question continues that
+  // conversation. Empty when the tutor was opened directly (#tutor, or a reload
+  // that skipped the lobby), in which case the first question pays the full
+  // prefill the way it always did.
+  const sessionIdRef = useRef<string | undefined>(primedSessionId || undefined);
+  // The profile the lobby's session was primed for.
+  //
+  // COMPARED, never consumed. An earlier version flipped a "used" flag on the
+  // first warm-up pass, which React StrictMode broke in dev: it invokes effects
+  // twice on mount, so the second pass found the flag already spent, treated it
+  // as a profile change, threw the primed session away and warmed again. The
+  // chat page logged its own warm-up and the first question paid the full 22s
+  // prefill the lobby existed to avoid (seen 2026-09-10).
+  //
+  // `profile` is memoised on [subject, level, language], so its identity is
+  // stable across the double invoke and changes only when the persona really
+  // does — which is exactly the condition we want.
+  const primedForRef = useRef(primedSessionId ? profile : null);
   // Lets Stop tear down an in-flight generation, which also stops the model
   // decoding server-side instead of burning CPU on an answer nobody will hear.
   const streamAbortRef = useRef<AbortController | null>(null);
@@ -147,6 +231,15 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
   const speakQueueStartRef = useRef<number | null>(null);
   const firstAudioLoggedRef = useRef(false);
   const allChunksQueuedRef = useRef(false);
+
+  // Transcription is timed from the mic closing, not from the mic opening: the
+  // time in between is the student talking, which is not the tutor being slow.
+  // What we want is the batch decode the student waits through in silence.
+  const sttCloseRef = useRef<number | null>(null);
+  // Survives into the next turn on purpose — the student dictates, edits the
+  // draft, then sends, so this was measured before `askAndSpeak` existed.
+  // Cleared once consumed, so a typed follow-up doesn't inherit it.
+  const lastSttMsRef = useRef<number | undefined>(undefined);
 
   const {
     startListening,
@@ -164,6 +257,7 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
 
   const {
     speak,
+    endTurn: endSpeech,
     cancel: cancelSpeech,
     primeAudio,
     isSupported: isSpeechSupported,
@@ -205,6 +299,32 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
     });
   }, []);
 
+  /**
+   * Merge late-arriving numbers into the reply that is already on screen.
+   *
+   * The speech timings cannot ride the `done` frame like the rest: the answer
+   * has finished streaming long before the last sentence finishes playing. So
+   * the bubble is written once with the server's numbers, then patched as the
+   * voice reaches each milestone.
+   */
+  const patchMetrics = useCallback((patch: Partial<ClientTurnMetrics>) => {
+    const id = replyIdRef.current;
+    if (!id) return;
+    pendingMetricsRef.current = pendingMetricsRef.current
+      ? { ...pendingMetricsRef.current, ...patch }
+      : undefined;
+    setMessages((prev) => {
+      const index = prev.findIndex((m) => m.id === id);
+      if (index === -1 || !prev[index].metrics) return prev;
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        metrics: { ...next[index].metrics!, ...patch },
+      };
+      return next;
+    });
+  }, []);
+
   // Warm-load the LLM the moment the session mounts, and again whenever the
   // language changes. Ollama otherwise loads the weights (and, on a language
   // switch, re-processes the whole new system prompt) lazily on the first
@@ -212,16 +332,31 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
   // has the new-language prompt prefix cached, so the first turn after a switch
   // isn't the one that pays ~10-16s.
   useEffect(() => {
+    // The lobby already warmed this exact profile and handed us its session.
+    // Warming again would be worse than redundant: this call opens a NEW
+    // session, so it would leave Ollama's cache holding a different branch than
+    // the one the first question continues, and hand back the 19.5s prefill the
+    // lobby existed to avoid.
+    if (primedSessionId && primedForRef.current === profile) {
+      sessionIdRef.current = primedSessionId;
+      setIsModelWarm(true);
+      return;
+    }
+    // Reached only when the profile changed. The old session carries the old
+    // persona and the old language's history, so continuing it would put the
+    // wrong instructions in front of every answer — start a fresh one.
+    sessionIdRef.current = undefined;
     let active = true;
     const controller = new AbortController();
     const startedAt = performance.now();
     setIsModelWarm(false);
-    void warmupTutor({ subject: subjectName, level, language: langName }, controller.signal)
+    void warmupTutor(profile, controller.signal)
       .then((result) => {
         if (result) {
           console.log(
             `[timing] model warm-up: ${(performance.now() - startedAt).toFixed(0)}ms ` +
-              `(ollama load_duration ${result.loadDurationMs}ms)`,
+              `(ollama load_duration ${result.loadDurationMs}ms, ` +
+              `prompt ${result.promptTokens} tok)`,
           );
         }
       })
@@ -232,7 +367,7 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
       active = false;
       controller.abort();
     };
-  }, [subjectName, level, langName]);
+  }, [profile, primedSessionId]);
 
   // A language switch is a fresh conversation: drop the cross-language history
   // so the first turn in the new language only re-processes the system prompt
@@ -249,6 +384,7 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
     cancelledRef.current = false;
     setMessages([]);
     resetTranscript();
+    setDraft("");
     setStage("idle");
   }, [language.code, resetTranscript, cancelSpeech]);
 
@@ -276,6 +412,8 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
 
       let answer = "";
       let unspoken = "";
+      // Clips queued so far this turn -- indexes SPEECH_CLIP_RAMP.
+      let clipIndex = 0;
       let firstTokenAt: number | null = null;
       // Kept alongside `answer` rather than read back off the ref: TypeScript
       // cannot see that a callback wrote to `.current`, and narrows it to the
@@ -302,7 +440,7 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
           {
             message: question,
             sessionId: sessionIdRef.current,
-            profile: { subject: subjectName, level, language: langName },
+            profile,
           },
           {
             onStart: (sessionId) => {
@@ -327,21 +465,23 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
               // voice — which speaks a sentence at a time and keeps pace.
               setReplyText(answer);
 
-              // First chunk: break at the first sentence *or clause* boundary,
-              // however short, so audio starts as soon as possible. After that,
-              // hold out for MIN_SPEECH_CHARS and whole sentences only, so the
-              // voice doesn't stutter phrase-by-phrase.
-              const isFirstChunk = speakQueueStartRef.current === null;
-              const minChars = isFirstChunk
-                ? FIRST_CHUNK_MIN_CHARS
-                : MIN_SPEECH_CHARS;
-              const { sentences, rest } = drainSentences(
-                unspoken,
-                minChars,
-                isFirstChunk,
-              );
-              unspoken = rest;
-              for (const sentence of sentences) enqueueSpeech(sentence);
+              // Cut the next clip by its place in the ramp -- see
+              // SPEECH_CLIP_RAMP for why clips grow gradually and stay capped.
+              for (;;) {
+                const clip = SPEECH_CLIP_RAMP[clipIndex] ?? SPEECH_CLIP_STEADY;
+                const { sentences, rest } = drainSentences(
+                  unspoken,
+                  clip.min,
+                  true,
+                  clip.max,
+                );
+                if (sentences.length === 0) break;
+                // One clip at a time, so each takes the size for its own place
+                // in the ramp rather than all sharing the first one's.
+                enqueueSpeech(sentences[0]);
+                clipIndex += 1;
+                unspoken = sentences.slice(1).join(" ") + rest;
+              }
             },
             onDone: ({ sessionId, answer: finalAnswer, metrics }) => {
               sessionIdRef.current = sessionId;
@@ -360,8 +500,12 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
                       ? undefined
                       : Math.round(firstTokenAt - turnStart),
                   client_total_ms: Math.round(performance.now() - turnStart),
+                  stt_ms: lastSttMsRef.current,
                 };
                 pendingMetricsRef.current = turnMetrics;
+                // Consumed. A typed follow-up must not inherit the timing of
+                // whatever was last dictated.
+                lastSttMsRef.current = undefined;
               }
               setReplyText(answer);
             },
@@ -393,6 +537,10 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
         const tail = unspoken.trim();
         if (tail) enqueueSpeech(tail);
 
+        // Nothing further will be queued, so the voice can stop holding clips
+        // back for a cushion — a one-clip answer would otherwise never play.
+        endSpeech();
+
         allChunksQueuedRef.current = true;
         setStage("idle");
 
@@ -412,7 +560,7 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
         submittingRef.current = false;
       }
     },
-    [subjectName, level, langName, speak, cancelSpeech, setReplyText],
+    [profile, speak, endSpeech, cancelSpeech, setReplyText],
   );
 
   // The single path from a captured question to a turn. Guarded so the mic's
@@ -427,6 +575,15 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
     [resetTranscript, askAndSpeak],
   );
 
+  // "Send" on the draft box: hand the reviewed/typed text to the one submit
+  // path, then clear the box.
+  const sendDraft = useCallback(() => {
+    const question = collapseSpaces(draft);
+    if (!question) return;
+    setDraft("");
+    submitQuestion(question);
+  }, [draft, submitQuestion]);
+
   // Logs time-to-first-audio and total voice->fully-spoken duration by watching
   // the isSpeaking flag, since speak() returns as soon as the phrase is queued.
   useEffect(() => {
@@ -440,52 +597,73 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
         `[timing] first sentence queued -> first audio: ${(now - speakQueueStartRef.current).toFixed(0)}ms ` +
           `(voice -> first audio total: ${(now - turnStart).toFixed(0)}ms)`,
       );
+      patchMetrics({
+        tts_first_audio_ms: Math.round(now - speakQueueStartRef.current),
+      });
     }
 
     if (!isPlaying && firstAudioLoggedRef.current && allChunksQueuedRef.current) {
       const now = performance.now();
       console.log(`[timing] voice -> fully spoken total: ${(now - turnStart).toFixed(0)}ms`);
+      patchMetrics({ spoken_total_ms: Math.round(now - turnStart) });
       turnStartRef.current = null;
     }
-  }, [isPlaying]);
+  }, [isPlaying, patchMetrics]);
 
-  // Auto-send once the mic closes — covers both the silence timeout and a manual
-  // "Send" (finishTurn), which just close the mic. The live transcript is shown
-  // in the chat as it is spoken; nothing else is typed. For a batch STT engine
+  // Once the mic closes — the silence timeout or a manual "Stop" (finishTurn) —
+  // move what was heard into the editable draft box instead of sending it. The
+  // student reviews it and presses Send (sendDraft). For a batch STT engine
   // (IndicConformer) the transcript isn't ready until `isTranscribing` clears,
-  // so hold off submitting until then.
+  // so hold off until then. A second dictation appends to whatever is already in
+  // the box, spoken or typed.
   useEffect(() => {
     if (isTranscribing) return;
 
     if (wasListening.current && !isListening) {
       wasListening.current = false;
-      if (cancelledRef.current) {
-        cancelledRef.current = false;
-        resetTranscript();
-        setStage("idle");
-        return;
+      const cancelled = cancelledRef.current;
+      cancelledRef.current = false;
+      const heard = cancelled
+        ? ""
+        : collapseSpaces(`${transcript} ${interimTranscript}`);
+      resetTranscript();
+      setStage("idle");
+      if (heard) {
+        setDraft((prev) =>
+          collapseSpaces(prev ? `${prev} ${heard}` : heard),
+        );
       }
-      const question = collapseSpaces(`${transcript} ${interimTranscript}`);
-      if (question) submitQuestion(question);
-      else setStage("idle");
       return;
     }
 
     wasListening.current = isListening;
-  }, [
-    isListening,
-    isTranscribing,
-    transcript,
-    interimTranscript,
-    submitQuestion,
-    resetTranscript,
-  ]);
+  }, [isListening, isTranscribing, transcript, interimTranscript, resetTranscript]);
 
   // Show the "working on it" state during a batch transcribe, and disable the
   // mic — unless the user just cancelled, in which case stay idle.
   useEffect(() => {
     if (isTranscribing && !cancelledRef.current) setStage("thinking");
   }, [isTranscribing]);
+
+  // Time the batch decode: the mic closing starts the clock, the transcript
+  // arriving stops it. The streaming browser engine never sets isTranscribing,
+  // so it records ~0 here, which is the truth — it has already decoded.
+  useEffect(() => {
+    if (isListening) {
+      sttCloseRef.current = null;
+      return;
+    }
+    if (sttCloseRef.current === null) {
+      sttCloseRef.current = performance.now();
+      return;
+    }
+    if (!isTranscribing) {
+      const elapsed = performance.now() - sttCloseRef.current;
+      sttCloseRef.current = null;
+      lastSttMsRef.current = Math.round(elapsed);
+      console.log(`[timing] transcription: ${elapsed.toFixed(0)}ms`);
+    }
+  }, [isListening, isTranscribing]);
 
   useEffect(() => {
     if (sttError) setError(sttError);
@@ -557,6 +735,9 @@ export function useTutorSession({ subjectName, level, language }: UseTutorSessio
     messages,
     stage,
     error,
+    draft,
+    setDraft,
+    sendDraft,
     isListening,
     isTranscribing,
     transcript,

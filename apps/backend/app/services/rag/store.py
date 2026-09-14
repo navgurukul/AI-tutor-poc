@@ -68,6 +68,27 @@ class Retrieved:
     language: str = ""
 
 
+# A medium arrives in two spellings: the name the setup page's dropdown saves
+# ("Hindi") and the code the language gate works in ("hi"). Compared literally,
+# a book saved one way is invisible to a session asking the other way -- every
+# chunk filtered out, the tutor answering unaided, and nothing in the trace to
+# say the filter did it. So a medium is always matched as all of its spellings,
+# plus "" for books uploaded before medium was recorded.
+_MEDIUM_SPELLINGS = {
+    "english": ("English", "english", "en"),
+    "hindi": ("Hindi", "hindi", "hi"),
+    "marathi": ("Marathi", "marathi", "mr"),
+}
+_MEDIUM_CODES = {"en": "english", "hi": "hindi", "mr": "marathi"}
+
+
+def medium_spellings(language: Optional[str]) -> Tuple[str, ...]:
+    """Every stored value that means this medium, including "" (unrecorded)."""
+    key = (language or "").strip().lower()
+    key = _MEDIUM_CODES.get(key, key)
+    return _MEDIUM_SPELLINGS.get(key, ((language or "").strip(),)) + ("",)
+
+
 def _serialise(vector: Sequence[float]) -> bytes:
     """sqlite-vec takes float32 vectors as a raw little-endian blob."""
     return struct.pack("<{}f".format(len(vector)), *vector)
@@ -555,6 +576,116 @@ class LibraryStore:
         )
 
     # -- search ------------------------------------------------------------
+    def chunks_by_ids(self, chunk_ids: Sequence[int]) -> List[Retrieved]:
+        """Fetch specific chunks and return them in the order asked for.
+
+        SQL gives no ordering guarantee for an `in (...)`, and the order is
+        load-bearing here: the accumulated context must be byte-identical from
+        one turn to the next or the cached prompt prefix is lost, so the caller's
+        order (the order the chunks were first retrieved) is restored in Python.
+
+        `distance` is 0.0 -- these were ranked when they were first retrieved,
+        possibly several turns ago, and re-reporting a stale distance would be
+        worse than reporting none.
+        """
+        if not chunk_ids:
+            return []
+        conn = self._require()
+        placeholders = ",".join("?" for _ in chunk_ids)
+        sql = """
+            select c.id as chunk_id, c.text, c.heading, c.page_start, c.page_end,
+                   d.title, d.grade, d.subject, d.language
+            from chunks c
+            join documents d on d.id = c.document_id
+            where c.id in ({})
+        """.format(placeholders)
+        with self._lock:
+            rows = conn.execute(sql, list(chunk_ids)).fetchall()
+        by_id = {
+            r["chunk_id"]: Retrieved(
+                chunk_id=r["chunk_id"],
+                text=r["text"],
+                heading=r["heading"],
+                page_start=r["page_start"],
+                page_end=r["page_end"],
+                distance=0.0,
+                document_title=r["title"],
+                grade=r["grade"],
+                subject=r["subject"],
+                language=r["language"] or "",
+            )
+            for r in rows
+        }
+        return [by_id[c] for c in chunk_ids if c in by_id]
+
+    def all_chunks(
+        self,
+        *,
+        grade: Optional[int] = None,
+        subject: Optional[str] = None,
+        language: Optional[str] = None,
+    ) -> List[Retrieved]:
+        """Every chunk of one book, in reading order, for pinning in the prompt.
+
+        Ordered by document then ordinal -- reading order, and more importantly
+        a STABLE order. The point of pinning is that the block is byte-identical
+        on every turn so Ollama can reuse its KV cache; ordering by anything
+        that varies (relevance, say) would defeat that entirely.
+
+        All three filters matter here in a way they do not for `search()`.
+        Search ranks and takes the best few, so a stray Class 8 chapter simply
+        loses; pinning takes EVERYTHING that matches, so an unfiltered call
+        would paste the whole library into the prompt. Scoping to the class,
+        subject and medium the student actually selected is what keeps the
+        pinned block small enough to be worth pinning.
+
+        Matching is case-insensitive and treats an EMPTY column as "matches
+        anything": documents ingested before the medium field existed carry ''
+        for language, and a strict filter would silently pin nothing at all.
+
+        `distance` is 0.0 because nothing was ranked. Callers that report a
+        "closest hit" should skip pinned mode rather than read meaning into it.
+        """
+        conn = self._require()
+        filters, params = [], []
+        if grade is not None:
+            filters.append("d.grade = ?")
+            params.append(grade)
+        if subject:
+            filters.append("(d.subject = '' or lower(d.subject) = lower(?))")
+            params.append(subject)
+        if language:
+            spellings = medium_spellings(language)
+            filters.append("coalesce(d.language, '') in ({})".format(
+                ", ".join("?" * len(spellings))))
+            params.extend(spellings)
+        where = ("where " + " and ".join(filters)) if filters else ""
+        sql = """
+            select c.id as chunk_id, c.text, c.heading, c.page_start, c.page_end,
+                   d.title, d.grade, d.subject, d.language
+            from chunks c
+            join documents d on d.id = c.document_id
+            {where}
+            order by c.document_id, c.ordinal, c.id
+        """.format(where=where)
+        with self._lock:
+            rows = conn.execute(sql, params).fetchall()
+        return [
+            Retrieved(
+                chunk_id=r["chunk_id"],
+                text=r["text"],
+                heading=r["heading"],
+                page_start=r["page_start"],
+                page_end=r["page_end"],
+                distance=0.0,
+                document_title=r["title"],
+                grade=r["grade"],
+                subject=r["subject"],
+                language=r["language"] or "",
+            )
+            for r in rows
+        ]
+
     def search(
         self,
         embedding: Sequence[float],
@@ -563,8 +694,12 @@ class LibraryStore:
         subject: Optional[str],
         k: int,
         max_distance: Optional[float] = None,
+        language: Optional[str] = None,
     ) -> List[Retrieved]:
-        """k nearest chunks, restricted to a grade and subject when given.
+        """k nearest chunks, restricted to a grade, subject and medium when given.
+
+        A document with no medium recorded matches any medium -- the same rule
+        as `all_chunks`, so pinning and retrieval agree on what is in scope.
 
         The KNN runs in a CTE and the text is joined on afterwards: vec0 wants
         its MATCH query kept simple, and joining inside it is what produces
@@ -577,8 +712,18 @@ class LibraryStore:
             filters.append("v.grade = ?")
             params.append(grade)
         if subject:
-            filters.append("v.subject = ?")
-            params.append(subject)
+            # vec0 metadata filters cannot call lower(), so the case-insensitive
+            # match pinning does is approximated by the casings a subject is
+            # actually typed in. The lobby sends the stored string back, so the
+            # first entry is the one that normally matches.
+            casings = tuple(dict.fromkeys(
+                (subject, subject.lower(), subject.title(), subject.upper())))
+            filters.append("v.subject in ({})".format(", ".join("?" * len(casings))))
+            params.extend(casings)
+        if language:
+            spellings = medium_spellings(language)
+            filters.append("v.language in ({})".format(", ".join("?" * len(spellings))))
+            params.extend(spellings)
 
         sql = """
             with knn as (
@@ -623,6 +768,8 @@ class LibraryStore:
         *,
         grade: Optional[int],
         k: int,
+        subject: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> List[Retrieved]:
         """Best BM25 matches for an already-built FTS5 MATCH string.
 
@@ -643,6 +790,14 @@ class LibraryStore:
         if grade is not None:
             where.append("d.grade = ?")
             params.append(grade)
+        if subject:
+            where.append("lower(d.subject) = lower(?)")
+            params.append(subject)
+        if language:
+            spellings = medium_spellings(language)
+            where.append("coalesce(d.language, '') in ({})".format(
+                ", ".join("?" * len(spellings))))
+            params.extend(spellings)
         params.append(k)
 
         sql = """

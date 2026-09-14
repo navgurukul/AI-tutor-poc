@@ -9,18 +9,48 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
+from app.config import settings
 from app.schemas import TutorProfile
+
+# How to treat retrieved textbook excerpts. This used to be the first line of
+# the context block itself, which put it *after* the persona and therefore in
+# the half of the prompt that is re-prefilled every turn -- 61 tokens at ~36ms
+# each, on every question, for a paragraph that never changes.
+#
+# It lives in the persona now, so it is inside the cached prefix and costs
+# nothing after the warm-up. That is why it is phrased conditionally ("may be
+# given"): it is emitted whether or not this particular turn retrieved
+# anything, and a fixed string is the whole point -- make it vary with the
+# turn and it stops being cacheable.
+RETRIEVAL_RULE = (
+    "You may be given excerpts from the student's own textbook. When they are "
+    "provided, prefer them over your own knowledge where they apply, and use "
+    "their wording and examples. If they do not cover the question, answer "
+    "normally without mentioning them."
+)
 
 STYLE_RULES = {
     # The default. A small model left alone answers school questions with a
     # vague one-liner; this forces a real (but short) explanation with an
     # example — it's a voice tutor, so keep it tight.
+    # Lengthened 2026-09-10. At "2-3 short sentences" the model was landing on
+    # 25-52 tokens -- roughly 15-25 Hindi words, well under even the 45-word
+    # budget, and often a bare definition with nothing a student could learn
+    # from. Three separate instructions were pushing it shorter (this rule, the
+    # word budget, and the closing "one short paragraph"), and together they
+    # overshot. Asking for four parts gives it something to fill rather than a
+    # ceiling to duck under.
+    #
+    # This costs decode time but NOT time-to-first-audio: the opener is capped
+    # at 28 characters and spoken while the rest is still being written, so a
+    # longer answer plays for longer rather than starting later.
     "teach": (
-        "Answer in 2-3 short sentences: say what the concept is in plain words, "
-        "then give one concrete everyday example a school student would "
-        "recognise. Use simple language. Do not add a question at the end unless "
-        "it genuinely helps. Never reply with only a vague one-line definition, "
-        "and never pad it out past three sentences."
+        "Answer in 4-5 sentences: say what the concept is in plain words, then "
+        "explain how or why it works, then give one concrete everyday example a "
+        "school student would recognise, and finish with the one thing worth "
+        "remembering. Use simple language. Do not add a question at the end "
+        "unless it genuinely helps. Never reply with only a vague one-line "
+        "definition."
     ),
     # Abstract phrasing like "guide with questions" is ignored by small models;
     # a hard length limit plus a worked example is what actually lands.
@@ -69,15 +99,35 @@ def build_system_prompt(
     if profile.student_name:
         lines.append("The student's name is {}.".format(profile.student_name))
 
+    # Emitted whenever retrieval is switched on, not only when this turn found
+    # something -- a rule that appears and disappears with the hit count would
+    # change the prefix from turn to turn and lose the cache it was moved here
+    # to win.
+    if settings.rag_enabled:
+        lines.append(RETRIEVAL_RULE)
+
     language = profile.language or "English"
     # Hindi and Marathi are both written in Devanagari; naming the script beats
     # "the <language> script", which a small model reads loosely.
     script = {"hindi": "Devanagari", "marathi": "Devanagari"}.get(
         language.strip().lower()
     )
+    # A word budget is what the model can actually follow, but the hard cap it
+    # has to finish inside (max_tokens) is counted in TOKENS -- and Devanagari
+    # costs 2-4x more tokens per word than English. 80 words of Hindi is roughly
+    # 160-320 tokens, so against the 120-token non-English cap the reply gets
+    # guillotined mid-sentence. Budget each script to what its cap actually
+    # holds, so the model lands the ending itself instead of being cut off.
+    # Raised 45 -> 85 (Devanagari) and 70 -> 110 on 2026-09-10: answers were
+    # coming back at 15-25 words, too thin to teach from. Devanagari stays lower
+    # than English because it costs ~2 tokens per word against English's ~1.3,
+    # so the same word count is a much bigger decode bill -- and the token caps
+    # (max_tokens_non_english) were raised alongside so the cap still never
+    # binds before the model finishes its own sentence.
+    word_budget = 85 if script == "Devanagari" else 110
     lines.extend(
         [
-            "Keep answers under 80 words unless asked for more.",
+            "Keep answers under {} words unless asked for more.".format(word_budget),
             "Use simple language and a concrete example. Never invent facts; if "
             "you are unsure, say so plainly.",
             "Write plain prose only: full sentences in one short paragraph. No "
@@ -104,33 +154,114 @@ def build_system_prompt(
             if script
             else "using the native {} script".format(language)
         )
+        # The "not a single Latin letter" clause is the one that stops a mixed-
+        # script reply: gemma2:2b holds Devanagari for ordinary prose but drops
+        # straight back to Latin for loanwords and acronyms ("AI क्या है" ->
+        # "AI एक तकनीक है"). Naming the failure and showing the fix inline is
+        # cheaper than a second worked example -- retrieved context is prepended
+        # ahead of this persona, so the prefix is not cached and every extra
+        # token here is paid again on every turn.
+        # Shortened 2026-09-10, from a ~190-token block plus a worked example.
+        #
+        # It was that long because it was the LAST thing the model read, and it
+        # had to carry the whole script instruction on its own. It no longer is:
+        # build_turn_message ends every turn with "Reply only in <language>
+        # (<script>)", which is where this model actually weights instructions. Keeping
+        # the full version here as well was paying for the same rule twice.
+        #
+        # It is not free to keep. Prefill is ~4.2ms per prompt token even when
+        # cached, so ~190 tokens of persona cost ~0.8s on EVERY turn. What stays
+        # is the part the per-turn rule does not cover: how to handle loanwords
+        # and acronyms, which is the specific failure ("AI क्या है" -> "AI एक
+        # तकनीक है") that a bare "reply in Hindi" does not prevent.
         lines.append(
-            "Write your ENTIRE reply in {0}, and only {0}, {1}. Every sentence "
-            "must be in {0}. Do not use English or any other script. Do not use "
-            "emojis or emoticons. Do NOT repeat a word or phrase — make each "
-            "point once, then stop.".format(language, script_clause)
-        )
-        # A short worked example in the target script shows the expected shape —
-        # a plain definition plus one example, then stop.
-        if script == "Devanagari":
-            lines.append(
-                "उदाहरण — छात्र: \"संज्ञा क्या होती है?\" "
-                "उत्तर: \"किसी व्यक्ति, वस्तु, स्थान या भाव के नाम को संज्ञा कहते हैं। "
-                "जैसे वाक्य 'राम दिल्ली में रहता है' में 'राम' और 'दिल्ली' दोनों संज्ञा हैं, "
-                "क्योंकि एक व्यक्ति का नाम है और दूसरा स्थान का।\""
+            "Write in {0} {1}. For technical terms and names use the everyday "
+            "{0} word, or spell the term out in {2} ('AI' as 'ए॰आई॰'). No "
+            "emojis. Do not repeat a phrase.".format(
+                language, script_clause, script or language
             )
+        )
 
     prompt = " ".join(lines)
     if context:
-        # Appended after the rules rather than before them. This model weights
-        # the end of the prompt most heavily, and a few hundred words of
-        # textbook dropped in front of the persona pushed the style rules out
-        # of reach -- it started reciting the passage instead of tutoring from
-        # it. The rules -- and, for a non-English turn, the script instruction
-        # that has to survive to the very end -- stay adjacent to the reply;
-        # the excerpts sit above.
-        prompt = "{}\n\n{}".format(context, prompt)
+        # Order here is a straight trade between two measured effects, and they
+        # pull in opposite directions.
+        #
+        # QUALITY wants the rules last. This model weights the end of the prompt
+        # most heavily, and when a few hundred words of textbook sat between the
+        # persona and the reply it started reciting the passage instead of
+        # tutoring from it. That is why the excerpts used to go in front.
+        #
+        # LATENCY wants the persona first. Ollama reuses a cached KV prefix, and
+        # the persona is byte-identical on every turn of a session while the
+        # excerpts change with every question. With the excerpts in front there
+        # is no reusable prefix at all, so the whole prompt is re-prefilled every
+        # turn -- measured 2026-09-09 at ~36 ms/token, which made 869 prompt
+        # tokens cost 31.6s before the student heard a single word.
+        #
+        # Both are satisfied by ordering it persona -> excerpts -> a SHORT
+        # closing reminder, so the cacheable half leads and the rules are still
+        # the last thing the model reads. The reminder is re-prefilled on every
+        # turn, which is exactly why it is two sentences rather than a second
+        # copy of the persona.
+        closing = [
+            "Answer the student's question using the excerpts above.",
+            # The no-markdown rule is stated twice on purpose. It is already in
+            # the persona, but the persona is now ~1300 tokens back behind the
+            # whole pinned textbook, and this model weights the END of the
+            # prompt -- which is the entire reason the style and script rules
+            # were moved down here. Measured 2026-09-09: asked about संज्ञा the
+            # model returned a markdown bulleted list ("* **व्यक्तिवाचक
+            # संज्ञा:**") in flat defiance of the persona, and ran 141 tokens
+            # against a 45-word budget. At 4.55 tok/s those extra ~90 tokens
+            # cost roughly 20 SECONDS. Repeating one short sentence here is ~15
+            # tokens of prefill at ~2.4ms each to save that.
+            "Write plain sentences in one short paragraph — no bullet points, "
+            "no asterisks, no bold, no headings.",
+            "Keep it under {} words.".format(word_budget),
+        ]
+        if language.strip().lower() != "english":
+            closing.append(
+                "Write the entire reply in {}{} — not a single Latin letter.".format(
+                    language, " using the {} script".format(script) if script else ""
+                )
+            )
+        prompt = "{}\n\n{}\n\n{}".format(prompt, context, " ".join(closing))
+    elif settings.tutor_rules_in_persona:
+        # The reply rules, once, at the end of the persona -- which is cached, so
+        # they cost nothing per turn -- instead of on every turn, where they were
+        # the largest fixed part of each question's new tokens. The turn keeps a
+        # short reminder (see build_turn_message). Only when nothing is pinned:
+        # a pinned book already ends with its own closing rules.
+        prompt = "{}\n\n{}".format(prompt, _persona_reply_rules(profile))
     return prompt
+
+
+def _reply_rules(profile: Optional[TutorProfile]) -> List[str]:
+    """The reply rules, as build_turn_message writes them for a turn with no excerpts.
+
+    Kept in step with build_turn_message by tests/test_turn_rules.py.
+    """
+    profile = profile or TutorProfile()
+    language = profile.language or "English"
+    script = {"hindi": "Devanagari", "marathi": "Devanagari"}.get(language.strip().lower())
+    word_budget = 85 if script == "Devanagari" else 110
+    rules = [
+        "Plain sentences, one paragraph, no bullets or bold.",
+        "Under {} words.".format(word_budget),
+        "Do not end with a question.",
+    ]
+    if language.strip().lower() != "english":
+        rules.append("Reply only in {}{}.".format(language, " ({})".format(script) if script else ""))
+    return rules
+
+
+def _persona_reply_rules(profile: Optional[TutorProfile]) -> str:
+    return (
+        "Rules for every reply: " + " ".join(_reply_rules(profile)) + " When the "
+        "student's message begins with textbook text, answer the question using the "
+        "facts in that text, in your own simple words, and never mention the text itself."
+    )
 
 
 def grade_from_profile(profile: Optional[TutorProfile]) -> Optional[int]:
@@ -152,12 +283,96 @@ def grade_from_profile(profile: Optional[TutorProfile]) -> Optional[int]:
 
 
 
+def build_turn_message(
+    question: str, profile: Optional[TutorProfile], context: Optional[str] = None
+) -> str:
+    """One student turn: its own excerpts, the question, then the rules.
+
+    This is the shape the KV cache needs. Putting excerpts in the SYSTEM prompt
+    seems tidier, but retrieval returns different passages for every question,
+    so the system prompt changes every turn -- and because it sits at the front,
+    changing it shifts the rules, the history and the question after it. That is
+    a fork, and a fork reuses nothing. Measured 2026-09-10, same corpus, same
+    question:
+
+        excerpts grown in the system prompt : 27.7 ms/token on turn 2
+        excerpts attached to the user turn  :  5.3 ms/token on turn 2
+
+    Attached to the turn, the conversation only ever grows at the end: a
+    follow-up that retrieves nothing new costs almost nothing, and a new topic
+    costs only its own passages.
+
+    The rules go AFTER the question rather than in the persona because this
+    model weights the end of the prompt hardest -- the same reason they were
+    moved out of the persona in the first place. With excerpts now inside the
+    turn, the end of the prompt is here.
+    """
+    profile = profile or TutorProfile()
+    language = profile.language or "English"
+    script = {"hindi": "Devanagari", "marathi": "Devanagari"}.get(
+        language.strip().lower()
+    )
+    word_budget = 85 if script == "Devanagari" else 110
+
+    parts: List[str] = []
+    if context:
+        parts.append(context)
+    parts.append(question)
+
+    # Terse on purpose. These repeat on EVERY turn and are always new tokens, so
+    # at ~50ms per new token a wordy reminder costs real seconds per question --
+    # measured 2026-09-10. The long-form versions live in the persona, which is
+    # cached; this is only the nudge that has to be last, where this model
+    # weights instructions hardest.
+    rules = ["Plain sentences, one paragraph, no bullets or bold."]
+    if context:
+        # Two failures to steer between. "Use the excerpts above" made it TALK
+        # ABOUT them: replies opened "यह पाठ excerpt ... पर आधारित है", lifting
+        # the English word straight out of the instruction. The fix for that,
+        # "Never mention or describe the text above", overshot: with nothing at
+        # the end of the prompt saying to USE the passage, the model mostly
+        # answered from memory. A/B 2026-09-11, 14 questions (8 Hindi from the
+        # Veena chapters, 6 English Science), same retrieval, fixed seed:
+        #
+        #     "Never mention or describe..."   groundedness median 0.179, fact 9/14
+        #     "Answer using the facts..."      groundedness median 0.266, fact 10/14
+        #
+        # Higher on 12 of 14, and neither wording made it talk about the text
+        # (0/14 each). Same length, so no cost to time-to-first-audio.
+        rules.insert(0, "Answer using the facts in the text above, in your own simple words. "
+                        "Do not mention the text itself.")
+    rules.append("Under {} words.".format(word_budget))
+    # The persona already says not to add a question unless it helps, but the
+    # persona is ~500 tokens back and this model weights the end of the prompt.
+    rules.append("Do not end with a question.")
+    if language.strip().lower() != "english":
+        rules.append("Reply only in {}{}.".format(
+            language, " ({})".format(script) if script else ""
+        ))
+    if settings.tutor_rules_in_persona:
+        # The full rules are in the persona now; the turn keeps only the one this
+        # model drops first without a reminder -- the reply language (or, in
+        # English, the length). Measured: with no reminder at all, answers ran to
+        # 118-159 words.
+        parts.append(rules[-1] if language.strip().lower() != "english"
+                     else "Under {} words.".format(word_budget))
+    else:
+        parts.append(" ".join(rules))
+    return "\n\n".join(parts)
+
+
 def build_chat_messages(
     history: List[Dict[str, str]],
     profile: Optional[TutorProfile],
     context: Optional[str] = None,
 ) -> List[Dict[str, str]]:
-    """Prepend the persona (and any retrieved textbook context) to the history."""
+    """Persona, then the conversation.
+
+    `context` is accepted for callers that still pass it (and for the pinned-
+    corpus path, where the block genuinely is stable every turn), but the normal
+    retrieval path now carries its excerpts inside the user turn -- see
+    build_turn_message.
+    """
     return [
         {"role": "system", "content": build_system_prompt(profile, context)}
     ] + history

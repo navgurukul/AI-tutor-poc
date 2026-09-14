@@ -28,10 +28,15 @@ class TtsRequest(BaseModel):
 
 @router.get("", summary="Which offline TTS languages are ready?")
 async def tts_status(language: str | None = Query(None)) -> dict:
-    """With `?language=`, reports (and lazily loads) that one; otherwise lists
-    every language whose voice is installed."""
+    """With `?language=`, loads that voice AND speaks one throwaway sentence;
+    otherwise lists every language whose voice is installed.
+
+    The lobby calls this for the chosen language while the student is still
+    picking a class. Loading alone was not enough: onnxruntime pays its
+    first-inference cost on the first generate(), so the student's first spoken
+    sentence was the one that paid it. warm() does it once per loaded voice."""
     if language:
-        ready = await run_in_threadpool(tts.is_ready, language)
+        ready = await run_in_threadpool(tts.warm, language)
         return {"ready": ready, "language": language}
     langs = await run_in_threadpool(tts.available_languages)
     return {"ready": len(langs) > 0, "languages": langs}

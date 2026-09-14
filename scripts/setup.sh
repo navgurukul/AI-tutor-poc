@@ -2,7 +2,7 @@
 # One-shot setup for the AI Tutor POC on macOS/Linux. The counterpart to
 # scripts/setup.ps1 on Windows: installs frontend, desktop, and backend
 # dependencies, creates local .env files, and downloads the speech model files
-# (English + Hindi TTS voices, and the IndicConformer speech-to-text model).
+# (backend TTS voices, and the speech-to-text models).
 #
 # USAGE
 #   From anywhere:  ./scripts/setup.sh
@@ -16,8 +16,8 @@
 #       ollama pull <model>            # the model set in apps/backend/.env
 #                                      # (OLLAMA_MODEL, default gemma2:2b ~1.6 GB)
 #     The exact 'ollama pull ...' line is printed at the end of this script.
-#   - ~700 MB of one-time model downloads happen below (IndicConformer ~470 MB,
-#     Whisper EN ~145 MB, voices ~130 MB). Resumable - just re-run if the connection drops.
+#   - ~850 MB of one-time model downloads happen below (IndicConformer ~470 MB,
+#     Whisper EN ~145 MB, backend TTS voices ~200 MB). Resumable - just re-run if the connection drops.
 #
 #   After this finishes, start everything with:  ./scripts/start.sh
 set -euo pipefail
@@ -26,7 +26,6 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 frontend_dir="$repo_root/apps/frontend"
 desktop_dir="$repo_root/apps/desktop"
 backend_dir="$repo_root/apps/backend"
-models_dir="$frontend_dir/public/models"
 
 c_cyan=$'\033[36m'; c_green=$'\033[32m'; c_yellow=$'\033[33m'; c_gray=$'\033[90m'; c_reset=$'\033[0m'
 
@@ -69,16 +68,6 @@ command -v python3 >/dev/null || { echo "python3 not found on PATH. Install it a
 step "Installing frontend dependencies..."
 ( cd "$frontend_dir" && npm install )
 
-# 1b. Piper WASM assets (worker script + phonemizer wasm/data). Gate on the
-#     ~18 MB data file, not the small worker script that always copies fast.
-piper_data="$frontend_dir/public/piper-wasm/piper_phonemize.data"
-if ! valid_file "$piper_data" 10000000; then
-  step "Fetching Piper WASM assets (react-sts-hooks postinstall didn't run, or was incomplete)..."
-  ( cd "$frontend_dir" && npx react-sts-setup )
-  valid_file "$piper_data" 10000000 || { echo "Piper WASM assets still missing after react-sts-setup." >&2; exit 1; }
-else
-  step "Piper WASM assets already present - skipping."
-fi
 
 # 2. Desktop launcher.
 step "Installing desktop launcher dependencies..."
@@ -112,23 +101,17 @@ else
   step "apps/frontend/.env already exists - leaving it as-is."
 fi
 
-# 5. Piper English voice model (used by the browser's Piper worker).
-#    en_US-amy-low (16 kHz), not -medium: on a single-thread WASM CPU the medium
-#    model takes 20-30 s to synthesize a first sentence. Low is ~2-3x faster,
-#    same voice. ~15 MB.
-mkdir -p "$models_dir"
-en_base="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/low"
-if ! valid_file "$models_dir/en_US-amy-low.onnx" 5000000; then
-  step "Downloading Piper voice model (~15MB, one-time)..."
-  download_safely "$en_base/en_US-amy-low.onnx" "$models_dir/en_US-amy-low.onnx"
+# 5. Backend text-to-speech voices: Piper, run by sherpa-onnx on the backend.
+#    scripts/package_tts_voices.py downloads English/Hindi/Marathi from the
+#    official rhasspy/piper-voices repo into apps/backend/models/tts/. It needs
+#    the `onnx` package, which the tutor itself does not, so it is installed
+#    here rather than in requirements.txt.
+if ! valid_file "$backend_dir/models/tts/hindi/model.onnx" 10000000; then
+  step "Packaging the backend TTS voices (English/Hindi/Marathi, ~200MB, one-time)..."
+  "$backend_dir/.venv/bin/python" -m pip install --quiet onnx
+  "$backend_dir/.venv/bin/python" "$repo_root/scripts/package_tts_voices.py"
 else
-  step "Voice model (.onnx) already present - skipping download."
-fi
-if ! valid_file "$models_dir/en_US-amy-low.json" 100; then
-  step "Downloading Piper voice config..."
-  download_safely "$en_base/en_US-amy-low.onnx.json" "$models_dir/en_US-amy-low.json"
-else
-  step "Voice model config already present - skipping download."
+  step "Backend TTS voices already present - skipping."
 fi
 
 # 6. Offline speech-to-text: AI4Bharat IndicConformer-600M (CTC), run by the
@@ -170,22 +153,6 @@ else
   step "English STT model already present - skipping download."
 fi
 
-# 7. Hindi Piper voice for the browser's TTS (react-sts-hooks usePiper) - the
-#    .onnx + .json pair, served from public/models/ like the English voice in
-#    step 5. Marathi has no Piper voice (falls back to the OS voice).
-hi_base="https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/priyamvada/medium"
-if ! valid_file "$models_dir/hi_IN-priyamvada-medium.onnx" 10000000; then
-  step "Downloading Hindi Piper voice (~60MB, one-time)..."
-  download_safely "$hi_base/hi_IN-priyamvada-medium.onnx" "$models_dir/hi_IN-priyamvada-medium.onnx"
-else
-  step "Hindi Piper voice (.onnx) already present - skipping download."
-fi
-if ! valid_file "$models_dir/hi_IN-priyamvada-medium.json" 100; then
-  step "Downloading Hindi Piper voice config..."
-  download_safely "$hi_base/hi_IN-priyamvada-medium.onnx.json" "$models_dir/hi_IN-priyamvada-medium.json"
-else
-  step "Hindi Piper voice config already present - skipping."
-fi
 
 ollama_model="$(get_ollama_model)"
 
@@ -194,5 +161,6 @@ printf '%sOne prerequisite start.sh does NOT install for you:%s\n' "$c_yellow" "
 printf '%s  Ollama must be installed and running, with the model pulled:%s\n' "$c_yellow" "$c_reset"
 printf '%s    brew install ollama          # or https://ollama.com%s\n' "$c_yellow" "$c_reset"
 printf '%s    ollama pull %s   # OLLAMA_MODEL in apps/backend/.env%s\n' "$c_yellow" "$ollama_model" "$c_reset"
+printf '%s    ollama pull bge-m3   # textbook search (embeddings)%s\n' "$c_yellow" "$c_reset"
 printf '%s  Without it the app still opens but replies show "model unavailable".%s\n\n' "$c_gray" "$c_reset"
 printf '%sThen: ./scripts/start.sh%s\n' "$c_green" "$c_reset"
