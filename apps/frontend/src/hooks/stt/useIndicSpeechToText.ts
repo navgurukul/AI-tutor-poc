@@ -24,6 +24,9 @@ const FINAL_MAX_SEC = 30;
 // heard, this much trailing quiet ends the utterance.
 const SPEECH_RMS = 0.012;
 const SILENCE_HANGOVER_MS = 1100;
+// Spacing for the readiness check's retries on a network failure -- see its
+// own comment below for why it retries at all.
+const READINESS_RETRY_DELAYS_MS = [500, 1500, 3000];
 
 /** Resample a mono Float32 buffer to 16 kHz, the rate IndicConformer expects.
  *
@@ -152,13 +155,23 @@ export function useIndicSpeechToText({ active, language }: EngineHookArgs): Tuto
 
   // When this engine's language is selected, ping the backend — it lazily loads
   // that language's model and tells us when it's ready (or that it isn't installed).
+  //
+  // Retries a few times on a network failure before giving up: this fires the
+  // moment the page loads, which can race the backend's own startup or a
+  // restart from `start.ps1`. Unlike the TTS voice check, `ready` here
+  // actually gates the mic (`startListening` no-ops while it's false), so a
+  // single lost race used to leave the mic silently unresponsive for the rest
+  // of the session even after the backend came up a moment later. Does NOT
+  // retry a real "not ready" or a non-OK status -- those are the backend
+  // correctly saying the model genuinely is not there.
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     setReady(false);
     setError(null);
 
-    (async () => {
+    const check = async (attempt: number) => {
       try {
         const res = await fetch(`${STT_URL}?language=${encodeURIComponent(language)}`);
         if (cancelled) return;
@@ -171,18 +184,29 @@ export function useIndicSpeechToText({ active, language }: EngineHookArgs): Tuto
         }
         const data = (await res.json()) as { ready?: boolean };
         if (cancelled) return;
-        if (data.ready) setReady(true);
-        else
+        if (data.ready) {
+          setReady(true);
+          setError(null);
+        } else {
           setError(
             "Offline speech model isn't installed on the backend. Re-run scripts/setup.ps1.",
           );
+        }
       } catch {
-        if (!cancelled) setError("Can't reach the tutor backend for speech recognition.");
+        if (cancelled) return;
+        const delay = READINESS_RETRY_DELAYS_MS[attempt];
+        if (delay !== undefined) {
+          timer = setTimeout(() => void check(attempt + 1), delay);
+          return; // not yet a failure -- still trying
+        }
+        setError("Can't reach the tutor backend for speech recognition.");
       }
-    })();
+    };
+    void check(0);
 
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [active, language]);
 

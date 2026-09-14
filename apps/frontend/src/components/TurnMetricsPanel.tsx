@@ -85,6 +85,15 @@ export function TurnMetricsPanel({ metrics }: { metrics: ClientTurnMetrics }) {
         {endToEnd !== undefined && (
           <span className="metrics__summary-note"> spoken · {ms(metrics.total_ms)} server</span>
         )}
+        {r.primed && (
+          <span
+            className="metrics__summary-note"
+            title="This passage was read into the cache from the draft, before Send — the question only paid for itself."
+          >
+            {" "}
+            · primed
+          </span>
+        )}
       </summary>
 
       <div className="metrics__bar" role="img" aria-label="Where the time went">
@@ -198,6 +207,15 @@ export function TurnMetricsPanel({ metrics }: { metrics: ClientTurnMetrics }) {
               label="Context"
               value={`${r.context_tokens} / ${r.context_budget} tokens`}
               hint="this is what prefill spent its time on"
+            />
+            <Row
+              label="Read early"
+              value={r.primed ? "yes — from the draft, before Send" : "no — read at question time"}
+              hint={
+                r.primed
+                  ? "the passage cost nothing at Send; only the question itself was new"
+                  : "either no draft ran ahead of it, or the guess didn't match this question"
+              }
             />
             <Row
               label="Closest hit"

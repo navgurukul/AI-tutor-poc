@@ -70,11 +70,11 @@ async def test_a_followup_reuses_the_last_passage_without_searching(monkeypatch)
     session = await store.create(TutorProfile(language="Hindi", level="Class 6"))
     session.last_hit_ids = [7, 9]
 
-    block, sources, hits, _ = await chat_router._retrieve_context(
+    rc = await chat_router._retrieve_context(
         "इसका एक उदाहरण दीजिए।", session.profile, session)
-    assert block == ""  # already in the conversation
-    assert [h.chunk_id for h in hits] == [7, 9]
-    assert len(sources) == 2
+    assert rc.context == ""  # already in the conversation
+    assert [h.chunk_id for h in rc.hits] == [7, 9]
+    assert len(rc.sources) == 2
     assert fake.asked == [[7, 9]]
 
 

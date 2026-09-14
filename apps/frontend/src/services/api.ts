@@ -211,6 +211,44 @@ export async function warmupTutor(
   }
 }
 
+/**
+ * Read a DRAFT's likely textbook passage into the backend's cache before the
+ * student presses Send -- while they're still speaking or reviewing the box.
+ *
+ * Fire-and-forget, exactly like `warmupTutor`: the backend answers 202 as
+ * soon as it has accepted the request and does the actual work (retrieval,
+ * then priming Ollama) in the background, so this never delays anything the
+ * student is looking at. A guess that turns out wrong, or arrives too late,
+ * costs nothing extra either -- the real Send falls back to today's turn at
+ * today's speed. See `RAG_EARLY_PRIME_ENABLED` in the backend for the numbers.
+ *
+ * Requires a session to attach the guess to (the lobby's warm-up creates one
+ * before the student can type or speak anything), so a call with no
+ * `sessionId` yet is skipped rather than spending a request on a guess
+ * nothing will claim.
+ */
+export function prepareTutor(
+  message: string,
+  sessionId: string | undefined,
+  profile: TutorProfile | undefined,
+  signal?: AbortSignal,
+): void {
+  if (USE_MOCK_API || !sessionId || !message.trim()) return;
+  void fetch(`${API_BASE_URL}/api/chat/prepare`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      session_id: sessionId,
+      profile: profileBody(profile),
+    }),
+    signal,
+  }).catch(() => {
+    // Best-effort: a failed prepare just means the real question pays the
+    // usual cost, same as if this call had never been made.
+  });
+}
+
 export interface TutorStreamHandlers {
   /** Fired once, before the first token, with the (possibly new) session id. */
   onStart?: (sessionId: string) => void;

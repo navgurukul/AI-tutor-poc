@@ -29,6 +29,19 @@ RETRIEVAL_RULE = (
     "normally without mentioning them."
 )
 
+# The per-turn grounding nudge, attached (via build_turn_message's `grounded`
+# flag) whenever this turn is answered from a passage -- inline in this turn
+# or read into the conversation a turn earlier by early priming, either way.
+#
+# Wording history, both A/Bs on this box (see the fuller note beside its use):
+#   2026-09-11, passage inline, 14 Q : "in your own words"     ground 0.179->0.266
+#   2026-09-14, passage a turn back,  : "own wording" + example ground 0.326->0.390
+#                8 Q, k=2 cap110        (vs no rule / a paraphrase-heavy one)
+GROUNDED_ANSWER_RULE = (
+    "Answer using the facts in the text above, mainly in the text's own "
+    "wording, then add one everyday example in one sentence."
+)
+
 STYLE_RULES = {
     # The default. A small model left alone answers school questions with a
     # vague one-liner; this forces a real (but short) explanation with an
@@ -41,9 +54,22 @@ STYLE_RULES = {
     # overshot. Asking for four parts gives it something to fill rather than a
     # ceiling to duck under.
     #
-    # This costs decode time but NOT time-to-first-audio: the opener is capped
-    # at 28 characters and spoken while the rest is still being written, so a
-    # longer answer plays for longer rather than starting later.
+    # Tried and REVERTED 2026-09-14: an instruction asking the model to open
+    # with a short (<10 word) direct sentence, chasing time-to-first-audio.
+    # Turned out to be solving an already-solved problem -- checked
+    # useTutorSession.ts's drainSentences AFTER shipping this and found the
+    # frontend already caps the OPENING spoken clip at 18-28 characters via
+    # SPEECH_CLIP_RAMP, cutting on a clause boundary (comma/semicolon) or a
+    # word boundary if the model's actual first sentence runs long. So
+    # time-to-first-audio does not depend on how long the model's first
+    # sentence is; the frontend already decouples the two. This instruction
+    # only changed how every answer *opens* (a curt fact before elaborating)
+    # for no measurable latency benefit, so it was pulled rather than kept on
+    # an unverified guess -- see the frontend comment for the real mechanism
+    # and rag_early_prime_wait_seconds' own history for why guessing without
+    # measuring has cost real time this same day already.
+    #
+    # This costs decode time but NOT time-to-first-audio, for the reason above.
     "teach": (
         "Answer in 4-5 sentences: say what the concept is in plain words, then "
         "explain how or why it works, then give one concrete everyday example a "
@@ -258,10 +284,30 @@ def _reply_rules(profile: Optional[TutorProfile]) -> List[str]:
 
 def _persona_reply_rules(profile: Optional[TutorProfile]) -> str:
     return (
-        "Rules for every reply: " + " ".join(_reply_rules(profile)) + " When the "
-        "student's message begins with textbook text, answer the question using the "
-        "facts in that text, in your own simple words, and never mention the text itself."
+        "Rules for every reply: " + " ".join(_reply_rules(profile)) + " " + GROUNDED_RULE_STANDING
     )
+
+
+# The standing (persona-level) form of the grounding rule, phrased as a
+# condition because -- unlike build_turn_message's per-turn `rules.insert(0,
+# ...)`, which only runs when the caller already knows this turn is grounded
+# -- the persona is written once and has to recognise a grounded turn for
+# itself from inside the conversation.
+#
+# It used to recognise only "the message begins with textbook text", which
+# matched every turn until early priming (2026-09-14) started sending the
+# passage as its OWN earlier turn, closed by a fixed acknowledgement -- so the
+# question turn no longer begins with textbook text at all, and this rule went
+# silently dead for exactly the turns it most needed to cover. Kept as one
+# shared standing rule covering both layouts rather than two, because a turn
+# is either grounded or it isn't and the model does not need to know which
+# shape produced that.
+GROUNDED_RULE_STANDING = (
+    "When the student's message begins with textbook text, or textbook facts "
+    "were given in the turn just before it, answer using those facts, mainly "
+    "in the text's own wording, add one everyday example in one sentence, and "
+    "never mention the text itself."
+)
 
 
 def grade_from_profile(profile: Optional[TutorProfile]) -> Optional[int]:
@@ -284,7 +330,11 @@ def grade_from_profile(profile: Optional[TutorProfile]) -> Optional[int]:
 
 
 def build_turn_message(
-    question: str, profile: Optional[TutorProfile], context: Optional[str] = None
+    question: str,
+    profile: Optional[TutorProfile],
+    context: Optional[str] = None,
+    *,
+    grounded: Optional[bool] = None,
 ) -> str:
     """One student turn: its own excerpts, the question, then the rules.
 
@@ -306,6 +356,18 @@ def build_turn_message(
     model weights the end of the prompt hardest -- the same reason they were
     moved out of the persona in the first place. With excerpts now inside the
     turn, the end of the prompt is here.
+
+    `grounded` decides whether the textbook-answering rule (below) is attached.
+    It defaults to `context is not None`, which is everything that shipped
+    before 2026-09-14: the rule only ever made sense when a passage sat right
+    above it. An early-primed turn (see rag.retrieval / chat.py's use of
+    session.prepared) sends the SAME passage, but as its own earlier turn
+    rather than inline here -- so `context` is None even though the question
+    is still textbook-grounded, and the caller passes `grounded=True` to say
+    so. Getting this wrong silently drops the rule that raised groundedness
+    0.179 -> 0.266 (EXP-008): found 2026-09-14 building early priming, where
+    the first cut of the new layout scored WORSE than the old one for exactly
+    this reason.
     """
     profile = profile or TutorProfile()
     language = profile.language or "English"
@@ -313,6 +375,7 @@ def build_turn_message(
         language.strip().lower()
     )
     word_budget = 85 if script == "Devanagari" else 110
+    grounded = (context is not None) if grounded is None else grounded
 
     parts: List[str] = []
     if context:
@@ -325,22 +388,11 @@ def build_turn_message(
     # cached; this is only the nudge that has to be last, where this model
     # weights instructions hardest.
     rules = ["Plain sentences, one paragraph, no bullets or bold."]
-    if context:
-        # Two failures to steer between. "Use the excerpts above" made it TALK
-        # ABOUT them: replies opened "यह पाठ excerpt ... पर आधारित है", lifting
-        # the English word straight out of the instruction. The fix for that,
-        # "Never mention or describe the text above", overshot: with nothing at
-        # the end of the prompt saying to USE the passage, the model mostly
-        # answered from memory. A/B 2026-09-11, 14 questions (8 Hindi from the
-        # Veena chapters, 6 English Science), same retrieval, fixed seed:
-        #
-        #     "Never mention or describe..."   groundedness median 0.179, fact 9/14
-        #     "Answer using the facts..."      groundedness median 0.266, fact 10/14
-        #
-        # Higher on 12 of 14, and neither wording made it talk about the text
-        # (0/14 each). Same length, so no cost to time-to-first-audio.
-        rules.insert(0, "Answer using the facts in the text above, in your own simple words. "
-                        "Do not mention the text itself.")
+    if grounded:
+        # See GROUNDED_ANSWER_RULE's own comment for why this wording, not
+        # "in your own words" -- it was right for an inline passage but let
+        # the model drift once the passage moved a turn back.
+        rules.insert(0, GROUNDED_ANSWER_RULE)
     rules.append("Under {} words.".format(word_budget))
     # The persona already says not to add a question unless it helps, but the
     # persona is ~500 tokens back and this model weights the end of the prompt.
@@ -354,11 +406,47 @@ def build_turn_message(
         # model drops first without a reminder -- the reply language (or, in
         # English, the length). Measured: with no reminder at all, answers ran to
         # 118-159 words.
-        parts.append(rules[-1] if language.strip().lower() != "english"
-                     else "Under {} words.".format(word_budget))
+        #
+        # "Write 4-5 full sentences" added 2026-09-14: the persona's "teach"
+        # style already says this (STYLE_RULES), but only there -- and
+        # measured the same day, real answers were landing at 20-45 decode
+        # tokens (one short sentence, the "vague one-line definition" the
+        # persona explicitly forbids), which is what a length rule stated
+        # ONLY mid-persona and never reinforced at the end gets from this
+        # model. A few extra tokens here, every turn, against answers that
+        # were quietly too thin to teach from.
+        #
+        # BEFORE the language/word-budget reminder, not after -- that one has
+        # to stay the literal last words of the prompt. Shipped the other
+        # order first and measured it break Hindi outright: three straight
+        # Hindi questions came back in Marathi, because "Reply only in Hindi"
+        # was no longer the end of the prompt, which is what this model
+        # weights hardest (the same reason the script clause and the
+        # grounding rule already live at the end, not mid-persona).
+        tail = rules[-1] if language.strip().lower() != "english" else "Under {} words.".format(word_budget)
+        parts.append("Write 4-5 full sentences, not one line. " + tail)
     else:
         parts.append(" ".join(rules))
     return "\n\n".join(parts)
+
+
+def build_passage_ack(profile: Optional[TutorProfile]) -> str:
+    """The tutor's fixed reply to an early-primed passage turn.
+
+    Fixed on purpose -- it is stored in session history and replayed on every
+    later turn, so it has to be identical every time or it forks the prefix,
+    exactly like a varying persona would. It says nothing the student sees
+    time-to-first-audio for: a prime never plays audio, and if the real
+    question turns out not to match what was primed (see Session.claim_prepared)
+    this whole exchange -- passage, ack and all -- is simply never sent for
+    real and never shown.
+    """
+    language = ((profile.language if profile else None) or "English").strip().lower()
+    if language == "marathi":
+        return "ठीक आहे."
+    if language == "hindi":
+        return "ठीक है."
+    return "Understood."
 
 
 def build_chat_messages(

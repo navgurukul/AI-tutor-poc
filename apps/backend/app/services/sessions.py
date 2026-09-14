@@ -6,13 +6,39 @@ Redis/SQLite implementation if the POC graduates.
 """
 
 import asyncio
+import time
 import uuid
 from collections import OrderedDict
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from app.config import settings
 from app.schemas import Message, TutorProfile
+
+
+@dataclass
+class PreparedPassage:
+    """A passage read into Ollama's cache while the student was still typing
+    or speaking, waiting to be claimed by whatever question actually arrives.
+
+    Built by `POST /api/chat/prepare` from a draft the student hasn't sent yet,
+    so it can be wrong or stale -- the asker re-retrieves on the real question
+    and only reuses this when the passages still match (see chat.py). Never
+    required for correctness: a miss just falls back to the normal single-
+    message turn, at the normal cost.
+    """
+
+    chunk_ids: List[int]
+    block: str                       # the passage text, as its own user turn
+    ack: str                         # the fixed tutor reply that closes it
+    # How many of THIS session's messages existed when the prime was built.
+    # The real ask must be extending exactly that prefix -- if the student's
+    # history moved (an earlier prime claimed, a message added some other
+    # way) the messages this was primed against no longer exist, and reusing
+    # it would build a prompt Ollama has never seen a prefix of.
+    history_len: int
+    started_at: float = field(default_factory=time.monotonic)
 
 
 def _now() -> datetime:
@@ -38,6 +64,43 @@ class Session:
         # was answered without the library). A follow-up like "give an example of
         # this" is about these, and they are already in the conversation.
         self.last_hit_ids: List[int] = []
+        # A passage read into Ollama's cache from a draft the student hasn't
+        # sent yet (see PreparedPassage). One at a time: a second prepare
+        # replaces it, and claiming it (or the session moving on without it)
+        # clears it -- there is never a queue of guesses to reconcile.
+        self.prepared: Optional[PreparedPassage] = None
+        # How many prepares have been DISPATCHED for this session, ever.
+        # Two prepares can be in flight at once (the student kept typing), and
+        # they are not guaranteed to finish in the order they started -- the
+        # second draft might retrieve and prime faster than the first. Each
+        # call captures its own number at dispatch and only writes
+        # `self.prepared` if no NEWER call has been dispatched since, so the
+        # result that lands is always the one for the most recent draft,
+        # regardless of which finished first.
+        self.prepare_seq: int = 0
+        # The in-flight prepare task, if one is running right now -- set by
+        # the /api/chat/prepare endpoint at dispatch, cleared when it finishes
+        # (only by itself; see that endpoint for why a stale clear is a bug).
+        #
+        # Exists so a real question that arrives a moment too early -- while
+        # its own passage is still being read into the cache -- can wait a
+        # BOUNDED moment for it instead of missing by a hair and paying full
+        # price. Measured 2026-09-14: the very first question of a session
+        # always misses this way (nothing was ever drafted early enough to
+        # prime from), and it is not the only case -- any question sent
+        # quickly after its draft settles can too.
+        self.preparing: Optional["asyncio.Task"] = None
+        # The in-flight background re-prime task, if one is running right now
+        # -- set by _reprime_after_reply at dispatch, cleared when it finishes
+        # (only by itself, same stale-clear guard as `preparing`).
+        #
+        # Exists so a real question that arrives WHILE the previous answer is
+        # still being re-read can cancel that read instead of contending with
+        # it: re-prime and the new question's own prefill both want gemma2 on
+        # the same 2 cores, and once the question has arrived, re-prime's
+        # result is moot anyway -- the question is about to read that exact
+        # prefix itself.
+        self.repriming: Optional["asyncio.Task"] = None
 
     def remember_chunks(self, chunk_ids: List[int]) -> List[int]:
         """Add newly retrieved chunk ids, preserving order and skipping repeats.
@@ -53,21 +116,48 @@ class Session:
                 known.add(cid)
         return self.context_chunk_ids
 
+    def claim_prepared(self, chunk_ids: List[int]) -> Optional[PreparedPassage]:
+        """Take the prepared passage if it is still usable for this exact
+        retrieval, clearing it either way -- a rejected guess is not saved for
+        a later question, because the next question is a different guess.
+
+        Usable means BOTH: the real question retrieved the same passages (in
+        the same order -- a different order is a different ranking, not the
+        same answer), and nothing has been added to this session's history
+        since the prime was built. The second check matters even when the
+        first passes: a prime built one question ago has the wrong prefix
+        now, and reusing it would hand Ollama a prompt it has no cache for.
+        """
+        prepared, self.prepared = self.prepared, None
+        if prepared is None:
+            return None
+        if prepared.chunk_ids != chunk_ids:
+            return None
+        if prepared.history_len != len(self.messages):
+            return None
+        return prepared
+
     def add(self, role: str, content: str) -> Message:
         message = Message(role=role, content=content, created_at=_now())
         self.messages.append(message)
         self.updated_at = message.created_at
         return message
 
-    def pop_last(self) -> None:
-        """Undo the most recent message.
+    def pop_last(self, count: int = 1) -> None:
+        """Undo the most recent `count` messages.
 
         Used to roll back the student's turn when generation fails, so a retry
-        does not leave two user messages in a row in the history.
+        does not leave a partial turn in the history. `count` is more than 1
+        for an early-primed turn: it added a passage and an acknowledgement
+        ahead of the question, and popping only the question would leave that
+        acknowledgement dangling with nothing after it -- a shape no real turn
+        ever produces and later replay has no way to make sense of.
         """
-        if self.messages:
+        for _ in range(max(0, count)):
+            if not self.messages:
+                break
             self.messages.pop()
-            self.updated_at = self.messages[-1].created_at if self.messages else self.created_at
+        self.updated_at = self.messages[-1].created_at if self.messages else self.created_at
 
     def history(self, limit: int) -> List[Dict[str, str]]:
         """The last `limit` messages, shaped for Ollama's /api/chat."""

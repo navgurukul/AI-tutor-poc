@@ -22,10 +22,19 @@ PASSAGE = "Textbook excerpts:\n[1] Scurvy is caused by a lack of vitamin C."
 
 def test_the_turn_keeps_only_a_short_reminder(monkeypatch):
     monkeypatch.setattr(settings, "tutor_rules_in_persona", True)
+    # "Write 4-5 full sentences, not one line." added 2026-09-14 -- see
+    # build_turn_message's own comment: the persona's length rule alone
+    # wasn't landing (real answers ran 20-45 decode tokens), so the per-turn
+    # tail -- where this model weights instructions hardest -- reinforces it.
+    # It goes BEFORE the language/word-budget reminder, not after: shipped
+    # the other order first and it broke Hindi outright (three straight
+    # Hindi questions answered in Marathi) by bumping "Reply only in Hindi"
+    # off the true end of the prompt.
     assert tutor.build_turn_message("संज्ञा क्या है?", HINDI, PASSAGE) == (
-        PASSAGE + "\n\nसंज्ञा क्या है?\n\nReply only in Hindi (Devanagari).")
+        PASSAGE + "\n\nसंज्ञा क्या है?\n\nWrite 4-5 full sentences, not one line. "
+        "Reply only in Hindi (Devanagari).")
     assert tutor.build_turn_message("What causes scurvy?", ENGLISH, None) == (
-        "What causes scurvy?\n\nUnder 110 words.")
+        "What causes scurvy?\n\nWrite 4-5 full sentences, not one line. Under 110 words.")
 
 
 def test_the_persona_ends_with_the_rules(monkeypatch):
@@ -59,3 +68,20 @@ def test_a_pinned_book_keeps_its_own_closing_rules(monkeypatch):
     prompt = tutor.build_system_prompt(HINDI, context=PASSAGE)
     assert "Rules for every reply" not in prompt
     assert prompt.rstrip().endswith("not a single Latin letter.")
+
+
+def test_the_language_reminder_stays_the_literal_last_words(monkeypatch):
+    # Regression guard for 2026-09-14: adding the length reminder AFTER the
+    # language one (instead of before) shipped once and broke Hindi outright
+    # -- three straight Hindi questions came back answered in Marathi, live,
+    # because "Reply only in Hindi" was no longer the end of the prompt.
+    # Whatever else gets added to this tail in future, the language/word-
+    # budget reminder must stay the true last words this model reads.
+    monkeypatch.setattr(settings, "tutor_rules_in_persona", True)
+    for profile, must_end_with in (
+        (HINDI, "Reply only in Hindi (Devanagari)."),
+        (TutorProfile(language="Marathi"), "Reply only in Marathi (Devanagari)."),
+        (ENGLISH, "Under 110 words."),
+    ):
+        turn = tutor.build_turn_message("Q", profile, PASSAGE)
+        assert turn.endswith(must_end_with), turn

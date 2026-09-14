@@ -314,12 +314,10 @@ async def test_metrics_off_means_no_trace_is_filled(store, monkeypatch):
     monkeypatch.setattr(chat_router.settings, "metrics_enabled", False)
     monkeypatch.setattr(chat_router.library, "store", store)
 
-    context, sources, hits, trace = await chat_router._retrieve_context(
-        "what is a tissue", None
-    )
-    assert hits, "retrieval itself must be unaffected by the switch"
-    assert sources, "citations are not metrics -- they stay"
-    assert trace is None
+    rc = await chat_router._retrieve_context("what is a tissue", None)
+    assert rc.hits, "retrieval itself must be unaffected by the switch"
+    assert rc.sources, "citations are not metrics -- they stay"
+    assert rc.trace is None
 
 
 @pytest.mark.asyncio
@@ -333,6 +331,6 @@ async def test_metrics_on_still_fills_the_trace(store, monkeypatch):
     monkeypatch.setattr(chat_router.settings, "metrics_enabled", True)
     monkeypatch.setattr(chat_router.library, "store", store)
 
-    _, _, hits, trace = await chat_router._retrieve_context("what is a tissue", None)
-    assert hits
-    assert trace is not None and trace.returned == len(hits)
+    rc = await chat_router._retrieve_context("what is a tissue", None)
+    assert rc.hits
+    assert rc.trace is not None and rc.trace.returned == len(rc.hits)

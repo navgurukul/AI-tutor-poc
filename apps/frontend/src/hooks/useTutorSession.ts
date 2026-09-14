@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { askTutorStream, warmupTutor } from "../services/api";
+import { askTutorStream, prepareTutor, warmupTutor } from "../services/api";
 import { useTutorTts } from "./tts/useTutorTts";
 import { useTutorSpeechToText } from "./stt/useTutorSpeechToText";
 import type { TutorLanguage } from "../config/languages";
@@ -218,6 +218,22 @@ export function useTutorSession({
   // stable across the double invoke and changes only when the persona really
   // does — which is exactly the condition we want.
   const primedForRef = useRef(primedSessionId ? profile : null);
+  // A second, CONTENT-based guard (not identity-based like primedForRef
+  // above), updated every time a warm-up actually succeeds -- fast-path or
+  // real. Added 2026-09-14: a stray warm-up was observed firing mid-
+  // conversation, live, ~18-20s of pure gemma2 prefill with nothing in the
+  // chat UI to explain it, and every question for the next couple of turns
+  // ran slow from the CPU contention it left behind. The exact trigger
+  // (something making `profile`'s useMemo produce a new object, or a
+  // remount) was not pinned down from static reading alone -- what this adds
+  // is a check that survives EITHER: if we already hold a real session id and
+  // its warmed profile's actual VALUES still match, warming again is refused
+  // regardless of why the effect re-ran. A console line names the mismatch
+  // if it ever legitimately fires again, so a recurrence is diagnosable
+  // instead of invisible.
+  const warmedProfileRef = useRef<{ subject: string; level: string; language: string } | null>(
+    primedSessionId ? { subject: subjectName, level, language: langName } : null,
+  );
   // Lets Stop tear down an in-flight generation, which also stops the model
   // decoding server-side instead of burning CPU on an answer nobody will hear.
   const streamAbortRef = useRef<AbortController | null>(null);
@@ -332,6 +348,22 @@ export function useTutorSession({
   // has the new-language prompt prefix cached, so the first turn after a switch
   // isn't the one that pays ~10-16s.
   useEffect(() => {
+    // The MAIN guard: if we already hold a real session AND its warmed
+    // profile's VALUES still match this render's, there is nothing to do —
+    // regardless of WHY this effect re-ran (an identity change in `profile`
+    // that isn't a real content change, a re-render, anything else). This is
+    // what actually stops a stray re-warm; the identity check just below is
+    // only the FIRST warm-up's fast path, for the moment before any session
+    // exists yet and there is nothing here for this check to compare against.
+    const alreadyWarmed =
+      warmedProfileRef.current !== null &&
+      warmedProfileRef.current.subject === subjectName &&
+      warmedProfileRef.current.level === level &&
+      warmedProfileRef.current.language === langName;
+    if (sessionIdRef.current && alreadyWarmed) {
+      setIsModelWarm(true);
+      return;
+    }
     // The lobby already warmed this exact profile and handed us its session.
     // Warming again would be worse than redundant: this call opens a NEW
     // session, so it would leave Ollama's cache holding a different branch than
@@ -339,12 +371,25 @@ export function useTutorSession({
     // lobby existed to avoid.
     if (primedSessionId && primedForRef.current === profile) {
       sessionIdRef.current = primedSessionId;
+      warmedProfileRef.current = { subject: subjectName, level, language: langName };
       setIsModelWarm(true);
       return;
     }
-    // Reached only when the profile changed. The old session carries the old
+    // Reached only when the profile genuinely changed (or this is the very
+    // first mount with no primed session). The old session carries the old
     // persona and the old language's history, so continuing it would put the
     // wrong instructions in front of every answer — start a fresh one.
+    if (sessionIdRef.current) {
+      // Not the first warm-up: something changed. Named here, once, so a
+      // recurrence of the 2026-09-14 stray-rewarm symptom is diagnosable
+      // from the console instead of an unexplained multi-second stall.
+      console.warn(
+        "[warm-up] re-warming an existing session -- profile changed from " +
+          `${JSON.stringify(warmedProfileRef.current)} to ` +
+          `${JSON.stringify({ subject: subjectName, level, language: langName })}` +
+          ` (primedSessionId=${primedSessionId || "none"})`,
+      );
+    }
     sessionIdRef.current = undefined;
     let active = true;
     const controller = new AbortController();
@@ -361,13 +406,16 @@ export function useTutorSession({
         }
       })
       .finally(() => {
-        if (active) setIsModelWarm(true);
+        if (active) {
+          setIsModelWarm(true);
+          warmedProfileRef.current = { subject: subjectName, level, language: langName };
+        }
       });
     return () => {
       active = false;
       controller.abort();
     };
-  }, [profile, primedSessionId]);
+  }, [profile, primedSessionId, subjectName, level, langName]);
 
   // A language switch is a fresh conversation: drop the cross-language history
   // so the first turn in the new language only re-processes the system prompt
@@ -387,6 +435,61 @@ export function useTutorSession({
     setDraft("");
     setStage("idle");
   }, [language.code, resetTranscript, cancelSpeech]);
+
+  // Read the likely passage for a question into the backend's cache before
+  // Send, from whatever is in the draft box -- typed input, or the transcript
+  // once the mic closes. See services/api.ts's `prepareTutor`.
+  //
+  // Deliberately NOT also triggered from the STT engine's live interim
+  // transcript while still listening, even though that would give a spoken
+  // question a bigger head start. Measured 2026-09-14: doing so put a prepare
+  // call's retrieval + Ollama prime (CPU-heavy) squarely in the same window as
+  // IndicConformer's own periodic re-decode of the growing clip -- two
+  // slowdowns lined up back to back in the backend log against two slow
+  // transcriptions the student saw (9.9s and 13.9s, against a normal
+  // ~0.3-1.2s). This is the exact failure this project already learned to
+  // avoid (EXP-011: a background job during testing turned a ~6s turn into
+  // 43-56s) -- STT just never asks for the CPU explicitly, so it lost that
+  // contention silently instead of erroring. Preparing only from the draft
+  // means it never runs until STT's own decode has already finished.
+  //
+  // Debounced so a burst (fast typing) fires one request rather than one per
+  // keystroke; sessionIdRef is read at fire time, not captured, since it is a
+  // ref and often still empty when this effect is first wired up.
+  const PREPARE_DEBOUNCE_MS = 700;
+  const prepareTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The last text actually sent for preparing, so a value that hasn't changed
+  // (the draft box re-rendering, an interim tick with nothing new) doesn't
+  // requeue the same guess. Safe to leave unreset between utterances: if a new
+  // question's opening words happen to exactly match what was already
+  // prepared, the worst case is that ONE utterance falls back to the normal,
+  // un-primed turn -- never a wrong answer.
+  const preparedForRef = useRef("");
+
+  const schedulePrepare = useCallback(
+    (text: string) => {
+      const trimmed = collapseSpaces(text);
+      if (!trimmed || trimmed === preparedForRef.current) return;
+      if (prepareTimerRef.current) clearTimeout(prepareTimerRef.current);
+      prepareTimerRef.current = setTimeout(() => {
+        prepareTimerRef.current = null;
+        preparedForRef.current = trimmed;
+        prepareTutor(trimmed, sessionIdRef.current, profile);
+      }, PREPARE_DEBOUNCE_MS);
+    },
+    [profile],
+  );
+
+  useEffect(() => {
+    schedulePrepare(draft);
+  }, [draft, schedulePrepare]);
+
+  useEffect(
+    () => () => {
+      if (prepareTimerRef.current) clearTimeout(prepareTimerRef.current);
+    },
+    [],
+  );
 
   const askAndSpeak = useCallback(
     async (question: string) => {

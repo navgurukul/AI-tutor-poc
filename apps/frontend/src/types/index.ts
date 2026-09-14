@@ -66,6 +66,15 @@ export interface RetrievalMetrics {
   context_tokens: number;
   context_budget: number;
 
+  /**
+   * True when this turn's passage was read into Ollama's cache earlier —
+   * while the student was still typing or speaking — via
+   * `POST /api/chat/prepare`, so the answer only paid for the question
+   * itself. False covers both "no passage" and "a passage, paid for at
+   * question time as usual"; `context_tokens` already tells those two apart.
+   */
+  primed: boolean;
+
   abstained: boolean;
   abstain_reason: string;
 }

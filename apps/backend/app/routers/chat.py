@@ -4,8 +4,9 @@ import json
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
@@ -14,13 +15,14 @@ from app.config import settings
 from app.schemas import (
     ChatRequest,
     ChatResponse,
+    PrepareRequest,
     RetrievalMetrics,
     Source,
     TurnMetrics,
     Usage,
 )
 from app.services.ollama_client import OllamaError, build_usage, client
-from app.services.sessions import store
+from app.services.sessions import PreparedPassage, Session, store
 from app.services.rag import service as library
 from app.services.rag.metrics import elapsed_ms, format_turn, groundedness
 from app.services.rag.query import estimate_tokens
@@ -36,6 +38,7 @@ from app.services.rag.store import Retrieved
 from app.services.tutor import (
     build_turn_message,
     build_chat_messages,
+    build_passage_ack,
     grade_from_profile,
     needs_socratic_retry,
     socratic_retry_messages,
@@ -125,15 +128,30 @@ def _is_followup(message: str) -> bool:
     return 0 < len(words) <= _FOLLOWUP_MAX_WORDS and any(w in _FOLLOWUP_WORDS for w in words)
 
 
-async def _retrieve_context(
-    message: str, profile, session=None
-) -> Tuple[str, List[dict], List[Retrieved], Optional[RetrievalMetrics]]:
-    """Textbook excerpts for this question.
+@dataclass
+class RetrievedContext:
+    """What a turn needs to build its messages, plus what the UI needs after.
 
-    Returns the prompt block, the citations for the UI, the hits themselves
-    (groundedness needs their text once the answer exists) and the trace of how
-    retrieval got there -- or None for the trace when metrics are switched off,
-    in which case retrieval fills nothing.
+    `primed` is the one thing that changes how the caller assembles the turn:
+    set, it means an early-primed passage was claimed (see
+    Session.claim_prepared) and its two extra messages -- the passage, then
+    the tutor's fixed acknowledgement -- already sit in Ollama's cache one
+    turn back, so the caller appends THOSE to history instead of inlining
+    `context` into the question. `context` is None whenever `primed` is set,
+    for exactly that reason: there is nothing left to inline.
+    """
+
+    context: Optional[str]
+    sources: List[dict]
+    hits: List[Retrieved]
+    trace: Optional[RetrievalMetrics]
+    primed: Optional[PreparedPassage] = None
+
+
+async def _retrieve_context(
+    message: str, profile, session: Optional[Session] = None
+) -> RetrievedContext:
+    """Textbook excerpts for this question.
 
     Scoped to the grade, subject and medium picked in the lobby, so a Class 6
     question cannot be answered out of a Class 11 chapter, and a Hindi-medium
@@ -165,7 +183,7 @@ async def _retrieve_context(
             trace.returned = len(hits)
             trace.context_tokens = estimate_tokens(block)
             trace.abstained = False
-        return block, citations(hits), hits, trace
+        return RetrievedContext(block, citations(hits), hits, trace)
 
     # A follow-up about the last answer keeps its passage: no embedding, no
     # search, and nothing pasted, because the passage is already in the
@@ -179,7 +197,53 @@ async def _retrieve_context(
                 trace.context_tokens = 0
                 trace.abstained = False
                 trace.abstain_reason = "follow-up: kept the previous passage, no new search"
-            return "", citations(hits), hits, trace
+            return RetrievedContext("", citations(hits), hits, trace)
+
+    # Settle anything still running in the background BEFORE this turn's own
+    # retrieval, not after -- never during. Moved here 2026-09-14: settling
+    # only once a miss was already decided (further down) let the ask's own
+    # retrieve() run CONCURRENTLY with a still-live prepare -- both call
+    # bge-m3's embed -- so the ask paid contention on its own retrieval before
+    # it ever got a chance to give up on the guess. Measured worst case that
+    # way: retrieval alone up to 4.4s against a normal ~0.3-0.7s. Waiting HERE
+    # instead is a straight, bounded, non-contending cost (nothing else runs
+    # meanwhile), which is what makes a real grace period affordable at all.
+    if session is not None:
+        grace = settings.rag_early_prime_wait_seconds
+        # Captured into a local up front: `session.preparing` can be cleared
+        # to None out from under us by the task's OWN done-callback the
+        # instant the loop gets a tick to run it (i.e. during the await
+        # below), so every check from here on is against this local, never
+        # against `session.preparing` again -- reading `.done()` off a
+        # variable that has gone None crashed the whole turn (AttributeError,
+        # NoneType has no done), caught live 2026-09-14.
+        preparing_task = session.preparing
+        if (settings.rag_early_prime_enabled and preparing_task is not None
+                and not preparing_task.done()):
+            # A short grace period, not the earlier 1.2s that (measured live)
+            # cost more than it saved: this version cannot compound with
+            # retrieval contention, because retrieval has not started yet.
+            # Still bounded -- a prepare running long in a large, grown
+            # conversation is not worth the student's whole latency budget on
+            # the chance it finishes; see rag_early_prime_wait_seconds.
+            if grace > 0:
+                try:
+                    await asyncio.wait_for(asyncio.shield(preparing_task), timeout=grace)
+                except Exception:  # noqa: BLE001 - a missed gamble, not a failure
+                    pass
+            if not preparing_task.done():
+                preparing_task.cancel()
+        # The automatic re-prime (of the PREVIOUS answer) is a pure
+        # background optimisation for whichever turn comes next. Once a real
+        # turn has arrived, that next turn IS this one -- it no longer needs
+        # re-prime to have finished in advance, because it is about to read
+        # exactly the same prefix itself. Letting re-prime keep running only
+        # contends with this turn's own gemma2 request for the same 2 cores.
+        # No grace period, unlike a prepare: a caught prepare's passage saves
+        # THIS turn real reading; a finished re-prime saves nothing this turn
+        # doesn't do anyway, so there is nothing here worth waiting for.
+        if session.repriming is not None and not session.repriming.done():
+            session.repriming.cancel()
 
     hits = await retrieve(
         library.store,
@@ -212,19 +276,103 @@ async def _retrieve_context(
     # `hits` stays whole. The answer genuinely is grounded in the old passages
     # as well as the new, so citations and groundedness must still see them --
     # it is only the text pasted into THIS turn that shrinks.
+    #
+    # Marking chunks "seen" (remember_chunks) happens LATER, once it is known
+    # whether this turn is primed or capped to a smaller paste -- not here.
+    # Marking the full set now, before rag_fallback_max_passages can drop
+    # some of it, would tell the session it had shown the model a passage it
+    # never actually pasted: a later turn's dedup would then withhold that
+    # passage forever, on a topic the model was never actually given.
     fresh = hits
     if session is not None and settings.rag_dedup_context:
         known = set(session.context_chunk_ids)
         fresh = [h for h in hits if h.chunk_id not in known]
-        session.remember_chunks([h.chunk_id for h in fresh])
 
     if session is not None:
         session.last_hit_ids = [h.chunk_id for h in hits]
 
-    block = build_context_block(fresh)
+    # An early-primed guess claims this turn only if it read the EXACT same
+    # (deduped) passages -- see Session.claim_prepared for the staleness half
+    # of that check. A different question, a different set of fresh passages,
+    # or a session that moved on while the prime was in flight all miss here,
+    # and this turn falls through to the pasted-inline path below exactly as
+    # if early priming did not exist.
+    primed = None
+    chunk_ids = [h.chunk_id for h in fresh] if fresh else []
+    if session is not None and settings.rag_early_prime_enabled and chunk_ids:
+        # The grace period, if any, was already spent BEFORE retrieve() ran
+        # (see above) -- this is just the claim check against what that wait
+        # (or an already-finished prepare) left behind. No second wait here:
+        # waiting again at this point would let it compound with the
+        # retrieve() call that just ran, which is the exact contention this
+        # was restructured to avoid.
+        primed = session.claim_prepared(chunk_ids)
+        if (primed is None and session.preparing is not None
+                and not session.preparing.done()):
+            # A safety net, not the primary mechanism -- the main cancel now
+            # happens BEFORE this turn's own retrieve() call, above, so by
+            # the time execution reaches here `session.preparing` is normally
+            # already None. This only catches the race where a NEW prepare
+            # was dispatched (another /api/chat/prepare call landed) while
+            # this turn's own retrieval was in flight -- rare, but the same
+            # contention argument applies, so it gets the same treatment.
+            session.preparing.cancel()
+    if primed is not None:
+        # The model sees every chunk in `fresh` this turn -- it is sitting in
+        # the passage turn already read into the conversation -- so all of it
+        # is now "seen", the same as the inline path marks what it pastes.
+        if session is not None and settings.rag_dedup_context and fresh:
+            session.remember_chunks([h.chunk_id for h in fresh])
+        if trace is not None:
+            trace.context_tokens = 0
+            trace.primed = True
+        return RetrievedContext(None, citations(hits), hits, trace, primed=primed)
+
+    # A miss (or early priming off) pays question-time cost for every passage
+    # pasted, unlike a caught guess -- so it pastes fewer. `hits` stays whole
+    # either way: citations and groundedness are judged on what is actually
+    # relevant, not on how much of it a slow turn could afford to paste. See
+    # rag_fallback_max_passages.
+    pasted = fresh
+    cap = settings.rag_fallback_max_passages
+    if cap > 0:
+        pasted = fresh[:cap]
+    # Only what is ACTUALLY pasted is marked seen -- see the comment above
+    # `fresh` for why the dropped remainder must stay eligible for a later
+    # turn (this one, next time it is retrieved, or a future prepare) to
+    # paste for real, rather than being silently withheld forever.
+    if session is not None and settings.rag_dedup_context and pasted:
+        session.remember_chunks([h.chunk_id for h in pasted])
+    block = build_context_block(pasted)
     if trace is not None:
         trace.context_tokens = estimate_tokens(block)
-    return block, citations(hits), hits, trace
+    return RetrievedContext(block, citations(hits), hits, trace)
+
+
+def _append_turn(session: Session, rc: RetrievedContext, message: str, pinned: bool) -> None:
+    """Add this turn's message(s) to history, in the shape `rc` calls for.
+
+    Three messages when an early-primed passage was claimed: the passage, the
+    tutor's fixed acknowledgement, then the question alone -- so history
+    replays byte-identical to what was actually sent to Ollama (see
+    tutor.build_turn_message's `grounded` flag for why the question still
+    carries the textbook-answering rule despite having no context of its own).
+    One message otherwise: today's shape, unchanged -- the passage inlined
+    with the question, or no passage at all. Either way the assistant's reply
+    is added separately, once it exists.
+    """
+    if rc.primed is not None:
+        session.add("user", rc.primed.block)
+        session.add("assistant", rc.primed.ack)
+        session.add(
+            "user",
+            build_turn_message(message, session.profile, None, grounded=True),
+        )
+    else:
+        session.add(
+            "user",
+            build_turn_message(message, session.profile, None if pinned else rc.context),
+        )
 
 
 def _turn_metrics(
@@ -311,6 +459,161 @@ def _reprime_after_reply(session, model: Optional[str], pinned_block: Optional[s
     task = asyncio.create_task(run())
     _PRIME_TASKS.add(task)
     task.add_done_callback(_PRIME_TASKS.discard)
+    session.repriming = task
+
+    def _clear_if_still_current(finished: "asyncio.Task") -> None:
+        # Guard against a stale clear: a NEWER re-prime (a later reply, or
+        # this one cancelled and replaced) may already have overwritten
+        # `session.repriming` by the time this callback runs. Only clear the
+        # field if it is still pointing at the task that just finished --
+        # same pattern as chat_prepare's own callback below, same reason.
+        if session.repriming is finished:
+            session.repriming = None
+
+    task.add_done_callback(_clear_if_still_current)
+
+
+async def _prepare_passage(session: Session, message: str) -> None:
+    """Read a question's passage into Ollama's cache from a DRAFT -- before the
+    student has pressed Send -- so the eventual real question only has to pay
+    for itself. See `rag_early_prime_enabled` in config.py for the measured
+    numbers and `Session.claim_prepared` for how (and how safely) the guess
+    gets reused.
+
+    Retrieval runs for real here (there is no cheaper way to know the right
+    passage), but nothing about it is committed to the session: `context_
+    chunk_ids` and `last_hit_ids` are read, never written, so a guess that
+    turns out wrong -- or is superseded by a newer draft -- leaves no trace for
+    the real turn to trip over. Only a CLAIMED prepare ever touches session
+    state that matters, and it does so through the normal turn path, not here.
+    """
+    if not settings.rag_early_prime_enabled:
+        return
+    message = (message or "").strip()
+    if not message:
+        return
+    profile = session.profile
+    if _is_pinned(profile):
+        return  # the corpus is already the (cached) system prompt; nothing to prime
+    if settings.rag_followup_reuse and session.last_hit_ids and _is_followup(message):
+        return  # a follow-up reuses the last passage for free; priming saves nothing
+
+    my_seq = session.prepare_seq = session.prepare_seq + 1
+    history_len = len(session.messages)
+
+    try:
+        hits = await retrieve(
+            library.store,
+            message,
+            grade=grade_from_profile(profile),
+            subject=(profile.subject if profile else None),
+            language=(profile.language if profile else None),
+        )
+        if not hits:
+            return
+        # The bigger cap: this read is only ever pasted if it is later
+        # CAUGHT, at which point it cost nothing at Send -- see
+        # rag_prime_passage_token_cap's own comment for why that earns it
+        # more room than a miss gets.
+        hits = fit_to_budget(
+            trim_passages(hits, message, max_tokens=settings.rag_prime_passage_token_cap)
+        )
+        known = set(session.context_chunk_ids)
+        fresh = [h for h in hits if h.chunk_id not in known]
+        if not fresh:
+            return  # already in the conversation -- nothing new to read early
+
+        block = build_context_block(fresh)
+        ack = build_passage_ack(profile)
+        # Reserves 3 message slots, not the re-prime's 1: a claimed prepare
+        # adds passage + ack + question before the reply exists, so that is
+        # how many the real ask's own session.history(N) call will have added
+        # on top of this prefix by the time IT runs. Get this wrong and the
+        # two don't share a byte-identical prefix near a full history window,
+        # silently losing the speedup rather than breaking anything.
+        limit = settings.max_history_messages
+        old_history = session.history(max(0, limit - 3)) if limit > 0 else session.history(0)
+        messages = build_chat_messages(old_history, profile) + [
+            {"role": "user", "content": block},
+            {"role": "assistant", "content": ack},
+        ]
+        started = time.perf_counter()
+        out = await client.prime(messages, model=None)
+    except Exception as exc:  # noqa: BLE001 - a guess must never raise
+        # warning, matching _reprime_after_reply: this branch is reached only
+        # by a genuine failure (Ollama unreachable, a bug) -- a routine miss
+        # (no hits, already seen) returns above without raising, so this does
+        # NOT fire on every draft edit the way the debounce upstream implies.
+        logger.warning("Passage prepare failed for %r (non-fatal): %s", message[:60], exc)
+        return
+
+    # A newer draft superseded this one, or the real question was already
+    # asked and answered, while this was in flight. Either way the guess this
+    # produced is for a conversation state that no longer exists.
+    if session.prepare_seq != my_seq or len(session.messages) != history_len:
+        return
+    session.prepared = PreparedPassage(
+        chunk_ids=[h.chunk_id for h in fresh],
+        block=block,
+        ack=ack,
+        history_len=history_len,
+    )
+    logger.info(
+        "prepare %.0fms | prefill %.0fms (%s tok) -- %d passage(s) read from a draft",
+        elapsed_ms(started),
+        (out.get("prompt_eval_duration") or 0) / 1e6,
+        out.get("prompt_eval_count"),
+        len(fresh),
+    )
+
+
+@router.post(
+    "/chat/prepare",
+    status_code=202,
+    summary="Read a draft's likely passage into the cache before Send",
+)
+async def chat_prepare(request: PrepareRequest) -> Dict[str, bool]:
+    """Fire-and-forget: returns immediately, primes in the background.
+
+    No session is created for a request that names none -- there being no
+    session to attach the guess to, priming one into existence would only be
+    guessing at a passage nobody will ever ask for from it. The frontend only
+    calls this once a session already exists (the lobby's warm-up creates
+    one before the student can type or speak a first question).
+    """
+    if not request.session_id:
+        return {"accepted": False}
+    session = await store.get_or_create(request.session_id, request.profile)
+    # Cancel a still-running re-prime of the PREVIOUS reply before dispatching
+    # this prepare -- discovered 2026-09-14 chasing why prepares almost never
+    # landed a catch in real sessions: ollama_reprime_after_reply fires
+    # unconditionally after every single reply and measured 6-8s on a grown
+    # conversation, and Ollama serialises gemma2 access on this 2-core box, so
+    # a prepare dispatched a moment later (the normal case -- the student
+    # starts drafting right after reading the answer) queued its own prime()
+    # call behind re-prime's, eating most or all of the student's think-time
+    # before the guess had even started. Re-prime's result is not lost by
+    # this: the prepare's own prime() call necessarily reprocesses the same
+    # history-through-the-reply prefix on its way to the passage+ack, so it
+    # re-creates the checkpoint re-prime was trying to save, just further
+    # along (through the passage rather than stopping at the reply).
+    if session.repriming is not None and not session.repriming.done():
+        session.repriming.cancel()
+    task = asyncio.create_task(_prepare_passage(session, request.message))
+    _PRIME_TASKS.add(task)
+    task.add_done_callback(_PRIME_TASKS.discard)
+    session.preparing = task
+
+    def _clear_if_still_current(finished: "asyncio.Task") -> None:
+        # Only if it's still THIS task: a newer prepare (the student kept
+        # typing) may have already replaced it with its own, and clearing
+        # that one out from under it would make a real ask that arrives next
+        # skip waiting for the guess that is actually still relevant.
+        if session.preparing is finished:
+            session.preparing = None
+
+    task.add_done_callback(_clear_if_still_current)
+    return {"accepted": True}
 
 
 @router.post("/chat", response_model=ChatResponse, summary="Send a message (buffered)")
@@ -351,22 +654,21 @@ async def chat(request: ChatRequest) -> ChatResponse:
     if warming_up and not warm_can_pin:
         # An empty trace rather than None: metrics_enabled is what decides
         # whether a trace exists, and _turn_metrics requires one when it is on.
-        context, sources, hits = None, [], []
-        trace = RetrievalMetrics() if settings.metrics_enabled else None
+        rc = RetrievedContext(None, [], [], RetrievalMetrics() if settings.metrics_enabled else None)
     else:
-        context, sources, hits, trace = await _retrieve_context(
-            request.message, session.profile, session
-        )
+        rc = await _retrieve_context(request.message, session.profile, session)
     retrieval_ms = elapsed_ms(retrieval_started)
     pinned = _is_pinned(session.profile)
-    session.add(
-        "user",
-        build_turn_message(request.message, session.profile, None if pinned else context),
-    )
+    # Counted so a failed generation below can undo exactly what was added: an
+    # early-primed turn adds three messages (passage, ack, question) instead
+    # of the usual one, and popping the wrong number would leave a dangling
+    # acknowledgement with no question after it in history.
+    messages_before = len(session.messages)
+    _append_turn(session, rc, request.message, pinned)
     messages = build_chat_messages(
         session.history(settings.max_history_messages),
         session.profile,
-        context if pinned else None,
+        rc.context if pinned else None,
     )
     retry_ms = 0.0
     try:
@@ -401,19 +703,21 @@ async def chat(request: ChatRequest) -> ChatResponse:
             if retry_reply.endswith("?"):
                 reply, response = retry_reply, retry
     except Exception:
-        # Drop the student's turn so a retry does not stack two user messages.
-        session.pop_last()
+        # Drop the student's turn so a retry does not stack two user messages
+        # -- ALL of it, which is 1 message normally or 3 for an early-primed
+        # turn (see messages_before).
+        session.pop_last(len(session.messages) - messages_before)
         raise
 
     session.add("assistant", reply)
     if not warming_up:
-        _reprime_after_reply(session, request.model, context if pinned else None)
+        _reprime_after_reply(session, request.model, rc.context if pinned else None)
 
     usage = build_usage(response)
     metrics = None
-    if trace is not None:
+    if rc.trace is not None:
         metrics = _turn_metrics(
-            trace,
+            rc.trace,
             usage,
             retrieval_ms=retrieval_ms,
             llm_ms=llm_ms,
@@ -424,7 +728,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             # instead would read as a TTFT this endpoint cannot deliver.
             ttft_ms=None,
             reply=reply,
-            hits=hits,
+            hits=rc.hits,
         )
         logger.info("%s", format_turn(metrics, "warm-up" if warming_up else "turn"))
 
@@ -434,7 +738,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         model=response.get("model", request.model or settings.ollama_model),
         usage=Usage(**usage),
         created_at=datetime.now(timezone.utc),
-        sources=[Source(**s) for s in sources],
+        sources=[Source(**s) for s in rc.sources],
         metrics=metrics,
     )
 
@@ -460,6 +764,9 @@ async def _stream_events(
     # basis of the cache holding.
     temperature = _effective_temperature(temperature, session.profile)
     max_tokens = _effective_max_tokens(max_tokens, session.profile)
+    # Captured before the try, so it is correct even if something inside fails
+    # before any message is added -- see the except blocks below.
+    messages_before = len(session.messages)
     yield _sse(
         {
             "type": "start",
@@ -471,23 +778,18 @@ async def _stream_events(
     chunks = []
     try:
         retrieval_started = time.perf_counter()
-        context, sources, hits, trace = await _retrieve_context(
-            message, session.profile, session
-        )
+        rc = await _retrieve_context(message, session.profile, session)
         retrieval_ms = elapsed_ms(retrieval_started)
-        if sources:
+        if rc.sources:
             # Emitted before the first token so the UI can show what the answer
             # is grounded in while it is still being written.
-            yield _sse({"type": "sources", "sources": sources})
+            yield _sse({"type": "sources", "sources": rc.sources})
         pinned = _is_pinned(session.profile)
-        session.add(
-            "user",
-            build_turn_message(message, session.profile, None if pinned else context),
-        )
+        _append_turn(session, rc, message, pinned)
         messages = build_chat_messages(
             session.history(settings.max_history_messages),
             session.profile,
-            context if pinned else None,
+            rc.context if pinned else None,
         )
         llm_started = time.perf_counter()
         ttft_ms: Optional[float] = None
@@ -507,7 +809,7 @@ async def _stream_events(
             if chunk.get("done"):
                 reply = "".join(chunks).strip()
                 session.add("assistant", reply)
-                _reprime_after_reply(session, model, context if pinned else None)
+                _reprime_after_reply(session, model, rc.context if pinned else None)
                 usage = build_usage(chunk)
                 done: Dict[str, Any] = {
                     "type": "done",
@@ -515,9 +817,9 @@ async def _stream_events(
                     "reply": reply,
                     "usage": usage,
                 }
-                if trace is not None:
+                if rc.trace is not None:
                     metrics = _turn_metrics(
-                        trace,
+                        rc.trace,
                         usage,
                         retrieval_ms=retrieval_ms,
                         llm_ms=elapsed_ms(llm_started),
@@ -525,7 +827,7 @@ async def _stream_events(
                         total_ms=elapsed_ms(turn_started),
                         ttft_ms=ttft_ms,
                         reply=reply,
-                        hits=hits,
+                        hits=rc.hits,
                     )
                     logger.info("%s", format_turn(metrics))
                     # Sent with `done` rather than as its own frame: these are
@@ -535,11 +837,11 @@ async def _stream_events(
                 yield _sse(done)
     except OllamaError as exc:
         logger.warning("Stream failed: %s", exc.detail)
-        session.pop_last()
+        session.pop_last(len(session.messages) - messages_before)
         yield _sse({"type": "error", "detail": exc.detail, "hint": exc.hint})
     except Exception as exc:  # noqa: BLE001 - never leave the stream hanging
         logger.exception("Unexpected stream failure")
-        session.pop_last()
+        session.pop_last(len(session.messages) - messages_before)
         yield _sse({"type": "error", "detail": str(exc)})
     finally:
         yield "data: [DONE]\n\n"

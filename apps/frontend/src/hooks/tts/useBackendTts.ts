@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE_URL } from "../../services/api";
 
 const TTS_URL = `${API_BASE_URL}/api/tts`;
+// Spacing for the readiness check's retries on a network failure -- see its
+// own comment below for why it retries at all.
+const READINESS_RETRY_DELAYS_MS = [500, 1500, 3000];
 
 /**
  * No prebuffer: every clip plays the instant synthesis returns it.
@@ -66,12 +69,24 @@ export function useBackendTts(language: string): BackendTts {
 
   // Ask whether this language's voice is installed. Also triggers the backend's
   // lazy model load, so the first real sentence doesn't pay for it.
+  //
+  // Retries a few times on a network failure before giving up: this check
+  // fires the moment the page loads, which can race the backend's own
+  // startup (the Hindi voice alone took ~11s to warm on 2026-09-14) or a
+  // restart from `start.ps1`. A single miss used to set the "didn't load"
+  // banner for the rest of the session even once the backend came up a
+  // moment later — `speak()` itself doesn't check this flag (see
+  // useTutorTts's `isReady: true`), so audio kept working underneath a
+  // banner insisting it wouldn't. Does NOT retry a real "ready: false" (no
+  // voice installed) or a non-OK HTTP status -- those are the backend
+  // answering, correctly, that the voice genuinely is not there.
   useEffect(() => {
     let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     setIsReady(false);
     setError(null);
 
-    (async () => {
+    const check = async (attempt: number) => {
       try {
         const response = await fetch(
           `${TTS_URL}?language=${encodeURIComponent(language)}`,
@@ -85,17 +100,26 @@ export function useBackendTts(language: string): BackendTts {
         if (!active) return;
         if (data.ready) {
           setIsReady(true);
+          setError(null);
         } else {
           setError(
             `No offline ${language} voice on the backend. Run scripts/setup.ps1.`,
           );
         }
       } catch {
-        if (active) setError("Can't reach the tutor backend for speech.");
+        if (!active) return;
+        const delay = READINESS_RETRY_DELAYS_MS[attempt];
+        if (delay !== undefined) {
+          timer = setTimeout(() => void check(attempt + 1), delay);
+          return; // not yet a failure -- still trying
+        }
+        setError("Can't reach the tutor backend for speech.");
       }
-    })();
+    };
+    void check(0);
 
     return () => {
+      if (timer) clearTimeout(timer);
       active = false;
     };
   }, [language]);

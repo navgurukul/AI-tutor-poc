@@ -76,6 +76,20 @@ class ChatRequest(GenerationOptions):
     )
 
 
+class PrepareRequest(BaseModel):
+    """A draft the student hasn't sent yet -- spoken text sitting in the
+    editable box, or typed text after a pause. Read into Ollama's cache in the
+    background (see routers.chat._prepare_passage); never a question anyone is
+    shown an answer to, so there is no response body worth returning beyond
+    whether the request was accepted at all."""
+
+    message: str = Field(..., min_length=1)
+    session_id: Optional[str] = Field(
+        None, description="Omit to skip preparing -- there is nothing to attach it to yet."
+    )
+    profile: Optional[TutorProfile] = None
+
+
 class Source(BaseModel):
     """A textbook passage the reply was grounded in."""
 
@@ -130,6 +144,15 @@ class RetrievalMetrics(BaseModel):
 
     context_tokens: int = 0
     context_budget: int = 0
+
+    # True when this turn's passage was read into Ollama's cache earlier --
+    # while the student was still typing or speaking -- and the answer only
+    # had to pay for the question itself. False (the default) covers both "no
+    # passage" and "a passage, paid for at question time as usual": those two
+    # already show up as context_tokens == 0 vs > 0, so this field only needs
+    # to distinguish the one thing neither of them can: whether the pasted
+    # tokens were free.
+    primed: bool = False
 
     abstained: bool = True
     abstain_reason: str = ""

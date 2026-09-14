@@ -40,14 +40,20 @@ class Settings(BaseSettings):
     # CPU threads Ollama decodes with. 0 = omit the option and let Ollama
     # auto-detect, which is the right default on unknown hardware.
     #
-    # Set it to the PHYSICAL core count, not the thread count: oversubscribing
-    # hyperthreads makes the cores contend and costs ~10-20% on decode. The
-    # 2026-09-07 target box is an i7-6600U -- 2 physical cores / 4 threads, 15 W
-    # Skylake -- so 2, not 4.
-    #
     # `OLLAMA_NUM_THREAD` sat in .env for weeks doing nothing: there was no field
     # here, extra="ignore" dropped it, and it is not a variable the Ollama daemon
     # reads either. Thread count was left entirely to auto-detection.
+    #
+    # The reasoning that used to sit here -- physical core count only (2, not
+    # 4), because oversubscribing hyperthreads costs ~10-20% on decode -- was
+    # SUPERSEDED once the field actually started doing something. See .env's
+    # own comment beside OLLAMA_NUM_THREAD=4: that reasoning is right about
+    # decode (memory-bound, indifferent to thread count) but wrong about the
+    # turn as a whole, because PREFILL -- 79% of the wait -- is compute-bound
+    # and DOES benefit from all 4 threads. Measured 2026-09-09, counterbalanced
+    # (scripts/ab_prefill.py): 4 threads 34.8ms/token beats 2 threads 43.2ms/
+    # token, monotonically. Left at 0 here only as the safe fallback for a box
+    # this hasn't been re-measured on; the deployed value lives in .env.
     ollama_num_thread: int = 0
     ollama_timeout_seconds: float = 180.0
     # Re-read each answer in the background as soon as it is written, so the
@@ -372,7 +378,34 @@ class Settings(BaseSettings):
     #
     # Raise it if answers start missing detail the passage clearly had; 0 turns
     # trimming off entirely.
-    rag_passage_token_cap: int = 110
+    #
+    # LOWERED 110 -> 90 on 2026-09-14, the day early priming shipped, and its
+    # meaning narrowed with it: this now governs only what a MISS pastes
+    # inline (see rag_prime_passage_token_cap below for the caught case). A
+    # miss pays for every one of these tokens at question time -- 20 fewer
+    # tokens is worth roughly 0.8-1s of prefill at the measured ~40ms/token,
+    # spent buying headroom against this box's own up-to-2.4x thermal
+    # variance (EXP-002), which no code change here can remove.
+    #
+    # LOWERED AGAIN 90 -> 70 on 2026-09-14, same day: a live 5-question run
+    # showed early priming landing a catch on almost none of the user's real
+    # (fast-paced) turns, so the miss path is still the common case this is
+    # actually paid for on, not the rare one. Another ~20 tokens is another
+    # ~0.8-1s off that common case, at the cost of a shorter passage for the
+    # model to answer from -- a groundedness trade the user chose to make in
+    # exchange for a firmer latency ceiling.
+    rag_passage_token_cap: int = 70
+    # The cap used ONLY when reading a passage early, from a draft, via
+    # POST /api/chat/prepare -- separate from rag_passage_token_cap because
+    # the two are paid for completely differently. A caught guess was already
+    # read during the student's own think-time, so its size costs nothing at
+    # Send; there is no latency reason to keep it small, only a groundedness
+    # reason to keep it bigger (more of the book for the model to answer
+    # from and to write a fuller reply from -- see GROUNDED_ANSWER_RULE and
+    # the "teach" style's 4-5 sentence rule, both of which need real material
+    # to work with). Kept well above rag_passage_token_cap for exactly that
+    # asymmetry: bigger where it is free, smaller where it is not.
+    rag_prime_passage_token_cap: int = 160
     # Pin the WHOLE corpus into the system prompt instead of retrieving per
     # question, whenever it fits in this many tokens. 0 disables pinning.
     #
@@ -424,6 +457,98 @@ class Settings(BaseSettings):
     # 2026-09-10 and the answer was nonsense (groundedness 0.00). Kept, the
     # passage is already in the conversation, so the turn adds no new tokens.
     rag_followup_reuse: bool = True
+    # Read a question's passage into Ollama's cache from the student's DRAFT --
+    # spoken text sitting in the editable box before they press Send, or typed
+    # text after they pause -- via POST /api/chat/prepare, instead of only at
+    # Send. The passage becomes its own turn (passage, then a fixed one-word
+    # tutor acknowledgement -- see tutor.build_passage_ack), primed with
+    # num_predict=1 so it costs the model nothing to read but a real cache
+    # checkpoint the same mechanism ollama_reprime_after_reply already relies
+    # on. When Send arrives, the real question is re-retrieved (cheap: ~0.3-1s)
+    # and reused ONLY if the passages still match (Session.claim_prepared) --
+    # a miss (the draft changed meaning, or the student answered faster than
+    # priming finished) falls back to today's single-message turn at today's
+    # cost, never slower.
+    #
+    # MEASURED 2026-09-14, 8 Hindi questions, k=2 cap110 (this box):
+    #   question-time prefill WITHOUT this: 4.1-4.8s (whole passage is new)
+    #   question-time prefill WITH this   : 1.7-2.0s regardless of passage size
+    # The read itself still costs 4.5-9s -- it is not free, it is moved off
+    # the student's wait and onto however long they take composing the
+    # question, which the editable-draft UI (student reviews before Send)
+    # gives generously more of than the ~3s this was first measured against.
+    #
+    # OFF as of 2026-09-14, after chasing it most of a day. It never once
+    # landed a catch in live testing, cold or at any pace, and worse: it
+    # measurably SLOWS DOWN the real question it was meant to help. Cancelling
+    # the asyncio task that awaits a stale prepare does not stop the HTTP
+    # request already sent to Ollama -- Ollama keeps computing the embed (and
+    # sometimes the prime) regardless of what the client does with its own
+    # await, because llama.cpp-style serving has no server-side cancel-on-
+    # disconnect for work already dispatched to a worker. So a "cancelled"
+    # prepare's embed call keeps burning CPU right alongside the real
+    # question's own embed call on this box's 2 physical cores -- measured
+    # live: retrieval that is normally ~0.3-1s ran 5-12s on turn after turn
+    # with priming on, every one of them worse than priming off would have
+    # been. Reordering the cancel (see rag_early_prime_wait_seconds' history)
+    # fixed a real double-contention bug but could not fix this deeper one --
+    # it needs a client-side mutex around all outbound Ollama calls to never
+    # SEND a second request while one is in flight, which is a materially
+    # bigger change than this setting was ever meant to be.
+    #
+    # Left in the code rather than removed: the mechanism (PreparedPassage,
+    # claim_prepared, the draft debounce on the frontend) is sound and worth
+    # revisiting once that mutex exists. Off restores exactly the pre-2026-
+    # 09-14 behaviour: /api/chat/prepare still accepts calls but declines to
+    # prime, and every turn takes the single-message path.
+    rag_early_prime_enabled: bool = False
+    # How long a real question waits for a STILL-RUNNING prepare before giving
+    # up and reading the passage itself. Only spent when there genuinely is a
+    # prepare in flight for this session; every other turn pays nothing here.
+    #
+    # Tried 4s, then 1.2s after 4s visibly blew the 2-3s target on its own.
+    # Both made things WORSE in the user's own real usage: retrieval ran
+    # 4.1-5.7s on turn after turn (normal ~0.3-0.7s), because back then this
+    # wait ran AFTER the ask's own retrieve() had already started, so the
+    # wait and the ask's own embed call CONTENDED with the still-running
+    # prepare's embed call at the same time, on nearly every turn. Shipped at
+    # 0 (no wait at all) to kill that regression the same day.
+    #
+    # RE-ENABLED 2026-09-14 at a small 0.35s, once the wait was moved to run
+    # BEFORE retrieve() starts (see _retrieve_context in chat.py) instead of
+    # after: with nothing else of this turn's own running yet, the wait no
+    # longer contends with anything -- it is a plain, bounded pause, not a
+    # second concurrent Ollama caller. This is what makes a nonzero wait safe
+    # to try again at all; the earlier failure was the ordering, not the idea.
+    #
+    # Kept short on purpose: a prepare that hasn't landed in 0.35s on a grown
+    # conversation is unlikely to land soon (each prepare's own read gets
+    # slower as history grows), and the miss path (rag_fallback_max_passages)
+    # is a known, bounded cost -- better to take it than gamble the student's
+    # whole latency budget on a guess. 0 restores the old skip-the-wait
+    # behaviour. Revisit with A/B evidence from real sessions, not a single
+    # synthetic timing test.
+    rag_early_prime_wait_seconds: float = 0.35
+    # How many of the retrieved (deduped) passages actually get PASTED when a
+    # question is read at question time -- a miss, or early priming off
+    # entirely. Independent of `rag_top_k`, which still decides how many are
+    # RETRIEVED (and, when a prepare lands in time, read for free ahead of
+    # Send) -- this only caps what a turn pays for on the spot.
+    #
+    # Why two numbers instead of one: with early priming on, k=2's second
+    # passage is free whenever the guess catches (read during the student's
+    # own think-time), so there is no reason to give it up there. But a MISS
+    # pays for every pasted passage at full question-time cost, and measured
+    # 2026-09-14 live, a k=2 miss on a real session (950+ prompt tokens by
+    # then) cost 8.3s of prefill alone -- well past the 2-3s target on its
+    # own, before decode even starts. Capping what a miss pastes to 1 cuts
+    # its new-token cost roughly in half (each passage is ~100-250 tokens),
+    # trading some groundedness ONLY on the turns priming already failed to
+    # help, which is exactly where latency needs the help most.
+    #
+    # Set equal to rag_top_k (or 0, meaning "no cap") to paste everything a
+    # miss retrieved, matching the shipped behaviour before this setting.
+    rag_fallback_max_passages: int = 1
     # The reply rules (plain sentences, word budget, no closing question, reply
     # language) live at the END of the cached persona, and each turn repeats only
     # a short reminder. Sent with every turn they are new tokens every time: 56
