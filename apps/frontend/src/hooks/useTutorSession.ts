@@ -115,12 +115,15 @@ function drainSentences(
   // as its own fragment. The danda (। ॥) is always a sentence end.
   //
   // `breakOnClause` additionally treats a comma/semicolon/colon as a place to
-  // stop, and is used for the opening chunk only. Without it the first chunk is
-  // however long the model's first sentence happens to be — a 107-character
-  // opener means waiting for all of it to be written *and* synthesized before
-  // any sound plays. Clauses are not split later on, where a mid-sentence pause
-  // would be audible; at the very start there is nothing to interrupt.
-  // Digits are excluded on both sides so "1,000" and "3:30" stay intact.
+  // stop. STALE UNTIL 2026-09-15: this used to be passed true for the opening
+  // chunk only, on the reasoning that a mid-sentence pause is audible anywhere
+  // but the very start. That was deliberately widened to every ramped clip on
+  // 2026-09-11 (see SPEECH_CLIP_RAMP above) once simulation showed whole-
+  // sentence-only clips left multi-second holes waiting for a 90-160 char
+  // Hindi sentence to finish -- a slightly flatter mid-answer phrase ending
+  // measured far better than that silence (gap after clip 1: 9.6/1.4/2.8s ->
+  // 0.4/0.5/0.5s). Digits are excluded on both sides so "1,000" and "3:30"
+  // stay intact.
   const boundary = breakOnClause
     ? /(?:(?<!\d)[.!?…]+["')\]]*(?=\s)|[।॥]+|(?<!\d)[,;:](?!\d)(?=\s))/g
     : /(?:(?<!\d)[.!?…]+["')\]]*(?=\s)|[।॥]+)/g;
@@ -523,17 +526,31 @@ export function useTutorSession({
       // `undefined` it was reset to at the top of the turn.
       let turnMetrics: ClientTurnMetrics | undefined;
 
+      // Diagnostic only (2026-09-15, chasing a reported gap between clip 1 and
+      // clip 2): when this queues is how long the CLIP took to become
+      // available, not how long it takes to play or synthesize -- if the gap
+      // the student hears tracks this, the model is falling behind the ramp's
+      // assumed writing pace; if it doesn't, look at synthesis/playback
+      // instead (useBackendTts's own queue).
+      let lastClipQueuedAt = turnStart;
       const enqueueSpeech = (text: string) => {
         if (!voiceEnabledRef.current || speechStoppedRef.current) return;
         const spoken = stripForSpeech(text);
         if (!spoken) return;
+        const now = performance.now();
         if (speakQueueStartRef.current === null) {
-          speakQueueStartRef.current = performance.now();
+          speakQueueStartRef.current = now;
           console.log(
-            `[timing] voice -> first sentence queued: ${(speakQueueStartRef.current - turnStart).toFixed(0)}ms ` +
+            `[timing] voice -> first sentence queued: ${(now - turnStart).toFixed(0)}ms ` +
+              `(${spoken.length} chars: "${spoken.slice(0, 60)}${spoken.length > 60 ? "…" : ""}")`,
+          );
+        } else {
+          console.log(
+            `[timing] clip ${clipIndex + 1} queued: +${(now - lastClipQueuedAt).toFixed(0)}ms since previous clip ` +
               `(${spoken.length} chars: "${spoken.slice(0, 60)}${spoken.length > 60 ? "…" : ""}")`,
           );
         }
+        lastClipQueuedAt = now;
         // The speech queue plays phrases in order, gaplessly.
         speak(spoken);
       };

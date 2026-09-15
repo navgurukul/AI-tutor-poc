@@ -56,6 +56,41 @@ async def _warm_model() -> None:
         logger.exception("Unexpected failure warming the model")
 
 
+async def _warm_cpu() -> None:
+    """Run a real, sustained generation at boot -- not just a weight load --
+    so the CPU is already at its throttled steady state before the student's
+    first real question, instead of transitioning into it mid-session.
+
+    `_warm_model` only loads weights (`done_reason: "load"`, zero decode); it
+    proves the model is resident but never taxes the CPU. This box's own
+    documented thermal variance (up to 2.4x, EXP-002) is about the chip
+    heating up UNDER sustained load -- a cold first real question starts on a
+    cool, fast chip and can look deceptively quick, only for a turn a few
+    questions later to land on the same chip once it has heated up and
+    throttled. Paying that transition here, on a throwaway prompt while the
+    student is still in the lobby, trades away that misleading fast-first-turn
+    for a steady-state number that holds from turn one.
+
+    A real ~120-token decode, not num_predict=1: prefill alone does not
+    sustain load long enough to matter on a CPU this size. Best-effort and
+    fully discarded -- this touches no session, and a failure here costs a
+    less consistent first turn, not a broken server.
+    """
+    if not settings.warm_cpu_on_startup:
+        return
+    started = time.monotonic()
+    try:
+        await client.chat(
+            [{"role": "user", "content": "Write a short paragraph about rivers."}],
+            max_tokens=120,
+        )
+        logger.info("CPU warm-up (sustained generation) done in %.1fs.", time.monotonic() - started)
+    except OllamaError as exc:
+        logger.warning("CPU warm-up skipped: %s", exc.detail)
+    except Exception:  # noqa: BLE001 - a background task must never die silently
+        logger.exception("Unexpected failure during CPU warm-up")
+
+
 async def _warm_stt() -> None:
     """Load settings.warm_language's recognizer at boot, so the first turn in it
     doesn't pay the ~3s load. Blocking (sherpa), so run it off the loop;
@@ -141,9 +176,12 @@ async def _warm_in_order(include_model: bool) -> None:
         await _warm_model()
     await _warm_stt()
     await _warm_tts()
-    # Last: the lobby's readiness check waits on the three above, while this one
-    # is not needed until the student has actually asked something.
+    # The lobby's readiness check waits on the three above, while embeddings
+    # and the CPU pre-heat are not needed until the student has actually asked
+    # something -- both run after, so neither delays the mic going live.
     await _warm_embeddings()
+    if include_model:
+        await _warm_cpu()
 
 
 @asynccontextmanager

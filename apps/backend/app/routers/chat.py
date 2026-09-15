@@ -444,6 +444,31 @@ def _reprime_after_reply(session, model: Optional[str], pinned_block: Optional[s
     messages = build_chat_messages(history, session.profile, pinned_block)
 
     async def run() -> None:
+        # Wait before touching Ollama at all -- discovered 2026-09-15 from a
+        # timestamped log correlation: the student is usually still HEARING
+        # the answer for several seconds after decode finishes (TTS lags
+        # behind decode, then plays back in real time), and re-prime firing
+        # the instant decode ends collided head-on with that tail playback's
+        # synthesis. One measured clip took 13.5s to synthesize -- normally
+        # under 2s -- because its whole span overlapped a 7.5s re-prime call,
+        # both fighting the same 2 cores. That IS an audible multi-second gap
+        # in what the student is hearing, not just a slower next turn.
+        #
+        # This delay is also a genuine (not merely attempted) cancellation
+        # window: session.repriming is set before this sleep, so a real
+        # question arriving during it cancels the task before client.prime()
+        # is ever called -- unlike a cancel after dispatch, which can't stop
+        # Ollama from finishing work it has already started (see
+        # rag_early_prime_enabled's history for the same lesson learned once
+        # already this week).
+        #
+        # A heuristic, not exact synchronisation with actual playback end --
+        # the backend has no signal for when the frontend finishes speaking.
+        # Chosen to comfortably outlast a turn's last 1-3 clips (each
+        # typically 1-5s per the working cases in the same log) without
+        # eating too far into the student's own think-time, which is what
+        # re-prime is racing to finish within anyway.
+        await asyncio.sleep(settings.ollama_reprime_delay_seconds)
         started = time.perf_counter()
         try:
             out = await client.prime(messages, model=model)

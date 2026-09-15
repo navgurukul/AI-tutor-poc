@@ -66,6 +66,12 @@ export function useBackendTts(language: string): BackendTts {
   const synthChainRef = useRef<Promise<unknown>>(Promise.resolve());
   // Bumped by stop(). Loops capture it before an await and bail if it changed.
   const cancelSeqRef = useRef(0);
+  // Set once any clip has actually played this session. Distinguishes "the
+  // voice never worked" (worth a banner) from "one sentence's synthesis had a
+  // transient hiccup mid-conversation, with everything before and after it
+  // fine" (not worth one) -- see processSynthesisQueue's catch block. Reset on
+  // a language switch, same as the rest of this hook's state.
+  const hasSpokenRef = useRef(false);
 
   // Ask whether this language's voice is installed. Also triggers the backend's
   // lazy model load, so the first real sentence doesn't pay for it.
@@ -85,6 +91,7 @@ export function useBackendTts(language: string): BackendTts {
     let timer: ReturnType<typeof setTimeout> | null = null;
     setIsReady(false);
     setError(null);
+    hasSpokenRef.current = false;
 
     const check = async (attempt: number) => {
       try {
@@ -179,8 +186,15 @@ export function useBackendTts(language: string): BackendTts {
           audio.onended = done;
           audio.onerror = done;
           // Proof that sound actually started, as opposed to a clip that was
-          // created, dropped, and counted as "spoken".
-          audio.onplaying = () => console.log("[tts] clip playing");
+          // created, dropped, and counted as "spoken". This -- not a
+          // successful synthesis response -- is what "the voice has worked
+          // this session" means: synthesis returning bytes proves the backend
+          // is fine, but says nothing about whether the browser actually
+          // played them (autoplay policy, no output device, ...).
+          audio.onplaying = () => {
+            hasSpokenRef.current = true;
+            console.log("[tts] clip playing");
+          };
           if (seq !== cancelSeqRef.current) {
             done();
             return;
@@ -194,11 +208,21 @@ export function useBackendTts(language: string): BackendTts {
             const name = err instanceof Error ? err.name : "Error";
             const detail = err instanceof Error ? err.message : String(err);
             console.error(`[tts] playback failed (${name}): ${detail}`);
-            setError(
-              name === "NotAllowedError"
-                ? "The browser blocked the answer audio. Tap the mic once, then ask again."
-                : `Couldn't play the answer audio (${name}). Check the output device and volume.`,
-            );
+            // Same reasoning as the synthesis queue's catch block: once
+            // audio has actually played this session, a LATER single clip
+            // failing to play (a transient autoplay hiccup on a clip that
+            // isn't the direct result of a click, one bad blob, ...) is not
+            // "the voice didn't load" -- the voice plainly did. Surfacing the
+            // same alarming banner for that mid-conversation is what was
+            // reported 2026-09-15: two full grounded turns had already
+            // played, yet the banner insisted the voice never loaded.
+            if (!hasSpokenRef.current) {
+              setError(
+                name === "NotAllowedError"
+                  ? "The browser blocked the answer audio. Tap the mic once, then ask again."
+                  : `Couldn't play the answer audio (${name}). Check the output device and volume.`,
+              );
+            }
             done();
           });
         });
@@ -235,6 +259,11 @@ export function useBackendTts(language: string): BackendTts {
           // A clip came back, so the voice works: clear any earlier failure
           // rather than leaving a "voice didn't load" banner up for the rest of
           // the session while the answer is being spoken underneath it.
+          //
+          // NOT where hasSpokenRef is set -- a synthesis response proves the
+          // backend is fine, not that the browser actually played it (see
+          // playQueue's onplaying handler, which is the real proof and the
+          // signal that gates whether a LATER failure here is worth a banner).
           setError(null);
           audioQueueRef.current.push(blob);
           // Play whatever is ready, immediately — see the note on prebuffering
@@ -244,7 +273,16 @@ export function useBackendTts(language: string): BackendTts {
           }
         } catch (err) {
           console.error("TTS synthesis error:", err);
-          setError(err instanceof Error ? err.message : "Speech failed.");
+          // Only surface the banner if the voice has never actually spoken
+          // this session -- that is a real, actionable failure. Once it HAS
+          // spoken, a later single sentence failing (both the request and its
+          // one retry) is a transient hiccup mid-conversation, not the voice
+          // being broken; the generic "didn't load" banner said otherwise
+          // while the rest of the answer kept being read underneath it, which
+          // is confusing and wrong. Drop that one clip and keep going.
+          if (!hasSpokenRef.current) {
+            setError(err instanceof Error ? err.message : "Speech failed.");
+          }
         }
       }
     } finally {

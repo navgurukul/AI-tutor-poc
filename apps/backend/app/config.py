@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     # delay startup), so the first question isn't the one that pays the cold
     # start. Set false only if you don't want the backend touching Ollama on boot.
     warm_model_on_startup: bool = True
+    # Beyond just loading weights, run one real ~120-token generation at boot
+    # so the CPU is already at its throttled steady state before the student's
+    # first real question -- see main.py's _warm_cpu for the full reasoning.
+    # Only takes effect alongside warm_model_on_startup (needs the model
+    # loaded first); adds ~15-25s of background decode to boot, overlapping
+    # the student picking a class/subject/language in the lobby.
+    warm_cpu_on_startup: bool = True
     # A small model on CPU is usually quick, but a long answer plus a cold model
     # load can still take a while, so the read timeout is generous.
     # CPU threads Ollama decodes with. 0 = omit the option and let Ollama
@@ -65,6 +72,29 @@ class Settings(BaseSettings):
     # prompt, 4 rounds: next-turn prefill 5.3-6.0 s without, 2.5-2.6 s with.
     # The prime itself (~3.5 s) runs while the answer is being spoken.
     ollama_reprime_after_reply: bool = True
+    # How long re-prime waits after decode finishes before touching Ollama.
+    #
+    # ADDED 2026-09-15, chasing a live report of the TTS gap being "very bad"
+    # again: correlated a timestamped /api/tts log against the app's own turn
+    # log and found a single clip's synthesis took 13.5s (normally < 2s)
+    # because its whole span overlapped a 7.5s re-prime call dispatched the
+    # instant decode ended -- both competing for this box's 2 cores while the
+    # student was still hearing the tail of the answer. Re-prime firing
+    # immediately assumed the student was done the moment decode was, which
+    # is false: TTS lags behind decode and then plays back in real time, so
+    # the tail is still being spoken for several seconds afterwards.
+    #
+    # 5s is a heuristic, not exact synchronisation with actual playback end
+    # (the backend has no signal for that) -- sized to comfortably outlast a
+    # turn's last 1-3 clips (each typically 1-5s in the same log's working
+    # cases) without eating too far into the student's own think-time, which
+    # is the window re-prime is racing to finish within regardless. Also
+    # doubles as a real (not merely attempted) cancellation window: a
+    # question arriving during this wait cancels the task before
+    # client.prime() is ever dispatched, unlike a cancel after the Ollama
+    # call has already started, which cannot stop work already in progress.
+    # 0 restores firing immediately.
+    ollama_reprime_delay_seconds: float = 5.0
     ollama_connect_timeout_seconds: float = 5.0
 
     # --- Generation defaults ---------------------------------------------
@@ -394,6 +424,20 @@ class Settings(BaseSettings):
     # ~0.8-1s off that common case, at the cost of a shorter passage for the
     # model to answer from -- a groundedness trade the user chose to make in
     # exchange for a firmer latency ceiling.
+    #
+    # TRIED 70 -> 40 twice (2026-09-14 and again 2026-09-15) and REVERTED both
+    # times -- the second attempt, run clean AFTER fixing a real re-prime/TTS
+    # contention bug that had muddied the first attempt, gave a CONCLUSIVE
+    # answer rather than a noisy one: three same-question trials at 40 landed
+    # AT THE SAME context_tokens (70) as three trials at 70, byte-identical
+    # passage text both times. trim_passage will not cut a passage mid-
+    # sentence (see its own docstring -- a 2026-09-09 incident where it did
+    # broke an answer), and this corpus's sentences commonly run ~70 tokens on
+    # their own, so a cap of 40 cannot produce less than one whole sentence
+    # here. The cap is not being ignored; it simply has no headroom to bite
+    # into on passages shaped like this one. Lowering it further would need
+    # either accepting mid-sentence cuts (the exact failure mode that got this
+    # safeguard added) or shorter source sentences, not a smaller number here.
     rag_passage_token_cap: int = 70
     # The cap used ONLY when reading a passage early, from a draft, via
     # POST /api/chat/prepare -- separate from rag_passage_token_cap because

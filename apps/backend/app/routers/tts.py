@@ -6,6 +6,7 @@ two halves of the speech pipeline stay symmetrical.
 """
 
 import logging
+import time
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
@@ -46,10 +47,27 @@ async def tts_status(language: str | None = Query(None)) -> dict:
 async def synthesize(
     request: TtsRequest, language: str = Query(_DEFAULT_LANG)
 ) -> Response:
+    # Timestamped (not just a duration) so a slow /api/chat turn's prefill
+    # window -- logged separately with its own timestamp -- can be directly
+    # checked against whether synthesis was running at the same wall-clock
+    # moment. Added 2026-09-15 chasing an isolated 2x prefill slowdown with no
+    # matching increase in token count: sherpa-onnx synthesis runs in this
+    # process's own threadpool, on the same 2 physical cores as Ollama's
+    # separate process, so genuine OS-level contention between the two is
+    # possible even though Ollama itself serializes its own requests through
+    # one slot (confirmed via its own server.log) and therefore can't be the
+    # thing directly slowing down its own in-progress work.
+    started = time.perf_counter()
     try:
         wav = await run_in_threadpool(tts.synthesize, request.text, language)
     except tts.TtsUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     if not wav:
         raise HTTPException(status_code=422, detail="empty text")
+    logger.info(
+        "tts synth: %.0fms for %d chars (%r...)",
+        (time.perf_counter() - started) * 1000,
+        len(request.text),
+        request.text[:30],
+    )
     return Response(content=wav, media_type="audio/wav")
