@@ -19,6 +19,12 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Stands in for an answer the student already has, so that two of their
+# questions never arrive as one message. Fixed text, never shown to them, and
+# the fact that it is fixed is the whole point -- see history().
+TURN_SEPARATOR = "(answered)"
+
+
 class Session:
     def __init__(self, session_id: str, profile: Optional[TutorProfile] = None):
         self.session_id = session_id
@@ -72,9 +78,10 @@ class Session:
         twice, once to generate and again to re-read.
 
         Replayed: the last `questions` student questions, and the current one.
-        Assistant turns are not replayed at all -- neither the body of the
-        previous answer nor, since 16 Sep, its closing sentence; see the
-        history_questions comment in app.config for what that one cost.
+        No assistant CONTENT is replayed -- neither the body of the previous
+        answer nor, since 16 Sep, its closing sentence; see the
+        history_questions comment in app.config for what that one cost. What
+        does go back between them is TURN_SEPARATOR.
 
         Not a flat "last N messages" window any more, which is why the setting
         that drives it was renamed. Order is chronological.
@@ -98,10 +105,25 @@ class Session:
                 keep.add(i)
                 seen += 1
 
-        return [
-            {"role": self.messages[i].role, "content": self.messages[i].content}
-            for i in sorted(keep)
-        ]
+        out: List[Dict[str, str]] = []
+        for i in sorted(keep):
+            message = self.messages[i]
+            # Two student questions in a row are ONE message with two questions
+            # in it as far as the model is concerned, and a small one answers
+            # both -- the older first. Observed on a device: "What is magnetic
+            # force?" opened with the Earth's rotation changing a shadow's
+            # length, then closed by answering both out loud. Until 16 Sep the
+            # closing nudge separated them as a side effect; removing it left
+            # them adjacent.
+            #
+            # The stub is CONSTANT, which is what the nudge could never be. The
+            # prompt therefore stays a strict extension of the previous turn's,
+            # so the cache still covers it, and it costs ~5 tokens against the
+            # nudge's ~28.
+            if out and out[-1]["role"] == "user" and message.role == "user":
+                out.append({"role": "assistant", "content": TURN_SEPARATOR})
+            out.append({"role": message.role, "content": message.content})
+        return out
 
     @property
     def preview(self) -> Optional[str]:
