@@ -171,6 +171,32 @@ class Settings(BaseSettings):
     # changes, never the prompt. RAG_CARRY_FOLLOWUPS=0 turns it off, for an
     # A/B run of the benchmark.
     rag_carry_followups: bool = True
+    # Ingest-time corpus filtering (app.services.rag.quality). A textbook's
+    # exercises, activity boxes and fill-in-the-blanks are ABOUT the chapter's
+    # topic, so they embed next to the definition and compete with it -- and a
+    # fill-in-the-blank is the definition with the answer deleted. Measured on
+    # the Class 6 book (groundedness run v1, 2026-09-16): "What are the poles of
+    # a magnet?" retrieved the p.121 exercise first, and the tutor filled the
+    # blanks in backwards and taught the student that opposite poles repel.
+    #
+    # Only applies at ingest, so changing it means re-ingesting the PDF. Off
+    # (RAG_FILTER_CORPUS=0) reproduces the pre-2026-09-16 index exactly.
+    rag_filter_corpus: bool = True
+    # Share of a page's paragraphs that must be exercise apparatus, alongside at
+    # least one explicit instruction stem, before the whole page is dropped.
+    # 0.40 sits in an empty gap: on this book the pages holding an answer
+    # measure 0.00-0.08 and the exercise pages 0.40-1.02. At this value 12 of
+    # 132 pages go and none of the 70 answer phrases in the two evaluation sets
+    # is lost. Re-measure for a new book with
+    # scripts/eval/corpus_filter_report.py.
+    rag_exercise_page_ratio: float = 0.40
+    # Prepend "Class 6 > Science > <heading>" to a chunk before embedding, so a
+    # paragraph that has stopped naming its subject still carries the chapter's
+    # vocabulary. Worth having only because headings are now validated before
+    # they are used -- an unvalidated one put "28620C" and "3. Fill in the
+    # blanks with the appropriate" in front of real prose. RAG_EMBED_BREADCRUMB=0
+    # embeds the prose alone, to A/B the two on a real corpus.
+    rag_embed_breadcrumb: bool = True
     # Characters per chunk, and the overlap carried between neighbours so a
     # definition split across a boundary survives in at least one of them.
     rag_chunk_chars: int = 1200

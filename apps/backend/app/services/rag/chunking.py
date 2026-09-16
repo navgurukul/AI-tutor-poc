@@ -21,6 +21,13 @@ from typing import List, Optional, Sequence
 # a heading only reaches this module as its own paragraph because that pass
 # already recognised it. Shared rather than duplicated so the two agree.
 from app.services.rag.pdf_text import looks_like_heading
+from app.services.rag.quality import (
+    clean_heading,
+    is_question_only,
+    keep_on_exercise_page,
+    page_is_exercise,
+    strip_apparatus,
+)
 
 
 @dataclass
@@ -31,12 +38,27 @@ class Chunk:
     page_start: int
     page_end: int
 
-    def embedding_text(self, grade: int, subject: str) -> str:
+    def embedding_text(
+        self, grade: int, subject: str, breadcrumb: bool = True
+    ) -> str:
         """What actually gets embedded: breadcrumb, then prose.
 
         Kept separate from `text` so the stored chunk stays clean -- the prompt
         gets the prose and a citation line, not this.
+
+        The breadcrumb only helps when the heading really is the subject. In the
+        index built before `clean_heading` existed it often was not: "28620C",
+        "B", "3. Fill in the blanks with the appropriate" and "5. Go toward the
+        left and then to the right" were all prepended to real prose, pulling
+        the vector towards nothing or towards the exercise. Headings are now
+        validated before they get here, so a junk one is "" and the breadcrumb
+        falls back to "Class 6 > Science".
+
+        `breadcrumb=False` (RAG_EMBED_BREADCRUMB=0) drops it entirely, so the
+        two can be compared on a real corpus rather than argued about.
         """
+        if not breadcrumb:
+            return self.text
         crumbs = ["Class {}".format(grade), subject]
         if self.heading:
             crumbs.append(self.heading)
@@ -61,8 +83,20 @@ def chunk_pages(
     pages: Sequence[str],
     chunk_chars: int,
     overlap_chars: int,
+    drop_exercises: bool = True,
+    exercise_page_ratio: float = 0.40,
 ) -> List[Chunk]:
-    """Group paragraphs into chunks, tracking heading and page range."""
+    """Group paragraphs into chunks, tracking heading and page range.
+
+    With `drop_exercises`, three filters from `rag.quality` run first: whole
+    exercise pages are skipped, apparatus paragraphs are stripped from the pages
+    that remain, and a heading is only kept if it names a topic. A chunk left
+    with nothing but questions is dropped at the end.
+
+    Measured on the Class 6 book: 12 of 132 pages and 8.4% of paragraphs go,
+    and none of the 70 answer phrases in the two evaluation sets is lost from
+    the corpus. See `scripts/eval/corpus_filter_report.py`.
+    """
     chunks: List[Chunk] = []
     buffer: List[str] = []
     buffer_len = 0
@@ -101,21 +135,44 @@ def chunk_pages(
     for page_number, page in enumerate(pages, start=1):
         if not page.strip():
             continue
-        for para in page.split("\n\n"):
-            para = para.strip()
-            if not para:
-                continue
-            if looks_like_heading(para):
-                # A heading opens a new topic, so close the current chunk
-                # rather than letting two sections blur into one vector.
-                # Flushed before `end_page` moves to this page, so the chunk
-                # being closed is cited on the page its text actually ends on
-                # -- not on the page where the next section starts.
+        paragraphs = [p.strip() for p in page.split("\n\n") if p.strip()]
+        if drop_exercises:
+            if page_is_exercise(paragraphs, exercise_page_ratio):
+                # An end-of-chapter exercise page. Flushed first so the section
+                # before it is not merged across the gap, then filtered hard
+                # rather than deleted -- the exercise shares this page with
+                # "What we have learnt", and that summary is worth keeping.
                 flush(carry_overlap=False)
-                heading = para
-                start_page = page_number
-                end_page = page_number
-                continue
+                paragraphs = keep_on_exercise_page(paragraphs)
+            else:
+                paragraphs = strip_apparatus(paragraphs)
+        for para in paragraphs:
+            if looks_like_heading(para):
+                # "" for a line that names no topic, so the breadcrumb falls
+                # back to "Class 6 > Science" instead of carrying "28620C" or
+                # an activity step into every vector in the section.
+                label = clean_heading(para) if drop_exercises else para
+                if not label and drop_exercises:
+                    # Rejected as a heading, but the words are still the book's.
+                    # On a narrow column reflow calls a lot of ordinary prose a
+                    # heading -- "The support at which the rod of a lever is" is
+                    # how p.96 defines the fulcrum -- and consuming it as a
+                    # heading that is then thrown away would delete it from the
+                    # corpus outright. So it falls through and is treated as
+                    # body text, which is also the first time that text reaches
+                    # the prompt as prose rather than as a citation label.
+                    pass
+                else:
+                    # A heading opens a new topic, so close the current chunk
+                    # rather than letting two sections blur into one vector.
+                    # Flushed before `end_page` moves to this page, so the chunk
+                    # being closed is cited on the page its text actually ends
+                    # on -- not where the next section starts.
+                    flush(carry_overlap=False)
+                    heading = label
+                    start_page = page_number
+                    end_page = page_number
+                    continue
 
             end_page = page_number
             if start_page is None:
@@ -137,10 +194,19 @@ def chunk_pages(
             buffer_len += len(para) + 2
 
     flush()
+
+    kept = [c for c in chunks if len(c.text.strip()) >= 40]
+    if drop_exercises:
+        # A chunk that only asks. An activity prompt -- "To which part of plants
+        # are butterflies and insects attracted ?" -- embeds beautifully against
+        # a student's question and answers none of it. Applied after merging, so
+        # a rhetorical question inside prose is safe: its chunk has plenty of
+        # statements around it.
+        kept = [c for c in kept if not is_question_only(c.text)]
     # Re-number: flush() appends in order but overlap carries can leave gaps.
-    for index, chunk in enumerate(chunks):
+    for index, chunk in enumerate(kept):
         chunk.ordinal = index
-    return [c for c in chunks if len(c.text.strip()) >= 40]
+    return kept
 
 
 def _split_long_paragraph(para: str, chunk_chars: int) -> List[str]:

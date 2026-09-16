@@ -163,6 +163,8 @@ class IngestionService:
             pages,
             chunk_chars=settings.rag_chunk_chars,
             overlap_chars=settings.rag_chunk_overlap_chars,
+            drop_exercises=settings.rag_filter_corpus,
+            exercise_page_ratio=settings.rag_exercise_page_ratio,
         )
         if not chunks:
             job.status = "error"
@@ -189,7 +191,12 @@ class IngestionService:
             for start in range(0, len(chunks), batch_size):
                 batch = chunks[start : start + batch_size]
                 vectors = await embed_documents(
-                    [c.embedding_text(job.grade, job.subject) for c in batch]
+                    [
+                        c.embedding_text(
+                            job.grade, job.subject, settings.rag_embed_breadcrumb
+                        )
+                        for c in batch
+                    ]
                 )
                 await asyncio.to_thread(
                     self.store.add_chunks,
@@ -212,7 +219,8 @@ class IngestionService:
             job.chunks_done, raw_page_count
         )
         logger.info(
-            "Ingested %s (class %s %s): %d pages -> %d chunks in %.1fs",
+            "Ingested %s (class %s %s): %d pages -> %d chunks in %.1fs%s",
             job.title, job.grade, job.subject, raw_page_count, job.chunks_done,
             time.time() - job.started_at,
+            "" if settings.rag_filter_corpus else " (corpus filtering OFF)",
         )
