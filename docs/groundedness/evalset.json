@@ -1,0 +1,817 @@
+{
+  "name": "class6-science-groundedness-v1",
+  "corpus": {
+    "document": "General Science (Class 6)",
+    "publisher": "Maharashtra State Bureau of Textbook Production and Curriculum Research",
+    "file": "data/PDF English/Class6_Sci_book.pdf",
+    "grade": 6,
+    "subject": "Science",
+    "pages": 132,
+    "page_note": "pdf_page is the page of the PDF file. The page printed on the sheet is ten lower.",
+    "quotes_taken_from": "app/services/rag/pdf_text.py extraction, as stored in apps/backend/data/library.db -- so a quote here is byte-for-byte what retrieval can return, not what a human reads off the page."
+  },
+  "profile": {
+    "level": "Class 6",
+    "subject": "Science",
+    "language": "English",
+    "style": "socratic"
+  },
+  "items": [
+    {
+      "id": "A1-shadow",
+      "set": "A",
+      "query": "What is a shadow?",
+      "previous_question": null,
+      "chapter": "Light",
+      "gold_evidence": [
+        {
+          "pdf_page": 111,
+          "quote": "If an opaque object comes in the way of a light source, light does not pass through it. As a result, the light does not reach a wall or any other surface on the other side of the object. That part remains dark. This dark part is called the 'shadow of the object'."
+        },
+        {
+          "pdf_page": 111,
+          "quote": "The kind of shadow it forms depends upon the relative distances between the source of light, the object and the surface or the screen on which the shadow is formed."
+        },
+        {
+          "pdf_page": 111,
+          "quote": "The shadow of an object formed due to sunlight is long in the mornings and evenings and short in the afternoon."
+        }
+      ],
+      "reference_answer": "A shadow is the dark part that appears when light cannot pass through an object. When an opaque object comes in the way of a light source, the light does not reach the wall or any other surface on the other side of it, and that part remains dark. This dark part is called the shadow of the object. The kind of shadow that forms depends on the relative distances between the source of light, the object, and the surface on which the shadow falls. A shadow made by sunlight is long in the mornings and evenings and short in the afternoon. Watch the trees along the roadside at different times of day and see how their shadows change.",
+      "required_facts": [
+        {
+          "fact": "a shadow is a dark part or dark area",
+          "any_of": [
+            "dark part",
+            "dark area",
+            "dark region",
+            "dark patch",
+            "dark shape",
+            "dark"
+          ]
+        },
+        {
+          "fact": "it is caused by light being blocked by an object light cannot pass through",
+          "any_of": [
+            "opaque",
+            "does not pass through",
+            "do not pass through",
+            "cannot pass through",
+            "can't pass through",
+            "blocks the light",
+            "block the light",
+            "blocking the light",
+            "blocked",
+            "obstruct",
+            "stops the light",
+            "stop the light"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "transparent object.{0,40}(cast|form|make)s? a shadow",
+          "why": "the book requires the object to stop light"
+        },
+        {
+          "pattern": "shadows? (are|is) (longest|longer).{0,25}(noon|afternoon)",
+          "why": "p.111 says short in the afternoon"
+        }
+      ]
+    },
+    {
+      "id": "A2-friction",
+      "set": "A",
+      "query": "What is frictional force?",
+      "previous_question": null,
+      "chapter": "Force and Types of Force",
+      "gold_evidence": [
+        {
+          "pdf_page": 83,
+          "quote": "When two surfaces rub against each other, the force of friction comes into play. It always acts against the direction of motion."
+        },
+        {
+          "pdf_page": 83,
+          "quote": "The smooth surfaces can be easily rubbed against each other because the force of friction between them is less, while rough surfaces cannot be easily rubbed against each other because the force of friction between them is much greater."
+        },
+        {
+          "pdf_page": 83,
+          "quote": "It is possible for us to walk on the ground only because of the force of friction. If there is no friction, we would slip and fall."
+        }
+      ],
+      "reference_answer": "Frictional force is the force that comes into play whenever two surfaces rub against each other. It always acts against the direction of motion, which is why a carrom piece that is flicked lightly slides across the board and then stops, and a ball rolling over flat ground stops after a certain distance. Smooth surfaces can be rubbed against each other easily because the force of friction between them is less, while rough surfaces cannot, because the friction between them is much greater. It is only because of friction that we can walk on the ground at all; without it we would slip and fall, which is what nearly happens on a wet or oily floor. Think about which parts of your bicycle rub together when you apply the brake.",
+      "required_facts": [
+        {
+          "fact": "friction arises when two surfaces rub against each other",
+          "any_of": [
+            "rub against",
+            "rubbing against",
+            "two surfaces",
+            "surfaces rub",
+            "surfaces that rub",
+            "contact",
+            "sliding against",
+            "slide against",
+            "slides against"
+          ]
+        },
+        {
+          "fact": "it acts against the direction of motion",
+          "any_of": [
+            "against the direction of motion",
+            "opposes",
+            "oppose",
+            "opposing",
+            "opposite to the direction of motion",
+            "resists the motion",
+            "resists motion",
+            "acts against",
+            "act against"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "friction (acts|act)s? (in|along) the same direction as",
+          "why": "p.83: it always acts against the direction of motion"
+        },
+        {
+          "pattern": "smooth surfaces.{0,30}(more|greater|higher) friction",
+          "why": "p.83 says smooth surfaces have less friction"
+        }
+      ]
+    },
+    {
+      "id": "A3-gravity",
+      "set": "A",
+      "query": "What is gravitational force?",
+      "previous_question": null,
+      "chapter": "Force and Types of Force",
+      "gold_evidence": [
+        {
+          "pdf_page": 81,
+          "quote": "If an object is thrown upward by applying force, it reaches a certain height and comes down again. Why is this so? Why do fruits on trees fall to the ground ? The earth pulls all the objects towards itself."
+        },
+        {
+          "pdf_page": 81,
+          "quote": "The earth's gravitational force acts in a direction opposite to that of an object moving upwards. Hence, the speed of that object goes on decreasing till in the end it becomes zero. Then the object starts falling down instead of going up any further. While falling, its speed goes on increasing all the time due to gravitational force."
+        },
+        {
+          "pdf_page": 81,
+          "quote": "Sir Isaac Newton discovered gravitation in the 17th century."
+        }
+      ],
+      "reference_answer": "Gravitational force is the pull with which the earth draws all objects towards itself. That is why fruits on trees fall to the ground, and why an object thrown upward reaches a certain height and comes down again. The earth's gravitational force acts in a direction opposite to that of an object moving upwards, so the speed of that object goes on decreasing until it becomes zero, and then the object starts falling instead of rising any further. While it falls, its speed goes on increasing all the time because of gravitational force. Sir Isaac Newton discovered gravitation in the 17th century. Next time you throw a ball straight up, watch how it slows down just before it turns around.",
+      "required_facts": [
+        {
+          "fact": "the earth pulls objects towards itself",
+          "any_of": [
+            "pulls all the objects towards itself",
+            "pulls objects towards itself",
+            "pulls objects toward itself",
+            "pull objects towards",
+            "towards itself",
+            "towards the earth",
+            "toward the earth",
+            "towards the centre of the earth",
+            "earth pulls",
+            "earth's pull",
+            "gravitational pull",
+            "pulls objects",
+            "attracts objects",
+            "attracts all objects"
+          ]
+        },
+        {
+          "fact": "objects fall / come back down because of it",
+          "any_of": [
+            "fall to the ground",
+            "falls to the ground",
+            "fall towards the ground",
+            "fall toward the ground",
+            "comes down",
+            "come down",
+            "falling",
+            "falls back",
+            "fall down",
+            "fall back",
+            "objects fall",
+            "them to fall"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "gravitational force (pushes|repels)",
+          "why": "p.81 describes a pull towards the earth"
+        },
+        {
+          "pattern": "(speed|velocity).{0,25}(increases|goes on increasing).{0,25}(moving up|going up|upward)",
+          "why": "p.81: the speed decreases on the way up"
+        }
+      ]
+    },
+    {
+      "id": "A4-sublimation",
+      "set": "A",
+      "query": "What is sublimation?",
+      "previous_question": null,
+      "chapter": "Substances in the Surroundings",
+      "gold_evidence": [
+        {
+          "pdf_page": 46,
+          "quote": "The change of a solid substance directly into a gas or vapour without first changing into a liquid is called sublimation."
+        },
+        {
+          "pdf_page": 46,
+          "quote": "Iodine crystals do not melt on heating but change directly to the gaseous state. When the fumes of iodine hit the walls of the funnel they cool to form solid crystals of iodine and stick to the funnel walls."
+        },
+        {
+          "pdf_page": 46,
+          "quote": "On opening a box of camphor, its smell spreads all around."
+        }
+      ],
+      "reference_answer": "Sublimation is the change of a solid substance directly into a gas or vapour without first changing into a liquid. Iodine is the book's example: iodine crystals do not melt on heating, they change directly to the gaseous state. When the fumes of iodine hit the walls of the funnel they cool, form solid crystals of iodine again, and stick to the funnel walls. Camphor behaves in the same way, which is why the smell spreads all around as soon as you open a box of it. So a substance that sublimates never passes through a liquid stage at all. Can you work out why the iodine crystals form on the cool glass rather than in the middle of the funnel?",
+      "required_facts": [
+        {
+          "fact": "a solid changes directly into a gas or vapour",
+          "any_of": [
+            "directly into a gas",
+            "directly to a gas",
+            "directly into gas",
+            "directly to the gaseous state",
+            "directly into the gaseous state",
+            "directly changes to",
+            "directly change to",
+            "straight to the gaseous",
+            "solid to gas",
+            "solid into a gas"
+          ]
+        },
+        {
+          "fact": "without first becoming a liquid",
+          "any_of": [
+            "without first changing into a liquid",
+            "without becoming a liquid",
+            "without turning into a liquid",
+            "without passing through the liquid",
+            "without changing into a liquid",
+            "does not melt",
+            "do not melt",
+            "skipping the liquid",
+            "no liquid stage",
+            "without a liquid"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "(first|then) (change|turn|melt)s? into a liquid",
+          "why": "the definition on p.46 excludes a liquid stage"
+        },
+        {
+          "pattern": "iodine (melts|crystals melt)",
+          "why": "p.46: iodine crystals do not melt on heating"
+        }
+      ]
+    },
+    {
+      "id": "A5-lever",
+      "set": "A",
+      "query": "What is a lever?",
+      "previous_question": null,
+      "chapter": "Simple Machines",
+      "gold_evidence": [
+        {
+          "pdf_page": 96,
+          "quote": "A farmer is using a strong crow-bar to remove the big stone bogged down in the farm. Such a machine is called a lever . A lever has three parts, namely, effort, load and fulcrum."
+        },
+        {
+          "pdf_page": 96,
+          "quote": "The support at which the rod of a lever is rested is called the 'fulcrum of a lever'. The lever rotates about the fulcrum."
+        }
+      ],
+      "reference_answer": "A lever is a simple machine, like the strong crow-bar a farmer uses to remove a big stone that is bogged down in a farm. A lever has three parts, namely effort, load and fulcrum. The support on which the rod of the lever rests is called the fulcrum, and the lever rotates about that fulcrum. Because it turns about the fulcrum, a lever lets you shift a heavy stone that you could never lift with your hands alone. A crow-bar, a spade being levered against the ground, even a see-saw in the playground all work this way. Next time you use a see-saw, see if you can point to the effort, the load and the fulcrum.",
+      "required_facts": [
+        {
+          "fact": "a lever is a (simple) machine",
+          "any_of": [
+            "simple machine",
+            "machine",
+            "crow-bar",
+            "crowbar",
+            "rigid bar",
+            "rigid rod"
+          ]
+        },
+        {
+          "fact": "its parts are effort, load and fulcrum",
+          "any_of": [
+            "effort, load and fulcrum",
+            "effort, load, and fulcrum",
+            "fulcrum"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "a lever has (two|four|five) parts",
+          "why": "p.96: a lever has three parts"
+        }
+      ]
+    },
+    {
+      "id": "A6-sound",
+      "set": "A",
+      "query": "How is sound produced?",
+      "previous_question": null,
+      "chapter": "Sound",
+      "gold_evidence": [
+        {
+          "pdf_page": 102,
+          "quote": "The vibration of an object is necessary for the production of sound. As long as the object vibrates, the sound is heard. When the vibration stops, the sound also stops. The object due to which sound is produced is called the source of that sound."
+        }
+      ],
+      "reference_answer": "Sound is produced by vibration: the vibration of an object is necessary for the production of sound. As long as the object goes on vibrating, the sound is heard, and the moment the vibration stops, the sound stops too. The object due to which the sound is produced is called the source of that sound. A stretched rubber band shows this clearly, because you can see it shaking while you hear the note it makes. Your own voice works the same way, from something vibrating inside your throat. Pluck a stretched rubber band, then press it with a finger, and listen to what happens to the sound.",
+      "required_facts": [
+        {
+          "fact": "sound is produced by vibration",
+          "any_of": [
+            "vibrat"
+          ]
+        },
+        {
+          "fact": "when the vibration stops the sound stops",
+          "any_of": [
+            "vibration stops",
+            "stops vibrating",
+            "stop vibrating",
+            "as long as",
+            "while it vibrates",
+            "when it stops",
+            "ceases",
+            "continues to vibrate"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "sound (does not|doesn't) (need|require) vibration",
+          "why": "p.102: vibration is necessary"
+        },
+        {
+          "pattern": "sound (can )?travels? (in|through) (a )?vacuum",
+          "why": "not stated anywhere in this book"
+        }
+      ]
+    },
+    {
+      "id": "A7-magnet-poles",
+      "set": "A",
+      "query": "What are the poles of a magnet?",
+      "previous_question": null,
+      "chapter": "Fun with Magnets",
+      "gold_evidence": [
+        {
+          "pdf_page": 117,
+          "quote": "The end of a magnet that points to the north is called the north pole while the end that points to the south is called the south pole. The north pole is indicated by 'N' and the south pole, by 'S'."
+        }
+      ],
+      "reference_answer": "A magnet has two poles, a north pole and a south pole. The end of a magnet that points to the north is called the north pole, while the end that points to the south is called the south pole. The north pole is indicated by the letter N and the south pole by the letter S. You can see this for yourself by hanging a bar magnet so that it swings freely and waiting for it to settle. Whichever way you turn it before letting go, it comes to rest pointing the same way. Why do you think the magnet always chooses that one direction?",
+      "required_facts": [
+        {
+          "fact": "the north pole is the end that points north",
+          "any_of": [
+            "points to the north",
+            "points north",
+            "pointing north",
+            "point to the north",
+            "points towards the north",
+            "points toward the north"
+          ]
+        },
+        {
+          "fact": "the south pole is the end that points south",
+          "any_of": [
+            "points to the south",
+            "points south",
+            "pointing south",
+            "point to the south",
+            "points towards the south",
+            "points toward the south"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "a magnet has (one|three|four|five) poles",
+          "why": "p.117 names exactly two"
+        }
+      ]
+    },
+    {
+      "id": "A8-balanced-diet",
+      "set": "A",
+      "query": "What is a balanced diet?",
+      "previous_question": null,
+      "chapter": "Nutrition and Diet",
+      "gold_evidence": [
+        {
+          "pdf_page": 63,
+          "quote": "All that we consume during the day is together called our 'diet'. A diet containing adequate quantities of all nutrients is called a Balanced Diet."
+        },
+        {
+          "pdf_page": 63,
+          "quote": "To build a strong and healthy body, you need all nutrients in the right proportion and in sufficient quantities in your daily diet. Significance of a balanced diet : l An increased capacity to work. l Good physical and mental health. l Increased capacity to fight / resist diseases. l Helps in proper growth of the body."
+        },
+        {
+          "pdf_page": 63,
+          "quote": "Apart from having a balanced diet, we also need to exercise regularly to keep ourselves fit and healthy."
+        }
+      ],
+      "reference_answer": "All that we consume during the day is together called our diet, and a diet containing adequate quantities of all nutrients is called a balanced diet. To build a strong and healthy body you need all the nutrients in the right proportion and in sufficient quantities in your daily food. A balanced diet gives you an increased capacity to work, good physical and mental health, and an increased capacity to fight or resist diseases. It also helps the body to grow properly. Apart from eating a balanced diet, we also need to exercise regularly to keep ourselves fit and healthy. Look back at what you ate today and see which nutrients were missing from it.",
+      "required_facts": [
+        {
+          "fact": "it contains all the nutrients in adequate quantity",
+          "any_of": [
+            "all nutrients",
+            "all the nutrients",
+            "adequate quantities",
+            "adequate amounts",
+            "right proportion",
+            "right quantities",
+            "right quantity",
+            "sufficient quantities",
+            "correct proportion"
+          ]
+        },
+        {
+          "fact": "why it matters -- work, health, resisting disease or growth",
+          "any_of": [
+            "capacity to work",
+            "physical and mental health",
+            "fight",
+            "resist diseases",
+            "resist disease",
+            "proper growth",
+            "growth of the body",
+            "grow"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "junk food.{0,35}(part of|is) a balanced diet",
+          "why": "p.67: junk food gives energy but not other nutrients"
+        }
+      ]
+    },
+    {
+      "id": "A9-joints",
+      "set": "A",
+      "query": "What are the types of joints in our body?",
+      "previous_question": null,
+      "chapter": "The Skeletal System",
+      "gold_evidence": [
+        {
+          "pdf_page": 71,
+          "quote": "Joints : Joints are the places where two or more than two bones are connected to each other. Joints are of two types."
+        },
+        {
+          "pdf_page": 71,
+          "quote": "Movable Joint Bones can move. Examples : bones of arms and legs"
+        },
+        {
+          "pdf_page": 71,
+          "quote": "Immovable Joint Bones cannot move. Example : bones of the skull. (Other than the lower jaw)"
+        },
+        {
+          "pdf_page": 71,
+          "quote": "Hinge joint : This type of joint allows the movements of bones only in one direction. It moves in a 180 0 angle. Examples : the elbow and knee joints."
+        }
+      ],
+      "reference_answer": "Joints are the places where two or more than two bones are connected to each other. Joints are of two types: movable joints and immovable joints. At a movable joint the bones can move, as they do in the bones of your arms and legs. At an immovable joint the bones cannot move, which is the case with the bones of the skull, apart from the lower jaw. Among the movable ones, a hinge joint allows the bones to move in only one direction, through an angle of 180 degrees, and the elbow and knee are the examples of it. Bend your elbow and then press the top of your head, and notice the difference between the two kinds.",
+      "required_facts": [
+        {
+          "fact": "a joint is where two or more bones are connected",
+          "any_of": [
+            "two or more",
+            "bones are connected",
+            "bones connect",
+            "bones meet",
+            "connects two bones",
+            "connect two bones",
+            "where bones",
+            "between bones",
+            "join bones",
+            "bones are joined"
+          ]
+        },
+        {
+          "fact": "there are two types -- movable and immovable",
+          "any_of": [
+            "two types",
+            "movable",
+            "immovable"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "joints are of (three|four|five|six) types",
+          "why": "p.71: joints are of two types"
+        }
+      ],
+      "note": "The evidence for this item is split across four chunks, three of them figure-caption fragments of under 80 characters. It is in the set precisely because a two-passage budget cannot carry all of it."
+    },
+    {
+      "id": "A10-inner-planets",
+      "set": "A",
+      "query": "Which are the inner planets?",
+      "previous_question": null,
+      "chapter": "The Universe",
+      "gold_evidence": [
+        {
+          "pdf_page": 124,
+          "quote": "The solar system consists of the sun, the planets, asteroids, comets and meteors. The planets Mercury, Venus, Mars, Jupiter and Saturn can be easily seen. The Mercury, Venus, Earth and Mars are the inner planets whereas the"
+        },
+        {
+          "pdf_page": 124,
+          "quote": "Jupiter, Saturn, Uranus and Neptune are outer planets. Outer planets have rings around them. The crust of all the inner planets is hard. The outer planets have gaseous outer cover."
+        }
+      ],
+      "reference_answer": "Mercury, Venus, Earth and Mars are the inner planets of the solar system. Jupiter, Saturn, Uranus and Neptune are the outer planets, and those outer planets have rings around them. The crust of all the inner planets is hard, whereas the outer planets have a gaseous outer cover. So the earth you are standing on is itself one of the four inner planets, which is why it has solid ground under your feet. The solar system also contains the sun, asteroids, comets and meteors besides the planets. Try spotting Venus or Mars just after sunset, and see whether it twinkles the way a star does.",
+      "required_facts": [
+        {
+          "fact": "the inner planets are Mercury, Venus, Earth and Mars",
+          "all_of": [
+            "mercury",
+            "venus",
+            "earth",
+            "mars"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "inner planets?[^.]{0,20}(are|include|is)[^.]{0,40}(jupiter|saturn|uranus|neptune)",
+          "why": "p.124 lists those four as the outer planets"
+        },
+        {
+          "pattern": "(jupiter|saturn|uranus|neptune)[^.]{0,40}(is|are) (an |the )?inner planet",
+          "why": "p.124 lists those four as the outer planets"
+        }
+      ]
+    },
+    {
+      "id": "B1-reduce-friction",
+      "set": "B",
+      "query": "How can we reduce it?",
+      "previous_question": "What is frictional force?",
+      "chapter": "Force and Types of Force / Simple Machines",
+      "gold_evidence": [
+        {
+          "pdf_page": 99,
+          "quote": "Oil or lubricant is released betweem parts that rub against each other, so that there is less friction between them and the wearing is reduced."
+        },
+        {
+          "pdf_page": 83,
+          "quote": "The smooth surfaces can be easily rubbed against each other because the force of friction between them is less, while rough surfaces cannot be easily rubbed against each other because the force of friction between them is much greater."
+        },
+        {
+          "pdf_page": 99,
+          "quote": "Parts of machines rub against one another when they are used. Soiled, dusty parts create more friction."
+        },
+        {
+          "pdf_page": 84,
+          "quote": "In short, the force of friction can either be decreased or increased as desired."
+        }
+      ],
+      "reference_answer": "Friction can be reduced by making the rubbing surfaces smoother and by keeping something slippery between them. Smooth surfaces can be rubbed against each other easily because the force of friction between them is less, while rough surfaces cannot, because their friction is much greater. In a machine, oil or lubricant is released between the parts that rub against each other, so that there is less friction between them and the wearing is reduced. Keeping the parts wiped clean helps as well, because soiled, dusty parts create more friction. In short, the force of friction can be decreased or increased as we want. Where on your own bicycle would you put the oil, and why exactly there?",
+      "required_facts": [
+        {
+          "fact": "oil or a lubricant between rubbing parts",
+          "any_of": [
+            "oil",
+            "lubricant",
+            "grease",
+            "lubricate"
+          ]
+        },
+        {
+          "fact": "smoother surfaces have less friction",
+          "any_of": [
+            "smooth",
+            "polish",
+            "even surface"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "oil.{0,30}increases? (the )?friction",
+          "why": "p.99: the lubricant is what makes friction less"
+        }
+      ],
+      "note": "A pronoun follow-up: 'it' names nothing, so this turn tests whether rag/followup.py carried the topic question into the search. Groundedness here is only meaningful against the excerpts this turn actually read."
+    },
+    {
+      "id": "B2-magnets-together",
+      "set": "B",
+      "query": "What happens when we bring two of them together?",
+      "previous_question": "What are the poles of a magnet?",
+      "chapter": "Fun with Magnets",
+      "gold_evidence": [
+        {
+          "pdf_page": 118,
+          "quote": "There is repulsion between like poles of a magnet, while there is attraction between the opposite poles."
+        },
+        {
+          "pdf_page": 118,
+          "quote": "Fix a bar magnet to a stand as shown in the figure. Let it become steady. Take another bar magnet near the hanging bar magnet. Observe what happens. Do the same again and again, exchanging the ends of the magnet."
+        }
+      ],
+      "reference_answer": "What happens depends on which ends of the two magnets you bring together. There is repulsion between like poles of a magnet, so a north pole pushes another north pole away and a south pole pushes away another south pole. There is attraction between the opposite poles, so a north pole and a south pole pull towards each other. You can watch this by fixing one bar magnet to a stand, letting it become steady, and then bringing a second bar magnet near it. Do it again and again, exchanging the ends of the magnet each time, and the pushing and pulling swap over. Before you try it, can you predict which way the hanging magnet will swing?",
+      "required_facts": [
+        {
+          "fact": "like poles repel",
+          "any_of": [
+            "like poles repel",
+            "repulsion between like poles",
+            "same poles repel",
+            "similar poles repel",
+            "like poles push",
+            "same poles push",
+            "identical poles repel",
+            "two north poles repel",
+            "poles repel"
+          ]
+        },
+        {
+          "fact": "opposite poles attract",
+          "any_of": [
+            "opposite poles attract",
+            "attraction between the opposite poles",
+            "unlike poles attract",
+            "different poles attract",
+            "opposite poles pull",
+            "north and south pole attract",
+            "north pole and a south pole attract",
+            "opposite poles are attracted"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "like poles attract",
+          "why": "p.118: like poles repel"
+        },
+        {
+          "pattern": "same poles attract",
+          "why": "p.118: like poles repel"
+        },
+        {
+          "pattern": "similar poles attract",
+          "why": "p.118: like poles repel"
+        },
+        {
+          "pattern": "opposite poles repel",
+          "why": "p.118: opposite poles attract"
+        },
+        {
+          "pattern": "unlike poles repel",
+          "why": "p.118: opposite poles attract"
+        },
+        {
+          "pattern": "opposite charges.{0,40}repel",
+          "why": "p.118: opposite poles attract"
+        },
+        {
+          "pattern": "opposite.{0,25}poles.{0,40}repel",
+          "why": "p.118: opposite poles attract"
+        },
+        {
+          "pattern": "like charges.{0,40}attract",
+          "why": "p.118: like poles repel"
+        }
+      ],
+      "note": "The polarity trap. Word-overlap scoring cannot tell 'like poles repel' from 'like poles attract' -- both are built from the same words as the passage. This item is what separates a real groundedness judge from an overlap score."
+    },
+    {
+      "id": "C1-off-syllabus",
+      "set": "C",
+      "query": "Who won the 2022 football world cup?",
+      "previous_question": null,
+      "chapter": null,
+      "gold_evidence": [],
+      "reference_answer": null,
+      "must_abstain": true,
+      "required_facts": [],
+      "forbidden_claims": [],
+      "note": "Nothing in a Class 6 science textbook answers this. A correct workflow retrieves no passage and cites no page; the model may answer from its own knowledge, but the turn must not be dressed up as coming from the book. Scored on citations, not on text."
+    }
+  ],
+  "judge_calibration": {
+    "purpose": "Statements whose verdict is already known, run against the same judge before any tutor answer is scored. They measure the judge itself: a reference claim marked UNSUPPORTED is the judge being strict, a trap marked SUPPORTED is the judge being fooled. Both rates are printed with the results, because a groundedness number is only worth what its judge is worth.",
+    "cases": [
+      {
+        "id": "cal-01",
+        "evidence_from": "A1-shadow",
+        "statement": "A shadow is the dark part formed where an opaque object stops light from reaching a surface.",
+        "expect": "supported",
+        "kind": "paraphrase"
+      },
+      {
+        "id": "cal-02",
+        "evidence_from": "A2-friction",
+        "statement": "Friction acts in the same direction as the motion of the object.",
+        "expect": "contradicted",
+        "kind": "polarity"
+      },
+      {
+        "id": "cal-03",
+        "evidence_from": "A4-sublimation",
+        "statement": "During sublimation the solid first melts into a liquid and then becomes a gas.",
+        "expect": "contradicted",
+        "kind": "polarity"
+      },
+      {
+        "id": "cal-04",
+        "evidence_from": "A4-sublimation",
+        "statement": "Iodine crystals change directly to the gaseous state when heated.",
+        "expect": "supported",
+        "kind": "restatement"
+      },
+      {
+        "id": "cal-05",
+        "evidence_from": "A5-lever",
+        "statement": "A lever has three parts: effort, load and fulcrum.",
+        "expect": "supported",
+        "kind": "restatement"
+      },
+      {
+        "id": "cal-06",
+        "evidence_from": "A5-lever",
+        "statement": "A lever is an example of a second-class machine with the load between the effort and the fulcrum.",
+        "expect": "unsupported",
+        "kind": "plausible-but-absent"
+      },
+      {
+        "id": "cal-07",
+        "evidence_from": "A6-sound",
+        "statement": "Sound is heard for as long as the object goes on vibrating.",
+        "expect": "supported",
+        "kind": "restatement"
+      },
+      {
+        "id": "cal-08",
+        "evidence_from": "A6-sound",
+        "statement": "Sound travels through air at about 330 metres per second.",
+        "expect": "unsupported",
+        "kind": "plausible-but-absent"
+      },
+      {
+        "id": "cal-09",
+        "evidence_from": "A7-magnet-poles",
+        "statement": "The end of a magnet that points north is called the south pole.",
+        "expect": "contradicted",
+        "kind": "polarity"
+      },
+      {
+        "id": "cal-10",
+        "evidence_from": "B2-magnets-together",
+        "statement": "Like poles of two magnets attract each other.",
+        "expect": "contradicted",
+        "kind": "polarity"
+      },
+      {
+        "id": "cal-11",
+        "evidence_from": "B2-magnets-together",
+        "statement": "A north pole and a south pole pull towards each other.",
+        "expect": "supported",
+        "kind": "paraphrase"
+      },
+      {
+        "id": "cal-12",
+        "evidence_from": "A10-inner-planets",
+        "statement": "Jupiter and Saturn are inner planets.",
+        "expect": "contradicted",
+        "kind": "polarity"
+      },
+      {
+        "id": "cal-13",
+        "evidence_from": "A10-inner-planets",
+        "statement": "Mars is roughly half the diameter of the Earth.",
+        "expect": "unsupported",
+        "kind": "plausible-but-absent"
+      },
+      {
+        "id": "cal-14",
+        "evidence_from": "A9-joints",
+        "statement": "The elbow is a hinge joint.",
+        "expect": "supported",
+        "kind": "restatement"
+      }
+    ]
+  }
+}

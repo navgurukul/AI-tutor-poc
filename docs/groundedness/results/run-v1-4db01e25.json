@@ -1,0 +1,522 @@
+{
+  "meta": {
+    "run_id": "4db01e25",
+    "ts": "2026-09-16T06:25:36+00:00",
+    "label": "v1",
+    "base": "http://127.0.0.1:8756",
+    "model": "qwen2.5:1.5b",
+    "budget": null,
+    "evalset": "/Users/mayur/Projects/AI Labs/AI-tutor-poc/docs/groundedness/evalset.json",
+    "judge": "gemma3:4b (local, via Ollama)"
+  },
+  "turns": [
+    {
+      "reply": "A shadow is the dark area on the ground where light is blocked by an object, like when you stand in front of a light source. It's formed when light can't reach the other side of the object due to its presence.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "5.  Go toward the left and then to the right",
+          "page_start": 111,
+          "page_end": 111,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2171
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "(d) Moon  (4) Luminous",
+          "page_start": 114,
+          "page_end": 114,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.239
+        }
+      ],
+      "context": "[1] General Science (Class 6) - 5.  Go toward the left and then to the right - p. 111\n… The shadow of an object formed due to sunlight is long in the mornings and evenings and short in the afternoon. We can easily note these changes if we observe the trees along the roadside. This change in the shadow depends on the source of light, the object and also on the surface on which the shadow is formed. If an opaque object comes in the way of a light source, light does not pass through it. As a result, the light does not reach a wall or any other surface on the other side of the object. That part remains dark. This dark part is called the 'shadow of the object'. Try this.",
+      "usage": {
+        "prompt_tokens": 294,
+        "completion_tokens": 48,
+        "total_duration_ms": 3036,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 1052,
+        "eval_ms": 1969,
+        "tokens_per_second": 24.37
+      },
+      "session_id": "634b02689a7a4bd39fb9cc876eafb609",
+      "turn_id": "7defc2d62b23",
+      "previous_turn": null,
+      "id": "A1-shadow"
+    },
+    {
+      "reply": "Frictional force is the force that resists the relative motion of objects sliding against each other. It arises due to the interaction between surfaces in contact. The force is less when surfaces are smooth, making them easier to move against each other, and greater when surfaces are rough, making them harder to move. This force is crucial for various everyday activities, such as walking on a smooth floor, where we can easily move forward, or slipping on a rough floor, where we might fall. Without friction, we would not be able to move at all.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "5. Frictional force",
+          "page_start": 83,
+          "page_end": 84,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1912
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "5. Frictional force",
+          "page_start": 84,
+          "page_end": 84,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2011
+        }
+      ],
+      "context": "[1] General Science (Class 6) - 5. Frictional force - pp. 83-84\nStatic electricity is produced on materials like rubber, plastic and ebonite due to friction. The force exerted by such electrically charged materials is called electrostatic force . The smooth surfaces can be easily rubbed against each other because the force of friction between them is less, while rough surfaces cannot be easily rubbed against each other because the force of friction between them is much greater. It is possible for us to walk on the ground only because of the force of friction. If there is no friction, we would slip and fall. …",
+      "usage": {
+        "prompt_tokens": 270,
+        "completion_tokens": 112,
+        "total_duration_ms": 4588,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 40,
+        "eval_ms": 4515,
+        "tokens_per_second": 24.8
+      },
+      "session_id": "74aebf30a0864a31998152353acb90be",
+      "turn_id": "7023c07821c8",
+      "previous_turn": null,
+      "id": "A2-friction"
+    },
+    {
+      "reply": "Gravitational force is the force that attracts all objects towards each other, including Earth and other planets. It's caused by the mass of objects, with more massive objects having a stronger pull. This force is responsible for the Earth's gravitational pull on objects, causing them to fall towards the ground.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "3. Gravitational force",
+          "page_start": 81,
+          "page_end": 81,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2382
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "4. Magnetic force",
+          "page_start": 82,
+          "page_end": 82,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2445
+        }
+      ],
+      "context": "[1] General Science (Class 6) - 3. Gravitational force - p. 81\n… Why is this so? Why do fruits on trees fall to the ground ? The earth pulls all the objects towards itself. In the past ... Sir Isaac Newton discovered gravitation in the 17th century. The earth's gravitational force acts in a direction opposite to that of an object moving upwards. Hence, the speed of that object goes on decreasing till in the end it becomes zero. Then the object starts falling down instead of going up any further. While falling, its speed goes on increasing all the time due to gravitational force.",
+      "usage": {
+        "prompt_tokens": 268,
+        "completion_tokens": 61,
+        "total_duration_ms": 2390,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 38,
+        "eval_ms": 2307,
+        "tokens_per_second": 26.43
+      },
+      "session_id": "3a5304181d3948f68c548d1a1c1db869",
+      "turn_id": "31425738d66d",
+      "previous_turn": null,
+      "id": "A3-gravity"
+    },
+    {
+      "reply": "Sublimation is the process where a substance changes directly from a solid to a gas without passing through the liquid state. It's like ice turning into steam instantly. Everyday examples include dry ice (solid carbon dioxide) and some types of salt.\n\nWhen you take some sand in a crucible and add a few iodine crystals, the iodine sublimates directly into vapor. This happens because the iodine crystals are heated, causing them to evaporate into the air without first becoming liquid. This process can be observed by seeing the iodine vapor rising from the sand.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "4. What is sublimation  ? Write the",
+          "page_start": 51,
+          "page_end": 51,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2665
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "5.6 : Sublimation",
+          "page_start": 46,
+          "page_end": 46,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2884
+        }
+      ],
+      "context": "[1] General Science (Class 6) - 4. What is sublimation  ? Write the - p. 51\nnames of everyday substances that sublimate.\n\n[2] General Science (Class 6) - 5.6 : Sublimation - p. 46\nTake some sand in a crucible. Put a few iodine crystals on it.\n\nPlace the crucible on a tripod to heat it. Block the stem of the",
+      "usage": {
+        "prompt_tokens": 234,
+        "completion_tokens": 116,
+        "total_duration_ms": 4648,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 40,
+        "eval_ms": 4581,
+        "tokens_per_second": 25.32
+      },
+      "session_id": "6ce217bd655147e4b0178cd1c669c84a",
+      "turn_id": "eb65db377dfb",
+      "previous_turn": null,
+      "id": "A4-sublimation"
+    },
+    {
+      "reply": "A lever is a simple machine that uses a rigid bar to lift or move a load. It consists of a fulcrum, where the bar pivots, and two arms: the effort arm from the fulcrum to the effort point, and the load arm from the fulcrum to the load point. The effort arm is shorter than the load arm, allowing the effort to be applied closer to the fulcrum, making it easier to lift the load.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "3. The force applied on the other end of the rod to lift the load is called the",
+          "page_start": 96,
+          "page_end": 96,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2532
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "1. The support at which the rod of a lever is",
+          "page_start": 96,
+          "page_end": 96,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2547
+        }
+      ],
+      "context": "[1] General Science (Class 6) - 3. The force applied on the other end of the rod to lift the load is called the - p. 96\n'effort'. The part of the lever from the fulcrum to the effort is called the 'effort arm'.\n\nUse your brain power !\n\nWhich tasks can be done using\n\na lever ?\n\nUse your brain power !\n\nedge of a knife becomes blunt, then the needle does not penetrate the cloth and the knife does not cut into the fruit. Why is this so ?\n\n[2] General Science (Class 6) - 1. The support at which the rod of a lever is - p. 96\nrested is called the 'fulcrum of a lever'. The\n\nlever rotates about the fulcrum.",
+      "usage": {
+        "prompt_tokens": 302,
+        "completion_tokens": 95,
+        "total_duration_ms": 3891,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 39,
+        "eval_ms": 3809,
+        "tokens_per_second": 24.94
+      },
+      "session_id": "a763173619ce47d2ad3abb4b3e1a9d3b",
+      "turn_id": "be6ee88f9a83",
+      "previous_turn": null,
+      "id": "A5-lever"
+    },
+    {
+      "reply": "Sound is produced when an object vibrates, causing the surrounding air to vibrate as well. This vibration creates waves that travel through the air, which we perceive as sound. The intensity of the sound is measured in decibels, and the quality of the sound depends on the tension of the vocal cords in the larynx.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "13.2 : Speakers",
+          "page_start": 101,
+          "page_end": 101,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.208
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "3. Spread some sawdust   or mustard seeds or",
+          "page_start": 102,
+          "page_end": 102,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2108
+        }
+      ],
+      "context": "[1] General Science (Class 6) - 13.2 : Speakers - p. 101\nHow are sounds produced ?\n\nCan you tell ?\n\nTry this.\n\n[2] General Science (Class 6) - 3. Spread some sawdust   or mustard seeds or - p. 102\n… Use your brain power ! When a metal dish falls on the floor, it makes a loud noise. What do we do to stop the noise ? What is the effect of that action ? Acoustics : The science of sound, resonance, including the production, propagation and effects of sound is called acoustics. The intensity of sound is measured in a unit called decibel (dB). The vibration of the vocal cords in our larynx or 'voice box' also produces sound. The voice box is located in our throat. The quality of the sound produced in the larynx depends upon the tautness of the vocal cords. Voice box / LarynxTrachaea",
+      "usage": {
+        "prompt_tokens": 344,
+        "completion_tokens": 68,
+        "total_duration_ms": 4063,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 1319,
+        "eval_ms": 2726,
+        "tokens_per_second": 24.94
+      },
+      "session_id": "aa97a2173e3e4409a41fceea82c6f050",
+      "turn_id": "18a87302b7b2",
+      "previous_turn": null,
+      "id": "A6-sound"
+    },
+    {
+      "reply": "The poles of a magnet are the ends that indicate the north and south directions. The north pole is marked with 'N' and the south pole with 'S'.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "3. Fill in the blanks with the appropriate",
+          "page_start": 121,
+          "page_end": 121,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2075
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "15.6 : Direction in which the",
+          "page_start": 117,
+          "page_end": 117,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2264
+        }
+      ],
+      "context": "[1] General Science (Class 6) - 3. Fill in the blanks with the appropriate - p. 121\nword. (a) If a bar magnet is hung by a thread tied at its centre, its north pole becomes steady in the direction of the ................ Pole of the earth. (South, north, east, west) (b) If a bar magnet is cut into equal pieces by cutting it at right angles to its axis at two places, ........... bar magnets are formed, and a total of ................ poles are formed. (6,3,2) (c) There is repulsion between the .......... poles of a magnet, and attraction between its ............ poles. …\n\n[2] General Science (Class 6) - 15.6 : Direction in which the - p. 117\nmagnet settles\n\nLet's try this.\n\nThe end of a magnet that points to the north is called\n\nthe north pole while the end that points to the south is\n\ncalled the south pole. The north pole is indicated by\n\n'N' and the south pole, by 'S'.",
+      "usage": {
+        "prompt_tokens": 371,
+        "completion_tokens": 34,
+        "total_duration_ms": 2110,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 733,
+        "eval_ms": 1361,
+        "tokens_per_second": 24.98
+      },
+      "session_id": "7eaf8d9f81bd424d9bb95f68d3033d9d",
+      "turn_id": "48d8ed7732d0",
+      "previous_turn": null,
+      "id": "A7-magnet-poles"
+    },
+    {
+      "reply": "A balanced diet is a way of eating that includes all the necessary nutrients in the right amounts to keep your body healthy and strong. It's important because it helps you work better, feel good, fight off sickness, and grow big and strong. To make sure you have a balanced diet, you need to eat lots of different foods and make sure you get enough of everything your body needs.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Poland in Europe. In a",
+          "page_start": 63,
+          "page_end": 63,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1497
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "7.6 : The balanced diet pyramid",
+          "page_start": 63,
+          "page_end": 64,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2007
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Poland in Europe. In a - p. 63\nA balanced diet All that we consume during the day is together called our 'diet'. A diet containing adequate quantities of all nutrients is called a Balanced Diet. To build a strong and healthy body, you need all nutrients in the right proportion and in sufficient quantities in your daily diet. Significance of a balanced diet : l An increased capacity to work. l Good physical and mental health. l Increased capacity to fight / resist diseases. l Helps in proper growth of the body. Apart from having a balanced diet, we also need to exercise regularly to keep ourselves fit and healthy.",
+      "usage": {
+        "prompt_tokens": 275,
+        "completion_tokens": 79,
+        "total_duration_ms": 3256,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 39,
+        "eval_ms": 3176,
+        "tokens_per_second": 24.87
+      },
+      "session_id": "b7464c644651417bb2a2777cf8b29f92",
+      "turn_id": "49c50963a58c",
+      "previous_turn": null,
+      "id": "A8-balanced-diet"
+    },
+    {
+      "reply": "Joints are the places where two or more than two bones are connected to each other. There are two main types of joints: fibrous joints and cartilaginous joints. Fibrous joints, like the sutures in the skull, have strong, immovable connections. Cartilaginous joints, such as the shoulder and hip joints, allow for some movement but not as much as fibrous joints.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "8.7 : Some types of joints",
+          "page_start": 71,
+          "page_end": 71,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1631
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "2. Ball and socket joint : In this",
+          "page_start": 71,
+          "page_end": 71,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1993
+        }
+      ],
+      "context": "[1] General Science (Class 6) - 8.7 : Some types of joints - p. 71\nJoints : Joints are the places\n\nwhere two or more than\n\ntwo bones are connected to each\n\nother. Joints are of two types.\n\nObserve and discuss.\n\n[2] General Science (Class 6) - 2. Ball and socket joint : In this - p. 71\ntype of joint, the bones can move in two\n\nor more directions - in a 360 0 angle.\n\nExamples : shoulder and hip joints.",
+      "usage": {
+        "prompt_tokens": 263,
+        "completion_tokens": 83,
+        "total_duration_ms": 3432,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 40,
+        "eval_ms": 3352,
+        "tokens_per_second": 24.75
+      },
+      "session_id": "e530ee09e72f4502951cca76022dc2e1",
+      "turn_id": "2b63dbbee575",
+      "previous_turn": null,
+      "id": "A9-joints"
+    },
+    {
+      "reply": "The inner planets are Mercury, Venus, Earth, and Mars. These planets are closer to the Sun and have solid surfaces.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Jupiter, Saturn, Uranus and",
+          "page_start": 124,
+          "page_end": 124,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2395
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "4. What is to  be found between Mars and Jupiter  ?",
+          "page_start": 124,
+          "page_end": 124,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2543
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Jupiter, Saturn, Uranus and - p. 124\nNeptune are outer planets. Outer planets have rings around them. The crust of all the inner planets is hard. The outer planets have gaseous outer cover. The sun The sun which is at the centre of the solar system is a yellow coloured star. Its surface temperature is around 6000°C. The size of the sun is so huge that around 13 lakh planets of the size of the earth can be easily placed within it. Due to the gravitational force of the sun, the celestial bodies in the solar system revolve around it. The diameter of the sun is approximately 13,92,000 km. …",
+      "usage": {
+        "prompt_tokens": 295,
+        "completion_tokens": 26,
+        "total_duration_ms": 1119,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 39,
+        "eval_ms": 1042,
+        "tokens_per_second": 24.94
+      },
+      "session_id": "5c437d78e61c4e37b271d0131457e665",
+      "turn_id": "2badc74e6d3b",
+      "previous_turn": null,
+      "id": "A10-inner-planets"
+    },
+    {
+      "reply": "By using lubricants or adding more friction, like putting oil in a machine or using a lubricant.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "5. Frictional force",
+          "page_start": 83,
+          "page_end": 84,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2115
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "5. Frictional force",
+          "page_start": 84,
+          "page_end": 84,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2328
+        }
+      ],
+      "context": "[1] General Science (Class 6) - 5. Frictional force - pp. 83-84\nStatic electricity is produced on materials like rubber, plastic and ebonite due to friction. The force exerted by such electrically charged materials is called electrostatic force . The smooth surfaces can be easily rubbed against each other because the force of friction between them is less, while rough surfaces cannot be easily rubbed against each other because the force of friction between them is much greater. It is possible for us to walk on the ground only because of the force of friction. If there is no friction, we would slip and fall. …",
+      "usage": {
+        "prompt_tokens": 301,
+        "completion_tokens": 22,
+        "total_duration_ms": 1127,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 288,
+        "eval_ms": 831,
+        "tokens_per_second": 26.45
+      },
+      "session_id": "fc4fde0a1dee4f408ce9dd42bb7c668e",
+      "turn_id": "02f96d32f132",
+      "previous_turn": {
+        "question": "What is frictional force?",
+        "reply": "Frictional force is the force that resists the relative motion of objects sliding against each other. It is caused by the interaction of surfaces in contact. The force is stronger when surfaces are smooth and weaker when surfaces are rough. This force is crucial for maintaining the stability of objects and preventing slipping. Without friction, objects would move freely and not stop, leading to accidents.",
+        "sources": [
+          {
+            "title": "General Science (Class 6)",
+            "heading": "5. Frictional force",
+            "page_start": 83,
+            "page_end": 84,
+            "grade": 6,
+            "subject": "Science",
+            "distance": 0.1912
+          },
+          {
+            "title": "General Science (Class 6)",
+            "heading": "5. Frictional force",
+            "page_start": 84,
+            "page_end": 84,
+            "grade": 6,
+            "subject": "Science",
+            "distance": 0.2011
+          }
+        ]
+      },
+      "id": "B1-reduce-friction"
+    },
+    {
+      "reply": "When two magnets are brought together, the north pole of one magnet will repel the north pole of the other, and the south pole of one magnet will repel the south pole of the other.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "3. Fill in the blanks with the appropriate",
+          "page_start": 121,
+          "page_end": 121,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2075
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "3. Take a bar magnet that can be cut with scissors",
+          "page_start": 117,
+          "page_end": 117,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2075
+        }
+      ],
+      "context": "[1] General Science (Class 6) - 3. Fill in the blanks with the appropriate - p. 121\nword. (a) If a bar magnet is hung by a thread tied at its centre, its north pole becomes steady in the direction of the ................ Pole of the earth. (South, north, east, west) (b) If a bar magnet is cut into equal pieces by cutting it at right angles to its axis at two places, ........... bar magnets are formed, and a total of ................ poles are formed. (6,3,2) (c) There is repulsion between the .......... poles of a magnet, and attraction between its ............ poles. …",
+      "usage": {
+        "prompt_tokens": 320,
+        "completion_tokens": 41,
+        "total_duration_ms": 2095,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 483,
+        "eval_ms": 1605,
+        "tokens_per_second": 25.54
+      },
+      "session_id": "5d4cb317bedf4830915b55731be06113",
+      "turn_id": "ec1cece59a5a",
+      "previous_turn": {
+        "question": "What are the poles of a magnet?",
+        "reply": "A magnet has two poles: the north pole and the south pole. The north pole points to the north, and the south pole points to the south.",
+        "sources": [
+          {
+            "title": "General Science (Class 6)",
+            "heading": "3. Fill in the blanks with the appropriate",
+            "page_start": 121,
+            "page_end": 121,
+            "grade": 6,
+            "subject": "Science",
+            "distance": 0.2075
+          },
+          {
+            "title": "General Science (Class 6)",
+            "heading": "15.6 : Direction in which the",
+            "page_start": 117,
+            "page_end": 117,
+            "grade": 6,
+            "subject": "Science",
+            "distance": 0.2264
+          }
+        ]
+      },
+      "id": "B2-magnets-together"
+    },
+    {
+      "reply": "The 2022 FIFA World Cup was won by the United States national team. The team, led by coach Gregg Berhalter, defeated the hosts, the United Arab Emirates, in the final match. The United States secured their first World Cup title with a 2-1 victory over the UAE. This victory marked the first time the United States had hosted the World Cup, and it was a historic achievement for the country.",
+      "sources": [],
+      "context": "",
+      "usage": {
+        "prompt_tokens": 122,
+        "completion_tokens": 89,
+        "total_duration_ms": 3743,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 221,
+        "eval_ms": 3513,
+        "tokens_per_second": 25.33
+      },
+      "session_id": "9cb7d975c7f049d4955695424cc18cef",
+      "turn_id": "3c2a69f77c72",
+      "previous_turn": null,
+      "id": "C1-off-syllabus"
+    }
+  ]
+}
