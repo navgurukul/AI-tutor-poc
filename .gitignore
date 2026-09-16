@@ -62,3 +62,7 @@ data/
 ps_cmds.txt
 todo.txt
 
+
+# Per-turn telemetry the backend writes at runtime (AITUTOR_LOG_DIR, default
+# ./logs beside the app). Device data, not source -- same reason as data/.
+apps/backend/logs/

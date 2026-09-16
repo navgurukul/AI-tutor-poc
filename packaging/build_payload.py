@@ -30,6 +30,11 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# A textbook that survived ingestion is hundreds of chunks; this only has to be
+# high enough to catch a truncated or half-ingested corpus and low enough never
+# to reject a genuinely small book someone is testing with.
+MIN_CORPUS_CHUNKS = 50
 PINS = json.loads((Path(__file__).resolve().parent / "pins.json").read_text())
 
 # Browser-side speech assets: a Piper voice (~61 MB), the Piper WASM runtime
@@ -342,8 +347,7 @@ def step_app_and_content(payload: Path) -> None:
     cdir.mkdir(parents=True, exist_ok=True)
     if db.is_file():
         check_corpus(db)
-        shutil.copy2(db, cdir / "library.db")
-        print(f"    content: library.db ({db.stat().st_size / 1048576:.1f} MB)")
+        copy_corpus(db, cdir / "library.db")
     else:
         print("    WARNING: no library.db -- the device will answer without the textbook corpus.")
 
@@ -355,6 +359,55 @@ def step_app_and_content(payload: Path) -> None:
     ico = ROOT / "apps" / "desktop" / "assets" / "AI-Tutor.ico"
     if ico.is_file():
         shutil.copy2(ico, payload / "AI-Tutor.ico")
+
+
+def copy_corpus(db: Path, target: Path) -> None:
+    """Copy library.db through SQLite, never as a file.
+
+    The store runs in WAL mode, so a freshly ingested corpus lives mostly in
+    library.db-wal until something checkpoints it. `shutil.copy2` of the .db
+    alone therefore ships whatever was last checkpointed -- and it fails
+    silently, because the file it produces is a perfectly valid database that
+    simply has most of the book missing.
+
+    That is not hypothetical. The build of 2026-09-16 shipped a corpus of 16
+    chunks out of 327 this way: 4.5 MB of the book was sitting in the -wal, the
+    metadata check passed because the embedding model and dims were right, and
+    the manifest hashed the truncated file without complaint. On a device it
+    would have looked like a tutor that had read three pages of the textbook.
+
+    The backup API reads through the WAL and writes one self-contained file, so
+    the result needs no -wal or -shm beside it. The row counts are compared
+    afterwards, because the point is the content and not the mechanism.
+    """
+    import sqlite3
+
+    def counts(conn) -> tuple:
+        return (conn.execute("select count(*) from chunks").fetchone()[0],
+                conn.execute("select count(*) from documents").fetchone()[0])
+
+    target.unlink(missing_ok=True)
+    # -wal and -shm from an earlier file-copy build would otherwise be read
+    # alongside the new file and put back the very rows this is replacing.
+    for suffix in ("-wal", "-shm"):
+        target.with_name(target.name + suffix).unlink(missing_ok=True)
+
+    source = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    written = sqlite3.connect(str(target))
+    try:
+        source.backup(written)
+        want = counts(source)
+        got = counts(written)
+    finally:
+        written.close()
+        source.close()
+
+    if got != want:
+        raise SystemExit(
+            f"library.db did not copy completely: source has {want[0]} chunks in "
+            f"{want[1]} document(s), the copy has {got[0]} in {got[1]}.")
+    print(f"    content: library.db ({target.stat().st_size / 1048576:.1f} MB, "
+          f"{want[0]} chunks from {want[1]} document(s))")
 
 
 def _branch_expects() -> dict:
@@ -405,9 +458,25 @@ def check_corpus(db: Path) -> None:
     try:
         conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         meta = dict(conn.execute("select key, value from meta").fetchall())
+        chunks = conn.execute("select count(*) from chunks").fetchone()[0]
+        documents = conn.execute("select count(*) from documents").fetchone()[0]
         conn.close()
     except sqlite3.Error as exc:
         raise SystemExit(f"library.db could not be read: {exc}")
+
+    # Metadata alone is not enough, and that gap already shipped once: a corpus
+    # truncated by the WAL copy (see copy_corpus) had the right embedding model,
+    # the right dims and the right schema, and 16 chunks of a 327-chunk book.
+    # Every check here passed it.
+    if documents < 1 or chunks < MIN_CORPUS_CHUNKS:
+        raise SystemExit(
+            f"library.db holds {chunks} chunk(s) in {documents} document(s), which is "
+            f"too little to be a textbook (expected at least {MIN_CORPUS_CHUNKS}).\n"
+            "\n"
+            "  A corpus this small usually means the copy was truncated, or that an\n"
+            "  ingestion failed part way. Check apps/backend/data/library.db with:\n"
+            "      sqlite3 apps/backend/data/library.db 'select count(*) from chunks'\n"
+            "  and re-ingest the PDFs if the source is short too.")
 
     expects = _branch_expects()
     want = {
@@ -447,13 +516,29 @@ JUNK_PREFIXES = ("._",)          # AppleDouble sidecars
 
 
 def prune_junk(payload: Path) -> int:
+    """Remove what must never be hashed into the manifest.
+
+    Host-OS droppings (.DS_Store and friends), and SQLite sidecars. The sidecars
+    matter more than they look: merely OPENING library.db, even read-only, even
+    just to check what it contains, recreates library.db-shm and library.db-wal
+    beside it. Do that after the manifest is written and the payload no longer
+    matches its own manifest; do it before, and a -wal is hashed into the
+    manifest and then has to exist on every device forever.
+
+    Both happened during the 2026-09-16 rebuild, in that order.
+    """
     removed = 0
     for f in list(payload.rglob("*")):
-        if f.is_file() and (f.name in JUNK_NAMES or f.name.startswith(JUNK_PREFIXES)):
+        if not f.is_file():
+            continue
+        junk = (f.name in JUNK_NAMES
+                or f.name.startswith(JUNK_PREFIXES)
+                or f.name.endswith(("-wal", "-shm", "-journal")))
+        if junk:
             f.unlink(missing_ok=True)
             removed += 1
     if removed:
-        print(f"    pruned {removed} host-OS junk file(s) (.DS_Store and friends)")
+        print(f"    pruned {removed} junk file(s) (.DS_Store, SQLite sidecars)")
     return removed
 
 
