@@ -450,6 +450,50 @@ class Settings(BaseSettings):
     # to work with). Kept well above rag_passage_token_cap for exactly that
     # asymmetry: bigger where it is free, smaller where it is not.
     rag_prime_passage_token_cap: int = 160
+    # EXPERIMENTAL, added 2026-09-16, off by default until verified live.
+    #
+    # trim_passage (rag_passage_token_cap) takes the passage's HEAD sentences
+    # in order -- deliberately dumb, because scoring by keyword overlap with
+    # the question broke an answer on 2026-09-09 (see that function's own
+    # comment). The head-taking fix works but has a real cost: this corpus's
+    # sentences run long, so the head is often already ~70 tokens before a
+    # second sentence would even fit, and that floor turned out to be the
+    # single biggest piece of a grounded turn's prefill time -- confirmed via
+    # Ollama's own server.log at ~40-46ms per new token.
+    #
+    # This is a different mechanism, not a smaller version of the same one:
+    # instead of keyword overlap, sentences are scored by bge-m3 EMBEDDING
+    # similarity to the question (select_evidence in retrieval.py). The
+    # 2026-09-09 failure was specifically that lexical scoring favours a topic
+    # sentence repeating the question's own words over the sentence carrying
+    # the actual fact in different words -- embedding similarity can in
+    # principle recognise the fact-bearing sentence anyway. That is a
+    # hypothesis, not yet a verified result: enabling this trades a small
+    # extra embed call (query + a handful of candidate sentences, batched, one
+    # round-trip) against a much smaller pasted passage (rag_evidence_
+    # token_cap, not rag_passage_token_cap) -- watch BOTH prefill and
+    # groundedness/spot-checked correctness before trusting it, not prefill
+    # alone. On any embed failure this falls back to the safe head-trim.
+    #
+    # TESTED 2026-09-16, live, 4 questions: mechanism worked as designed (a
+    # genuinely different, semantically-relevant sentence was selected each
+    # time, confirmed sound) but delivered NO latency win -- context_tokens
+    # landed at 64/62/81/0, almost identical to plain trim_passage's 70/37-95/
+    # 81/0 on the same questions. Root cause: this selector never truncates
+    # mid-sentence either (same safeguard, same reason), and this corpus's
+    # single BEST sentence already runs 60-80 tokens on its own, same as its
+    # head sentence -- so which sentence gets picked stops mattering once
+    # every candidate is already close to the cap. This is independent
+    # confirmation (via a completely different mechanism) that the binding
+    # constraint is the corpus's own sentence length (see [[corpus-mistagged-
+    # class10-as-class6]]), not the selection algorithm. Left in, off by
+    # default: sound and worth having once the corpus is fixed, costs one
+    # extra embed call for no benefit on the current content.
+    rag_evidence_extraction_enabled: bool = False
+    # Target size for select_evidence's output -- deliberately much smaller
+    # than rag_passage_token_cap (70), since the whole point is fewer new
+    # tokens. ~20-40 tokens is roughly 1-2 sentences in this corpus.
+    rag_evidence_token_cap: int = 40
     # Pin the WHOLE corpus into the system prompt instead of retrieving per
     # question, whenever it fits in this many tokens. 0 disables pinning.
     #

@@ -44,7 +44,7 @@ def test_the_persona_ends_with_the_rules(monkeypatch):
     assert tail.startswith("Rules for every reply: ")
     for rule in tutor._reply_rules(HINDI):
         assert rule in tail
-    assert "never mention the text itself" in tail
+    assert "mention the text itself" in tail.lower()
 
 
 def test_switched_off_restores_the_old_turn(monkeypatch):

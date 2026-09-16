@@ -6,6 +6,7 @@ student is asking about is already in the conversation, so the right move is
 to keep it -- and a turn that adds no passage is also the cheapest one.
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -109,3 +110,36 @@ async def test_switched_off_means_a_normal_search(monkeypatch):
     session.last_hit_ids = [7]
     await chat_router._retrieve_context("इसका एक उदाहरण दीजिए।", session.profile, session)
     assert searched == [True]
+
+
+@pytest.mark.asyncio
+async def test_a_followup_still_cancels_a_still_running_reprime(monkeypatch):
+    # Live regression, 2026-09-16: the cancel-still-running-background-work
+    # block used to sit AFTER both the pinned-corpus and follow-up early
+    # returns, so a follow-up -- a very live path, "give an example of this"
+    # reuses the previous passage with no new retrieval -- never reached it.
+    # Caught live: a follow-up sent right after the previous reply let that
+    # reply's re-prime keep running unchecked and stretch to 23.5s (normally
+    # 5-8s) queuing behind the follow-up's own generation -- contention on
+    # exactly the turn shape this mechanism exists to protect. The cancel now
+    # runs before EITHER early-return path, not just the normal-search one.
+    monkeypatch.setattr(settings, "rag_followup_reuse", True)
+    monkeypatch.setattr(chat_router, "pinned_context", lambda *a, **k: None)
+    fake = _Store()
+    monkeypatch.setattr(chat_router.library, "store", fake)
+    session = await store.create(TutorProfile(language="Hindi", level="Class 6"))
+    session.last_hit_ids = [7, 9]
+
+    async def never_finishes():
+        await asyncio.sleep(5.0)
+
+    still_running = asyncio.create_task(never_finishes())
+    session.repriming = still_running
+
+    await chat_router._retrieve_context("इसका एक उदाहरण दीजिए।", session.profile, session)
+
+    for _ in range(10):
+        if still_running.cancelled() or still_running.done():
+            break
+        await asyncio.sleep(0)
+    assert still_running.cancelled()

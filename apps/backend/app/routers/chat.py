@@ -32,6 +32,7 @@ from app.services.rag.retrieval import (
     fit_to_budget,
     pinned_context,
     retrieve,
+    select_evidence_for_hits,
     trim_passages,
 )
 from app.services.rag.store import Retrieved
@@ -164,50 +165,16 @@ async def _retrieve_context(
     """
     trace = RetrievalMetrics() if settings.metrics_enabled else None
 
-    # Pinned corpus: the same block every turn, so the prompt prefix is stable
-    # and Ollama can reuse its KV cache. Nothing is ranked, so there is no
-    # embedding call and no search -- which is also why the trace carries no
-    # distances. Falls through to real retrieval when the corpus is too big.
-    # Scoped to what the student picked in the lobby. Pinning takes every
-    # matching chunk rather than the best few, so without these filters a
-    # multi-book library would land whole in the prompt.
-    pinned = pinned_context(
-        library.store,
-        grade=grade_from_profile(profile),
-        subject=(profile.subject if profile else None),
-        language=(profile.language if profile else None),
-    )
-    if pinned is not None:
-        block, hits = pinned
-        if trace is not None:
-            trace.returned = len(hits)
-            trace.context_tokens = estimate_tokens(block)
-            trace.abstained = False
-        return RetrievedContext(block, citations(hits), hits, trace)
-
-    # A follow-up about the last answer keeps its passage: no embedding, no
-    # search, and nothing pasted, because the passage is already in the
-    # conversation a few lines up. Citations and groundedness still see it.
-    if (settings.rag_followup_reuse and session is not None
-            and session.last_hit_ids and _is_followup(message)):
-        hits = library.store.chunks_by_ids(session.last_hit_ids)
-        if hits:
-            if trace is not None:
-                trace.returned = len(hits)
-                trace.context_tokens = 0
-                trace.abstained = False
-                trace.abstain_reason = "follow-up: kept the previous passage, no new search"
-            return RetrievedContext("", citations(hits), hits, trace)
-
-    # Settle anything still running in the background BEFORE this turn's own
-    # retrieval, not after -- never during. Moved here 2026-09-14: settling
-    # only once a miss was already decided (further down) let the ask's own
-    # retrieve() run CONCURRENTLY with a still-live prepare -- both call
-    # bge-m3's embed -- so the ask paid contention on its own retrieval before
-    # it ever got a chance to give up on the guess. Measured worst case that
-    # way: retrieval alone up to 4.4s against a normal ~0.3-0.7s. Waiting HERE
-    # instead is a straight, bounded, non-contending cost (nothing else runs
-    # meanwhile), which is what makes a real grace period affordable at all.
+    # Settle anything still running in the background BEFORE this turn does
+    # ANYTHING else -- including the pinned-corpus and follow-up shortcuts
+    # below, which both return early. Moved to the very top 2026-09-16: this
+    # used to sit after those two early returns, so a follow-up (a very live
+    # path -- "give an example of this" reuses the previous passage with no
+    # new retrieval) never reached it at all. Caught live: a follow-up sent
+    # right after the previous reply let that reply's re-prime keep running
+    # completely unchecked, queuing behind (and stretching to 23.5s instead
+    # of its normal 5-8s) the follow-up's own generation -- on exactly the
+    # turn shape this was supposed to protect from contention, not miss.
     if session is not None:
         grace = settings.rag_early_prime_wait_seconds
         # Captured into a local up front: `session.preparing` can be cleared
@@ -245,6 +212,41 @@ async def _retrieve_context(
         if session.repriming is not None and not session.repriming.done():
             session.repriming.cancel()
 
+    # Pinned corpus: the same block every turn, so the prompt prefix is stable
+    # and Ollama can reuse its KV cache. Nothing is ranked, so there is no
+    # embedding call and no search -- which is also why the trace carries no
+    # distances. Falls through to real retrieval when the corpus is too big.
+    # Scoped to what the student picked in the lobby. Pinning takes every
+    # matching chunk rather than the best few, so without these filters a
+    # multi-book library would land whole in the prompt.
+    pinned = pinned_context(
+        library.store,
+        grade=grade_from_profile(profile),
+        subject=(profile.subject if profile else None),
+        language=(profile.language if profile else None),
+    )
+    if pinned is not None:
+        block, hits = pinned
+        if trace is not None:
+            trace.returned = len(hits)
+            trace.context_tokens = estimate_tokens(block)
+            trace.abstained = False
+        return RetrievedContext(block, citations(hits), hits, trace)
+
+    # A follow-up about the last answer keeps its passage: no embedding, no
+    # search, and nothing pasted, because the passage is already in the
+    # conversation a few lines up. Citations and groundedness still see it.
+    if (settings.rag_followup_reuse and session is not None
+            and session.last_hit_ids and _is_followup(message)):
+        hits = library.store.chunks_by_ids(session.last_hit_ids)
+        if hits:
+            if trace is not None:
+                trace.returned = len(hits)
+                trace.context_tokens = 0
+                trace.abstained = False
+                trace.abstain_reason = "follow-up: kept the previous passage, no new search"
+            return RetrievedContext("", citations(hits), hits, trace)
+
     hits = await retrieve(
         library.store,
         message,
@@ -257,7 +259,17 @@ async def _retrieve_context(
     # budget is applied, so the budget counts what the model will actually read
     # rather than what was ranked. Citations still point at the whole chunk's
     # page, which is what a student needs to find it in the book.
-    hits = trim_passages(hits, message)
+    #
+    # EXPERIMENTAL (off by default): select_evidence_for_hits picks by
+    # embedding similarity to a much smaller cap (rag_evidence_token_cap)
+    # instead of trim_passages' safe head-taking -- see rag_evidence_
+    # extraction_enabled's own comment for why this is a different mechanism
+    # from the lexical version that broke an answer on 2026-09-09, and why it
+    # still needs correctness verification, not just a latency measurement.
+    if settings.rag_evidence_extraction_enabled:
+        hits = await select_evidence_for_hits(hits, message, settings.rag_evidence_token_cap)
+    else:
+        hits = trim_passages(hits, message)
     # k falls before a passage is cut.
     hits = fit_to_budget(hits, metrics=trace)
 

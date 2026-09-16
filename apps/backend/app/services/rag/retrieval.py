@@ -22,7 +22,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from app.config import settings
 from app.schemas import RetrievalMetrics
-from app.services.rag.embeddings import embed_query
+from app.services.rag.embeddings import embed_documents, embed_query
 from app.services.rag.gate import gate_dense_hits, resolve_query_language
 from app.services.rag.metrics import elapsed_ms
 from app.services.rag.query import build_match_query, estimate_tokens
@@ -404,6 +404,84 @@ def trim_passages(
     if cap <= 0:
         return list(hits)
     return [replace(h, text=trim_passage(h.text, query, cap)) for h in hits]
+
+
+def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(x * x for x in b) ** 0.5
+    return dot / (na * nb) if na and nb else 0.0
+
+
+async def select_evidence(
+    text: str, query: str, max_tokens: int, model: Optional[str] = None
+) -> str:
+    """Pick the sentence(s) most semantically relevant to the question, by
+    embedding similarity -- NOT lexical keyword overlap.
+
+    This is deliberately not the same thing as the "best-matching sentences"
+    trim that was tried on 2026-09-09 and broke an answer (see trim_passage's
+    own comment): that version scored sentences by shared WORDS with the
+    question, which structurally favours a topic sentence that repeats the
+    question's own vocabulary ("there are three types") over the sentence
+    that actually carries the fact ("they are X, Y and Z") -- the model was
+    then left with a claim and no content, and invented the content. Embedding
+    similarity can recognise a sentence as relevant even when it shares no
+    words with the question, which is the specific gap that caused that
+    failure. Still a real, unverified risk in a new shape, not a solved one --
+    treat groundedness and a spot-check of the actual answer as required
+    evidence before trusting this, not just faster prefill.
+
+    Falls back to trim_passage's safe head-taking behaviour if the embed call
+    fails for any reason, since a too-long passage costs latency, but a wrong
+    one costs correctness -- the two are not equally recoverable.
+    """
+    if max_tokens <= 0 or estimate_tokens(text) <= max_tokens:
+        return text
+    sentences = [s.strip() for s in _SENTENCE_SPLIT.split(text) if s and s.strip()]
+    if len(sentences) <= 1:
+        return text
+    try:
+        # Query and sentences in one batched call -- bge-m3 needs no query/
+        # document prefix distinction (see embeddings.py's _needs_prefix), so
+        # embedding them together costs one round-trip instead of two.
+        vectors = await embed_documents([query] + sentences, model=model)
+    except Exception as exc:  # noqa: BLE001 - fall back, never break the turn
+        logger.warning("Evidence extraction embed failed, falling back to head-trim: %s", exc)
+        return trim_passage(text, query, max_tokens)
+    query_vector, sentence_vectors = vectors[0], vectors[1:]
+    scored = sorted(
+        range(len(sentences)),
+        key=lambda i: _cosine(query_vector, sentence_vectors[i]),
+        reverse=True,
+    )
+    selected: set = set()
+    used = 0
+    for idx in scored:
+        cost = estimate_tokens(sentences[idx])
+        if selected and used + cost > max_tokens:
+            continue  # doesn't fit alongside what's already picked; try the next-best
+        selected.add(idx)
+        used += cost
+        if used >= max_tokens:
+            break
+    if not selected:
+        selected.add(scored[0])  # keep the single best even if it alone exceeds the cap
+    # Original passage order, not score order, so the result still reads as prose.
+    return " ".join(sentences[i] for i in sorted(selected))
+
+
+async def select_evidence_for_hits(
+    hits: Sequence[Retrieved], query: str, max_tokens: int, model: Optional[str] = None
+) -> List[Retrieved]:
+    """`select_evidence` over every hit. Cap of 0 disables it entirely."""
+    if max_tokens <= 0:
+        return list(hits)
+    out = []
+    for h in hits:
+        text = await select_evidence(h.text, query, max_tokens, model=model)
+        out.append(replace(h, text=text))
+    return out
 
 
 def build_context_block(hits: Sequence[Retrieved]) -> str:

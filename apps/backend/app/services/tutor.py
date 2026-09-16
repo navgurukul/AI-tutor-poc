@@ -37,9 +37,37 @@ RETRIEVAL_RULE = (
 #   2026-09-11, passage inline, 14 Q : "in your own words"     ground 0.179->0.266
 #   2026-09-14, passage a turn back,  : "own wording" + example ground 0.326->0.390
 #                8 Q, k=2 cap110        (vs no rule / a paraphrase-heavy one)
+#
+# "then add one everyday example" was UNCONDITIONAL until 2026-09-16, and that
+# is very likely why: caught live, asked for a follow-up example on a passage
+# about an ancient Ganga water-harvesting structure near Allahabad, the model
+# invented a "गांधी बाँध" (garbling "गंगा" into a fabricated dam name) serving
+# Delhi -- a city never mentioned in the source, and geographically wrong
+# (Delhi is on the Yamuna). The source passage was correct; the model was
+# just unconditionally told to produce an example whether or not the text
+# actually supported one, so a 2B Q4_0 model under that instruction invented
+# specifics rather than admitting the text didn't hand it one.
+#
+# Made conditional the same day, plus an explicit ban on invented specifics.
+# NOT yet re-run through the 2026-09-14 groundedness A/B -- that measurement
+# is for the unconditional wording and may not hold here; re-check before
+# assuming this is free.
+#
+# The "copy proper names exactly" clause added the same day, separately: live,
+# a passage that correctly said "चंबल बेसिन" (Chambal Basin) -- confirmed
+# right there in the pasted text, not a corpus error -- came back from the
+# model as "कंबल" (blanket). Not an invented fact (see the clause above,
+# which guards against that); a smaller, quieter failure where the model has
+# the right proper noun in its own context and still respells it. A likely
+# real limit of a 2B, 4-bit-quantized model on less-common multi-syllable
+# names, not something retrieval or wording can fully fix -- this is a
+# mitigation, not a guaranteed correction.
 GROUNDED_ANSWER_RULE = (
     "Answer using the facts in the text above, mainly in the text's own "
-    "wording, then add one everyday example in one sentence."
+    "wording. If the text supports it, add one everyday example in one "
+    "sentence -- but never invent a specific name, place, date, or number "
+    "that is not in the text above. Copy any place, river, or proper name "
+    "exactly as it is spelled in the text above."
 )
 
 STYLE_RULES = {
@@ -302,11 +330,20 @@ def _persona_reply_rules(profile: Optional[TutorProfile]) -> str:
 # shared standing rule covering both layouts rather than two, because a turn
 # is either grounded or it isn't and the model does not need to know which
 # shape produced that.
+# Made conditional 2026-09-16, same day and same reason as GROUNDED_ANSWER_
+# RULE's own note -- this is in fact the rule that produced the caught
+# hallucination (a follow-up "give an example" reused the previous turn's
+# passage, which this standing rule governs, not the per-turn one). The
+# proper-name clause added the same day for the same reason as that rule's
+# own copy -- see its comment for the caught चंबल -> कंबल case.
 GROUNDED_RULE_STANDING = (
     "When the student's message begins with textbook text, or textbook facts "
     "were given in the turn just before it, answer using those facts, mainly "
-    "in the text's own wording, add one everyday example in one sentence, and "
-    "never mention the text itself."
+    "in the text's own wording. If the text supports it, add one everyday "
+    "example in one sentence -- but never invent a specific name, place, "
+    "date, or number that is not in the text. Copy any place, river, or "
+    "proper name exactly as it is spelled in the text. Never mention the "
+    "text itself."
 )
 
 
