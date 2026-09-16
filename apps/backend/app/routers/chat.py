@@ -99,13 +99,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         reuse=session.excerpts,
     )
     messages = build_chat_messages(
-        session.history(
-            settings.history_questions,
-            # The nudge only earns its tokens when the style actually ends
-            # every reply with one; direct and exam_prep do not.
-            keep_nudge=session.profile.style == "socratic",
-            nudge_max_chars=settings.history_nudge_max_chars,
-        ),
+        session.history(settings.history_questions),
         session.profile,
         context,
     )
@@ -207,13 +201,7 @@ async def _stream_events(
                 frame["context"] = context
             yield _sse(frame)
         messages = build_chat_messages(
-            session.history(
-                settings.history_questions,
-                # The nudge only earns its tokens when the style actually ends
-                # every reply with one; direct and exam_prep do not.
-                keep_nudge=session.profile.style == "socratic",
-                nudge_max_chars=settings.history_nudge_max_chars,
-            ),
+            session.history(settings.history_questions),
             session.profile,
             context,
         )

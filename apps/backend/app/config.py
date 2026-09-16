@@ -70,25 +70,37 @@ class Settings(BaseSettings):
     #                                    get bigger?" resolves against "What is
     #                                    a shadow?" as well as against any
     #                                    answer, and costs a twentieth as much.
-    #   the closing nudge      ~28 tok   socratic style only. Every reply ends
-    #                                    by inviting the student to think, so
-    #                                    their next message is often a REPLY to
-    #                                    that -- "because it would go pale?".
-    #                                    Without it the model cannot see the
-    #                                    question it asked, and a perfectly good
-    #                                    answer arrives as a non-sequitur.
+    #                                    Cheaper still than that: replaying it
+    #                                    makes the prompt a strict extension of
+    #                                    the last one, so the cache covers it.
     #   the current question    ~6 tok   always present.
     #
-    # Everything else in the previous answer -- the worked example, the
-    # elaboration -- is never referred back to, and is dropped.
+    # Assistant turns are not replayed at all. The worked example and the
+    # elaboration were never referred back to; the closing sentence -- the
+    # socratic "nudge", ~28 tok, capped by HISTORY_NUDGE_MAX_CHARS -- was, so
+    # that a student answering the tutor's own question ("because it would go
+    # pale?") did not read as a non-sequitur. Both are gone as of 16 Sep: the
+    # nudge was not earning it in practice, and it was the one part of the
+    # window that could never be cached, because it changes every turn and sits
+    # ahead of the question in the prompt.
+    #
+    # Measured on a follow-up whose excerpt was reused verbatim (Mac,
+    # qwen2.5:1.5b, Ollama 0.32.15, min of 3 reps) -- turn-2 prefill:
+    #
+    #   previous question + nudge + current   376 tok   340 ms
+    #   previous question + current           344 tok   236 ms   <- now
+    #   current question alone                339 tok    97 ms
+    #   nudge + current, question cut         366 tok   609 ms
+    #
+    # The last row is why the previous question stays: cutting it breaks the
+    # shared prefix and costs more than the whole window saves. Target CPU
+    # prefill is more linear per token than Metal's, so expect a larger
+    # absolute saving there -- re-measure with packaging/windows/benchmark.py.
     #
     # One is enough: the immediate antecedent is what pronouns bind to, and a
     # second question buys ~6 tokens of context for ~0.1s. Raising this is
     # cheap if follow-ups start losing the thread.
     history_questions: int = 1
-    # Cap on the retained closing sentence, so a model that ends with a
-    # paragraph instead of a line cannot reintroduce the cost this removed.
-    history_nudge_max_chars: int = 200
     session_ttl_minutes: int = 180
     max_sessions: int = 500
 

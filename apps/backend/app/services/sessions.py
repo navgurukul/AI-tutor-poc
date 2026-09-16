@@ -6,7 +6,6 @@ Redis/SQLite implementation if the POC graduates.
 """
 
 import asyncio
-import re
 import uuid
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
@@ -18,32 +17,6 @@ from app.schemas import Message, TutorProfile
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-# Split on sentence enders followed by whitespace. Good enough for tutor prose;
-# it does not need to survive "e.g." because it only ever picks the LAST piece.
-_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
-
-
-def _closing_sentence(text: str, max_chars: int) -> str:
-    """The last complete sentence of a reply -- the socratic nudge.
-
-    The end is what matters, not the start: the question the student is
-    answering is the final clause. So an over-long trailing paragraph is cut
-    from the FRONT, on a word boundary, rather than truncated at the tail like
-    ordinary prose would be.
-    """
-    text = (text or "").strip()
-    if not text:
-        return ""
-    parts = [p.strip() for p in _SENTENCE_SPLIT.split(text) if p.strip()]
-    if not parts:
-        return ""
-    last = parts[-1]
-    if len(last) > max_chars:
-        tail = last[-max_chars:]
-        last = "\u2026" + (tail.split(" ", 1)[-1] if " " in tail else tail)
-    return last
 
 
 class Session:
@@ -88,12 +61,7 @@ class Session:
                 return message.content
         return None
 
-    def history(
-        self,
-        questions: int,
-        keep_nudge: bool = False,
-        nudge_max_chars: int = 200,
-    ) -> List[Dict[str, str]]:
+    def history(self, questions: int) -> List[Dict[str, str]]:
         """What the MODEL re-reads, shaped for Ollama's /api/chat.
 
         Deliberately not the same thing as what the student sees. The full
@@ -103,44 +71,37 @@ class Session:
         of prefill on every turn after the first -- answer length charged
         twice, once to generate and again to re-read.
 
-        Replayed: the last `questions` student questions, the closing sentence
-        of the most recent reply when `keep_nudge` (socratic style ends every
-        answer by inviting the student to think, so their next message is often
-        a reply to it), and the current question. The body of the previous
-        answer -- worked example, elaboration -- is dropped; nothing refers
-        back to it.
+        Replayed: the last `questions` student questions, and the current one.
+        Assistant turns are not replayed at all -- neither the body of the
+        previous answer nor, since 16 Sep, its closing sentence; see the
+        history_questions comment in app.config for what that one cost.
 
         Not a flat "last N messages" window any more, which is why the setting
-        that drives it was renamed. Order is chronological, so the nudge sits
-        between the question that produced it and the reply to it.
+        that drives it was renamed. Order is chronological.
+
+        If this is ever trimmed further, the previous question is the last
+        thing to go. It is what a dangling pronoun binds to, and it is also
+        free: replaying it makes this prompt a strict extension of the last
+        one, so Ollama's cache covers it instead of re-reading it.
         """
         if not self.messages:
             return []
         last = len(self.messages) - 1
         keep = {last}                      # the current question, always
         seen = 0
-        nudge_at = None
         for i in range(last - 1, -1, -1):
-            m = self.messages[i]
-            if m.role == "user" and seen < questions:
+            # Tested before the append, so questions=0 replays nothing but the
+            # question being answered.
+            if seen >= questions:
+                break
+            if self.messages[i].role == "user":
                 keep.add(i)
                 seen += 1
-            elif m.role == "assistant" and keep_nudge and nudge_at is None:
-                nudge_at = i
-                keep.add(i)
-            if seen >= questions and (nudge_at is not None or not keep_nudge):
-                break
 
-        out: List[Dict[str, str]] = []
-        for i in sorted(keep):
-            m = self.messages[i]
-            content = m.content
-            if i == nudge_at:
-                content = _closing_sentence(content, nudge_max_chars)
-                if not content:
-                    continue          # nothing quotable; drop the turn entirely
-            out.append({"role": m.role, "content": content})
-        return out
+        return [
+            {"role": self.messages[i].role, "content": self.messages[i].content}
+            for i in sorted(keep)
+        ]
 
     @property
     def preview(self) -> Optional[str]:
