@@ -6,6 +6,7 @@ import { MicButton } from "../components/MicButton";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StopSpeechButton } from "../components/StopSpeechButton";
 import { VoiceToggle } from "../components/VoiceToggle";
+import { StatusBar } from "../components/StatusBar";
 
 interface TutorPageProps {
   schoolClass: SchoolClass;
@@ -159,6 +160,8 @@ export function TutorPage({ schoolClass, subject, onOpenSetup }: TutorPageProps)
           </p>
         </div>
       </main>
+
+      <StatusBar messages={messages} />
     </div>
   );
 }

@@ -221,6 +221,9 @@ class ModelStatus(BaseModel):
     name: str
     available: bool
     available_models: List[str] = []
+    # The window every chat request asks Ollama for (NUM_CTX), not the model's
+    # native maximum -- this is the one that bounds prompt + reply.
+    num_ctx: int
 
 
 class HealthResponse(BaseModel):

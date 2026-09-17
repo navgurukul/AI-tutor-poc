@@ -97,6 +97,30 @@ export async function askTutor(
   return { sessionId: data.session_id, answer: data.reply };
 }
 
+export interface TutorModelInfo {
+  /** The Ollama model tag, e.g. "qwen2.5:1.5b". */
+  name: string;
+  /** Tokens of context each request gets (NUM_CTX); null in mock mode. */
+  numCtx: number | null;
+}
+
+/**
+ * GET /health, reduced to what the status bar shows. Null when the backend
+ * can't be reached -- the bar shows a dash rather than an error, since the
+ * chat itself already reports an unreachable backend.
+ */
+export async function fetchModelInfo(signal?: AbortSignal): Promise<TutorModelInfo | null> {
+  if (USE_MOCK_API) return { name: "mock", numCtx: null };
+  try {
+    const res = await fetch(`${API_BASE_URL}/health`, { signal });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { model: { name: string; num_ctx?: number } };
+    return { name: data.model.name, numCtx: data.model.num_ctx ?? null };
+  } catch {
+    return null;
+  }
+}
+
 export interface WarmupResult {
   model: string;
   /** Ollama's reported model-load time; ~0 when it was already resident. */

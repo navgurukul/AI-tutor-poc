@@ -26,7 +26,9 @@ async def health() -> HealthResponse:
     """Never fails with 5xx -- it reports degradation in the body instead, so the
     frontend can always render a status panel."""
     ollama_status = OllamaStatus(reachable=False, host=settings.ollama_host)
-    model_status = ModelStatus(name=settings.ollama_model, available=False)
+    model_status = ModelStatus(
+        name=settings.ollama_model, available=False, num_ctx=settings.num_ctx
+    )
 
     try:
         ollama_status.version = await client.version()
