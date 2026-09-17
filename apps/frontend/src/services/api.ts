@@ -1,4 +1,9 @@
-import type { AskTutorRequest, AskTutorResponse, Citation } from "../types";
+import type {
+  AskTutorRequest,
+  AskTutorResponse,
+  Citation,
+  Groundedness,
+} from "../types";
 import { mockAnswerFor } from "./mockData";
 
 const API_BASE_URL =
@@ -159,6 +164,8 @@ interface StreamEvent {
   detail?: string;
   hint?: string;
   sources?: Citation[];
+  /** On `done`: the question is in the gold set, ask for its groundedness. */
+  groundedness_pending?: boolean;
 }
 
 async function mockStream(
@@ -270,7 +277,11 @@ export async function askTutorStream(
           case "done":
             sessionId = event.session_id ?? sessionId;
             reply = event.reply ?? reply;
-            handlers.onDone?.({ sessionId, answer: reply });
+            handlers.onDone?.({
+              sessionId,
+              answer: reply,
+              groundednessPending: !!event.groundedness_pending,
+            });
             break;
           case "error":
             throw new Error(
@@ -286,6 +297,19 @@ export async function askTutorStream(
     // also stops the model generating server-side.
     reader.cancel().catch(() => undefined);
   }
+}
+
+/**
+ * POST /api/groundedness/{turnId} - grade a finished gold-set turn claim by
+ * claim against the excerpt it read.
+ *
+ * A separate request, after the stream, because the judge takes seconds per
+ * claim and a student should never wait on it. Each turn can be graded once.
+ */
+export async function fetchGroundedness(turnId: string): Promise<Groundedness> {
+  return request<Groundedness>(`/api/groundedness/${encodeURIComponent(turnId)}`, {
+    method: "POST",
+  });
 }
 
 /**

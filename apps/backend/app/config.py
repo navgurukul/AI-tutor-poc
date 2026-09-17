@@ -212,6 +212,23 @@ class Settings(BaseSettings):
     # answer text, because these files get copied off classroom laptops.
     turn_log_enabled: bool = True
 
+    # --- Live groundedness ------------------------------------------------
+    # A question asked word for word from the gold set gets its reply graded
+    # claim by claim, and the score shown under the answer. Graded after the
+    # stream ends, in a separate request, so no turn waits on it -- but the
+    # judge does share Ollama with the tutor, and loading it can push the tutor
+    # out of memory and cost the next turn its prompt cache.
+    #
+    # Off by default: the packaged build ships neither the gold set nor a judge
+    # model. GROUNDEDNESS_LIVE=true turns it on for an evaluation session.
+    groundedness_live: bool = False
+    # Empty = docs/groundedness/evalset.json in the repo. A packaged build does
+    # not ship it, and grading is then simply off.
+    groundedness_evalset: str = ""
+    # An Ollama model, or "lexical" for word overlap (no model, blind to
+    # polarity). An unavailable model falls back to lexical, labelled as such.
+    groundedness_judge: str = "gemma3:4b"
+
     # --- Serving / packaging ---------------------------------------------
     # Loopback by default. A packaged device build must never bind 0.0.0.0:
     # the library upload and delete routes have no auth, so a wildcard bind

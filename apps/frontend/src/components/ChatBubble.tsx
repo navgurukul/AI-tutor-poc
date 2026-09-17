@@ -1,4 +1,4 @@
-import type { ChatMessage, Citation, TurnMetrics } from "../types";
+import type { ChatMessage, Citation, Groundedness, TurnMetrics } from "../types";
 
 /** Seconds to one decimal below a minute, then m/s -- 0.9s, 14.1s, 1m 12s. */
 function secs(ms: number): string {
@@ -19,7 +19,13 @@ function secs(ms: number): string {
  * The whole-reply figure is not lost, just demoted to the tooltip, where it
  * still explains a turn that felt slow after the first word appeared.
  */
-function TurnCost({ metrics }: { metrics: TurnMetrics }) {
+function TurnCost({
+  metrics,
+  groundedness,
+}: {
+  metrics: TurnMetrics;
+  groundedness?: ChatMessage["groundedness"];
+}) {
   const rate = metrics.totalMs > 0 ? (metrics.chars / metrics.totalMs) * 1000 : 0;
   return (
     <span
@@ -32,8 +38,64 @@ function TurnCost({ metrics }: { metrics: TurnMetrics }) {
       <span className="turn-cost__item">
         Response (TTFT) <b>{secs(metrics.ttftMs)}</b>
       </span>
+      {groundedness && <GroundednessScore groundedness={groundedness} />}
     </span>
   );
+}
+
+/**
+ * How much of the reply the excerpt it read supports -- gold-set questions only.
+ *
+ * Contradictions are named on their own rather than folded into the
+ * percentage: one false statement is what harms a student, and 80% hides it
+ * behind four harmless ones. A word-overlap score is marked, because it is a
+ * floor rather than a judged number and cannot see "attract" vs "repel".
+ */
+function GroundednessScore({
+  groundedness,
+}: {
+  groundedness: Groundedness | "pending" | "failed";
+}) {
+  if (groundedness === "pending") {
+    return (
+      <span className="turn-cost__item" title="Judging each claim against the excerpt">
+        Grounded <b>…</b>
+      </span>
+    );
+  }
+  if (groundedness === "failed") {
+    return (
+      <span className="turn-cost__item" title="The groundedness judge failed">
+        Grounded <b>–</b>
+      </span>
+    );
+  }
+  const g = groundedness;
+  const lexical = g.judge_kind === "lexical";
+  const title =
+    `${g.item}: ${g.supported} of ${g.claims} claims supported by the excerpt` +
+    (g.unsupported ? `, ${g.unsupported} unsupported` : "") +
+    (g.contradicted ? `, ${g.contradicted} contradicted` : "") +
+    (g.not_scored ? ` (${g.not_scored} questions/invitations not scored)` : "") +
+    ` - judge: ${g.judge}` +
+    (g.note ? ` (${g.note})` : "");
+  return (
+    <span className="turn-cost__item" title={title}>
+      Grounded{lexical && " (overlap)"}{" "}
+      <b>{g.groundedness === null ? "–" : `${Math.round(g.groundedness * 100)}%`}</b>
+      {g.contradicted > 0 && (
+        <span className="turn-cost__warn"> · {g.contradicted} contradicted</span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * A passage as the model read it. The PDF extractor hard-wraps lines
+ * mid-sentence, so the wraps are joined back into running text.
+ */
+function readable(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 /** "p. 63" for a single page, "pp. 63-64" for a passage that spans a break. */
@@ -52,7 +114,7 @@ function pageLabel({ page_start, page_end }: Citation): string {
  * or a teacher checking it -- needs to see the page it came from. Their absence
  * is meaningful too, and says the reply came from the model alone.
  */
-export function ChatBubble({ role, text, sources, metrics }: ChatMessage) {
+export function ChatBubble({ role, text, sources, metrics, groundedness }: ChatMessage) {
   const hasSources = !!sources && sources.length > 0;
   return (
     <div className={`chat-bubble chat-bubble--${role}`}>
@@ -61,7 +123,7 @@ export function ChatBubble({ role, text, sources, metrics }: ChatMessage) {
           an ungrounded reply is the fast case, and that contrast is the point. */}
       {!hasSources && metrics && (
         <div className="turn-cost-row">
-          <TurnCost metrics={metrics} />
+          <TurnCost metrics={metrics} groundedness={groundedness} />
         </div>
       )}
       {hasSources && (
@@ -69,7 +131,7 @@ export function ChatBubble({ role, text, sources, metrics }: ChatMessage) {
           <summary className="citations__summary">
             <span className="citations__chevron" aria-hidden="true" />
             From your textbook · {sources.length}
-            {metrics && <TurnCost metrics={metrics} />}
+            {metrics && <TurnCost metrics={metrics} groundedness={groundedness} />}
           </summary>
           <ol className="citations__list">
             {sources.map((source, index) => (
@@ -79,6 +141,17 @@ export function ChatBubble({ role, text, sources, metrics }: ChatMessage) {
                   <span className="citations__title">{source.title}</span>
                   {source.heading && (
                     <span className="citations__heading">{source.heading}</span>
+                  )}
+                  {source.excerpt ? (
+                    <blockquote className="citations__excerpt">
+                      {readable(source.excerpt)}
+                    </blockquote>
+                  ) : (
+                    source.excerpt === null && (
+                      <span className="citations__cut">
+                        Not sent to the tutor - over the context budget
+                      </span>
+                    )
                   )}
                 </span>
               </li>

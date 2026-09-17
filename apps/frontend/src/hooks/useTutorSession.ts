@@ -4,7 +4,7 @@ import { usePiper } from "react-sts-hooks";
 // streams every utterance to Google and speech dies the moment a device is
 // offline -- which is the one condition this product is built for.
 import { useOfflineSpeechToText } from "./stt/useOfflineSpeechToText";
-import { askTutorStream, warmupTutor,
+import { askTutorStream, fetchGroundedness, warmupTutor,
   reportTurnTimings,
 } from "../services/api";
 import { VOICE_MODEL_URL, VOICE_CONFIG_URL } from "../config/voice";
@@ -187,6 +187,16 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     });
   }, []);
 
+  /** Attach a gold-set turn's groundedness to the bubble it belongs to. */
+  const setReplyGroundedness = useCallback(
+    (id: string, groundedness: ChatMessage["groundedness"]) => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, groundedness } : m)),
+      );
+    },
+    [],
+  );
+
   /** Attach the turn's cost once the reply has finished streaming. */
   const setReplyMetrics = useCallback((metrics: TurnMetrics) => {
     const id = replyIdRef.current;
@@ -266,6 +276,7 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
       let answer = "";
       let unspoken = "";
       let firstTokenAt: number | null = null;
+      let groundednessPending = false;
       // speak() resolves when the phrase is queued, not when it finishes
       // playing; chaining keeps sentences in order without blocking the reader.
       let speechChain: Promise<unknown> = Promise.resolve();
@@ -337,8 +348,9 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
                 }
               }
             },
-            onDone: ({ sessionId, answer: finalAnswer }) => {
+            onDone: ({ sessionId, answer: finalAnswer, groundednessPending: pending }) => {
               sessionIdRef.current = sessionId;
+              groundednessPending = !!pending;
               // The server's reply is the same text, trimmed; prefer it so the
               // bubble doesn't keep stray leading/trailing whitespace.
               answer = finalAnswer || answer;
@@ -359,6 +371,18 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
           totalMs: Math.round(fullReplyAt - turnStart),
           chars: answer.length,
         });
+        // Graded after the fact and patched in by id: the next question may
+        // already be under way by the time the judge is done.
+        const gradedTurnId = turnIdRef.current;
+        if (groundednessPending && gradedTurnId) {
+          setReplyGroundedness(replyId, "pending");
+          fetchGroundedness(gradedTurnId)
+            .then((result) => setReplyGroundedness(replyId, result))
+            .catch((err) => {
+              console.warn("[groundedness] grading failed:", err);
+              setReplyGroundedness(replyId, "failed");
+            });
+        }
         clientTimingRef.current.fullReply = Math.round(fullReplyAt - turnStart);
         clientTimingRef.current.chars = answer.length;
         // Sent now rather than waiting for audio to finish: a student who
@@ -400,7 +424,7 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
         submittingRef.current = false;
       }
     },
-    [subjectName, level, speak, resetTTS, setReplyText],
+    [subjectName, level, speak, resetTTS, setReplyText, setReplyGroundedness],
   );
 
   // The single path from a captured question to a turn. Guarded so the mic's

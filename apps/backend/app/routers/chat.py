@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from app.config import settings
 from app.schemas import ChatRequest, ChatResponse, Source, Usage
 from app.services.ollama_client import OllamaError, build_usage, client
-from app.services import turnlog
+from app.services import groundedness, turnlog
 from app.services.sessions import store
 from app.services.rag import service as library
 from app.services.rag.retrieval import (
@@ -72,11 +72,12 @@ async def _retrieve_context(
     shown = prompt_hits(
         hits, retrieval_query(message, previous_question), budget, reuse
     )
-    return (
-        format_excerpts(shown),
-        citations(hits),
-        {hit.chunk_id: hit.text for hit in shown},
-    )
+    sent = {hit.chunk_id: hit.text for hit in shown}
+    cited = citations(hits)
+    for citation, hit in zip(cited, hits):
+        # What the model read of this passage; None when the budget cut it.
+        citation["excerpt"] = sent.get(hit.chunk_id)
+    return format_excerpts(shown), cited, sent
 
 
 def _new_turn_id() -> str:
@@ -179,12 +180,13 @@ async def _stream_events(
     context = ""
     sources = []
     retrieval_ms = 0
+    previous_question = session.previous_question()
     try:
         retrieval_started = time.perf_counter()
         context, sources, session.excerpts = await _retrieve_context(
             message,
             session.profile,
-            session.previous_question(),
+            previous_question,
             budget=context_max_chars,
             reuse=session.excerpts,
         )
@@ -243,6 +245,12 @@ async def _stream_events(
                         "answer_chars": len(reply),
                     }
                 )
+                # A gold-set question is graded, but not here: the judge takes
+                # seconds a claim, and the stream ending is what frees the UI.
+                # The frontend asks for the score once it sees this flag.
+                item = groundedness.match_item(message, previous_question)
+                if item:
+                    groundedness.remember_turn(turn_id, item, reply, context)
                 yield _sse(
                     {
                         "type": "done",
@@ -250,6 +258,7 @@ async def _stream_events(
                         "reply": reply,
                         "usage": usage,
                         "turn_id": turn_id,
+                        "groundedness_pending": bool(item),
                     }
                 )
     except OllamaError as exc:

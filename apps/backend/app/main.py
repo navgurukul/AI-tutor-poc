@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.guards import LocalOnlyMiddleware
-from app.routers import chat, health, library, sessions, telemetry, tutor
+from app.routers import chat, groundedness, health, library, sessions, telemetry, tutor
 from app.web import SpaFiles, resolve_web_dir
 from app.services.ollama_client import OllamaError, client
 from app.services.rag import service as rag_service
@@ -139,6 +139,7 @@ app.include_router(sessions.router)
 app.include_router(tutor.router)
 app.include_router(library.router)
 app.include_router(telemetry.router)
+app.include_router(groundedness.router)
 
 
 @app.get("/api/index", tags=["health"], summary="API index")

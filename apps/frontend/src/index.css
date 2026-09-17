@@ -440,6 +440,26 @@ button {
   color: var(--text-h);
 }
 
+.citations__excerpt {
+  margin: 5px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  background: var(--accent-bg);
+  color: var(--text-h);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.citations__cut {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-style: italic;
+}
+
 .citations__heading {
   color: var(--text-muted);
   font-size: 11.5px;
@@ -853,6 +873,11 @@ button {
   font-size: 0.75rem;
   color: var(--muted, #6b7280);
   white-space: nowrap;
+}
+
+.turn-cost__warn {
+  color: #dc2626;
+  font-weight: 600;
 }
 
 .turn-cost__item b {

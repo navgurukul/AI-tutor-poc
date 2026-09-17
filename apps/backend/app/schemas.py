@@ -100,6 +100,10 @@ class Source(BaseModel):
     grade: Optional[int] = None
     subject: Optional[str] = None
     distance: float = 0.0
+    # The passage exactly as it went into the prompt -- shortened to the
+    # question -- or None when the character budget cut it, which is why a
+    # cited page can still be one the model never read.
+    excerpt: Optional[str] = None
 
 
 class ChatResponse(BaseModel):

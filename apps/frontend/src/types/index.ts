@@ -24,6 +24,12 @@ export interface Citation {
   subject?: string | null;
   /** Cosine distance; smaller is a closer match. Kept for debugging. */
   distance?: number;
+  /**
+   * The passage as it went into the prompt, shortened to the question. Null
+   * when the character budget cut it: the page was retrieved and is cited, but
+   * the model never read it.
+   */
+  excerpt?: string | null;
 }
 
 /**
@@ -44,6 +50,29 @@ export interface TurnMetrics {
   chars: number;
 }
 
+/**
+ * How much of a reply the textbook excerpt it read actually supports.
+ *
+ * Only computed for questions from the groundedness gold set
+ * (docs/groundedness/evalset.json), graded claim by claim after the reply
+ * finishes. Mirrors the backend's response, so the field names stay snake_case.
+ */
+export interface Groundedness {
+  item: string;
+  /** Supported claims / scored claims; null when the reply made no claims. */
+  groundedness: number | null;
+  claims: number;
+  supported: number;
+  unsupported: number;
+  contradicted: number;
+  /** Questions and invitations to the student, which assert nothing. */
+  not_scored: number;
+  judge: string;
+  judge_kind: "llm" | "lexical";
+  /** Set when the configured judge could not be used. */
+  note?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -52,6 +81,8 @@ export interface ChatMessage {
   sources?: Citation[];
   /** Present once a tutor reply has finished streaming. */
   metrics?: TurnMetrics;
+  /** Gold-set questions only: "pending" while the judge runs. */
+  groundedness?: Groundedness | "pending" | "failed";
 }
 
 export type TeachingStyle = "socratic" | "direct" | "exam_prep";
@@ -73,4 +104,6 @@ export interface AskTutorRequest {
 export interface AskTutorResponse {
   sessionId: string;
   answer: string;
+  /** The question is in the gold set and the reply is waiting to be graded. */
+  groundednessPending?: boolean;
 }
