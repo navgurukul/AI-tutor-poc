@@ -64,42 +64,43 @@ class Settings(BaseSettings):
     # 5.6s to first token, turn 5 at 9.2s, rising monotonically with the length
     # of the preceding answer.
     #
-    # What is replayed now, and why each part earns its tokens:
+    # What the model reads now is ONE student message (sessions.Session.history):
     #
-    #   the previous question   ~6 tok   what a pronoun binds to. "Why does it
-    #                                    get bigger?" resolves against "What is
-    #                                    a shadow?" as well as against any
-    #                                    answer, and costs a twentieth as much.
-    #                                    Cheaper still than that: replaying it
-    #                                    makes the prompt a strict extension of
-    #                                    the last one, so the cache covers it.
-    #   the current question    ~6 tok   always present.
+    #   a question that names its topic   the question alone
+    #   a follow-up ("how can we reduce   the last `history_questions` questions
+    #   it?", "why?")                     named as background, the follow-up,
+    #                                     and the style rule's length spelled
+    #                                     out again (tutor.FOLLOW_UP_PROMPT)
     #
-    # Assistant turns are not replayed at all. The worked example and the
-    # elaboration were never referred back to; the closing sentence -- the
-    # socratic "nudge", ~28 tok, capped by HISTORY_NUDGE_MAX_CHARS -- was, so
-    # that a student answering the tutor's own question ("because it would go
-    # pale?") did not read as a non-sequitur. Both are gone as of 16 Sep: the
-    # nudge was not earning it in practice, and it was the one part of the
-    # window that could never be cached, because it changes every turn and sits
-    # ahead of the question in the prompt.
+    # Which is which is the word test retrieval already used to decide whether to
+    # search with the previous question (rag.followup.is_context_dependent).
     #
-    # Measured on a follow-up whose excerpt was reused verbatim (Mac,
-    # qwen2.5:1.5b, Ollama 0.32.15, min of 3 reps) -- turn-2 prefill:
+    # No assistant turn goes back, not even a piece of one. Every chat-turn shape
+    # failed on a 1.5B model: two questions in a row got both answered, a fixed
+    # "(answered)" turn was copied as the whole reply on 7 of 12 pronoun
+    # follow-ups, and the opening sentence of the real answer (17 Sep, briefly)
+    # was copied for length, leaving 5 of 6 topic switches at one sentence.
+    # Against that last version, same corpus, Mac: one-sentence topic switches
+    # 5/6 -> 1/6, follow-ups 17/32 -> 9/32; prompt tokens for a new topic
+    # 323 -> 294, for a follow-up 327 -> 338.
     #
-    #   previous question + nudge + current   376 tok   340 ms
-    #   previous question + current           344 tok   236 ms   <- now
-    #   current question alone                339 tok    97 ms
-    #   nudge + current, question cut         366 tok   609 ms
+    # Budget every token above as prefilled, ~25-30 ms each on the target CPU.
+    # Older notes here said the replayed question was free because the prompt
+    # extended the last one and Ollama's cache covered it. It mostly was not:
+    # the excerpts sit in the system message ahead of the conversation and
+    # change between turns, so everything after them is read again -- 16 of 18
+    # live follow-ups. On the other two, where the excerpts were reused
+    # verbatim, the old shape did extend the last prompt and this one does not.
     #
-    # The last row is why the previous question stays: cutting it breaks the
-    # shared prefix and costs more than the whole window saves. Target CPU
-    # prefill is more linear per token than Metal's, so expect a larger
-    # absolute saving there -- re-measure with packaging/windows/benchmark.py.
+    # Before 16 Sep the closing sentence of the previous answer (~28 tok) came
+    # back too, so a student answering the tutor's own question ("because it
+    # would go pale?") did not read as a non-sequitur. It was not earning it:
+    # 376 tok / 340 ms against 344 tok / 236 ms without it (Mac, excerpt reused
+    # verbatim, min of 3 reps).
     #
-    # One is enough: the immediate antecedent is what pronouns bind to, and a
-    # second question buys ~6 tokens of context for ~0.1s. Raising this is
-    # cheap if follow-ups start losing the thread.
+    # One question back is enough for a pronoun: the immediate antecedent is
+    # what it binds to. Raise this if chained follow-ups ("why does that work?"
+    # after "how can we reduce it?") start losing the topic.
     history_questions: int = 1
     session_ttl_minutes: int = 180
     max_sessions: int = 500

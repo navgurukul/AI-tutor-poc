@@ -28,6 +28,14 @@ problem: a reference pointing outside the sentence. A question that changes
 topic does not contain one -- nobody writes "what is photosynthesis?" with a
 dangling "it" -- which is exactly why this test separates the two cases when a
 distance threshold cannot.
+
+The same goes for a question that leaves the topic out instead of pointing at
+it: "Why?", "Give me an example.", "Tell me more." Nothing in them names a topic,
+so nothing in them can change it. Searched and answered on their own, "Why?"
+after a lever question got skin and clothing threads, and "Tell me more." after
+a shadow question explained the book's "Can you recall?" box. Since 17 Sep this test also decides whether
+the MODEL sees the previous question at all (Session.history), so a miss here
+loses the conversation, not just the search.
 """
 
 import logging
@@ -54,6 +62,20 @@ _DANGLING = {
     "त्याचा", "त्याची", "त्यात", "याचा", "याची", "यात", "ते", "तो", "ती",
 }
 
+# Words that ask without naming anything. A question made of nothing else
+# ("Why?", "Can you give me another example?") has left its topic in the last
+# turn. English only: the Devanagari equivalents are untested.
+_ASKING = {
+    "why", "how", "what", "when", "where", "which", "who",
+    "is", "are", "was", "were", "do", "does", "did",
+    "can", "could", "will", "would", "should",
+    "i", "me", "you", "we", "us", "please",
+    "give", "tell", "explain", "show", "describe", "say", "mean",
+    "a", "an", "the", "some", "any", "another", "other", "one",
+    "more", "again", "else", "example", "examples", "detail", "details",
+    "simply", "simpler", "further", "about", "so", "and", "then", "really",
+}
+
 _WORD = re.compile(r"[\wऀ-ॿ]+", re.UNICODE)
 
 
@@ -65,9 +87,10 @@ def is_context_dependent(question: str) -> bool:
     -- and the distance cannot be the trigger either, because the whole hazard
     is that a contentless question produces distances that look healthy.
     """
-    if not question:
+    words = [w.lower() for w in _WORD.findall(question or "")]
+    if not words:
         return False
-    return any(w.lower() in _DANGLING for w in _WORD.findall(question))
+    return any(w in _DANGLING for w in words) or all(w in _ASKING for w in words)
 
 
 def embedding_text(question: str, previous_question: Optional[str]) -> str:

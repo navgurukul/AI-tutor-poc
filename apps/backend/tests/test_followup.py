@@ -84,6 +84,37 @@ def test_a_question_that_names_no_topic_is_flagged(question):
     assert is_context_dependent(question)
 
 
+@pytest.mark.parametrize("question", [
+    "Why?",
+    "How?",
+    "Give me an example.",
+    "Tell me more.",
+    "Explain again.",
+    "Can you give me another example?",
+    "Can you explain more simply?",
+    "What do you mean?",
+])
+def test_a_question_that_leaves_the_topic_out_is_flagged(question):
+    """No pointing word, but nothing named either. Asked alone after a shadow
+    question, "Tell me more." got the book's "Can you recall?" box explained."""
+    assert is_context_dependent(question)
+
+
+@pytest.mark.parametrize("question", [
+    "Give me an example of a lever.",
+    "Tell me about magnets.",
+    "Why is the sky blue?",
+    "How do plants make food?",
+])
+def test_asking_words_around_a_topic_do_not_make_a_follow_up(question):
+    assert not is_context_dependent(question)
+
+
+def test_an_empty_question_is_not_a_follow_up():
+    assert not is_context_dependent("")
+    assert not is_context_dependent("?!")
+
+
 @pytest.mark.parametrize("question", EXP004_TOPICS + [
     "What is an atom?",
     "What is photosynthesis?",

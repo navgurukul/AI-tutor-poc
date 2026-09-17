@@ -209,8 +209,10 @@ async def _stream_events(
         )
         # Counted here, not at the end: by the time the row is written the reply
         # has been appended to the session, so reading the window back then
-        # reports a message that was never in this prompt. Minus the system one.
-        history_sent = len(messages) - 1
+        # reports a question that was never in this prompt. Earlier questions
+        # carried, not messages: the prompt is always one student message now,
+        # so 0 is a question that named its topic and 1 a follow-up.
+        history_sent = len(session.earlier_questions(settings.history_questions))
         async for chunk in client.chat_stream(
             messages, model=model, temperature=temperature, max_tokens=max_tokens
         ):

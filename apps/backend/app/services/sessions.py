@@ -13,16 +13,12 @@ from typing import Dict, List, Optional
 
 from app.config import settings
 from app.schemas import Message, TutorProfile
+from app.services.rag.followup import is_context_dependent
+from app.services.tutor import follow_up_message
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-# Stands in for an answer the student already has, so that two of their
-# questions never arrive as one message. Fixed text, never shown to them, and
-# the fact that it is fixed is the whole point -- see history().
-TURN_SEPARATOR = "(answered)"
 
 
 class Session:
@@ -67,8 +63,24 @@ class Session:
                 return message.content
         return None
 
+    def earlier_questions(self, questions: int) -> List[str]:
+        """The earlier questions the current one leans on, oldest first.
+
+        Empty unless the current question points outside itself -- "How can we
+        reduce it?" -- by the same word test retrieval uses to decide whether
+        to search with the previous question (rag.followup). A question that
+        names its own topic carries nothing, which is most of them.
+        """
+        if questions <= 0 or not self.messages:
+            return []
+        current = self.messages[-1]
+        if current.role != "user" or not is_context_dependent(current.content):
+            return []
+        earlier = [m.content for m in reversed(self.messages[:-1]) if m.role == "user"]
+        return earlier[:questions][::-1]
+
     def history(self, questions: int) -> List[Dict[str, str]]:
-        """What the MODEL re-reads, shaped for Ollama's /api/chat.
+        """What the MODEL reads of the conversation, shaped for /api/chat.
 
         Deliberately not the same thing as what the student sees. The full
         reply stays in self.messages, streams to the UI and is returned by the
@@ -77,53 +89,44 @@ class Session:
         of prefill on every turn after the first -- answer length charged
         twice, once to generate and again to re-read.
 
-        Replayed: the last `questions` student questions, and the current one.
-        No assistant CONTENT is replayed -- neither the body of the previous
-        answer nor, since 16 Sep, its closing sentence; see the
-        history_questions comment in app.config for what that one cost. What
-        does go back between them is TURN_SEPARATOR.
+        Always exactly one student message, and never an assistant turn:
 
-        Not a flat "last N messages" window any more, which is why the setting
-        that drives it was renamed. Order is chronological.
+          a question that names its topic   the question, as asked
+          a follow-up ("how can we reduce   the question with the last
+          it?", "why?")                     `questions` questions before it
+                                            named as background, and the
+                                            style rule's length spelled out
+                                            (tutor.FOLLOW_UP_PROMPT)
 
-        If this is ever trimmed further, the previous question is the last
-        thing to go. It is what a dangling pronoun binds to, and it is also
-        free: replaying it makes this prompt a strict extension of the last
-        one, so Ollama's cache covers it instead of re-reading it.
+        Replaying earlier turns as chat turns failed three ways on a 1.5B
+        model, all measured live. Two student turns in a row read as one request
+        and got both answered: "What is magnetic force?" opened with the answer
+        to the shadow question before it. A fixed "(answered)" assistant turn
+        between them was copied as the whole reply on 7 of 12 pronoun
+        follow-ups. The opening sentence of the real answer stopped both, but
+        the model matched its length: 6 of 6 topic switches came back as a
+        single sentence, against 1 of 6 without it. A model imitates its own
+        last turn, so this gives it none to imitate.
+
+        A new topic carries nothing because it needs nothing, and carrying the
+        old question is exactly what got it answered.
+
+        Against the opening-sentence version on the shipped Class 6 corpus (Mac,
+        2 reps): topic switches answered in one sentence 5/6 -> 1/6 (the same
+        questions in a fresh session: 1-2/6), follow-ups 17/32 -> 9/32, none
+        answered the old topic, none copied anything. Prompt tokens for a new
+        topic 323 -> 294, for a follow-up 327 -> 338.
         """
         if not self.messages:
             return []
-        last = len(self.messages) - 1
-        keep = {last}                      # the current question, always
-        seen = 0
-        for i in range(last - 1, -1, -1):
-            # Tested before the append, so questions=0 replays nothing but the
-            # question being answered.
-            if seen >= questions:
-                break
-            if self.messages[i].role == "user":
-                keep.add(i)
-                seen += 1
-
-        out: List[Dict[str, str]] = []
-        for i in sorted(keep):
-            message = self.messages[i]
-            # Two student questions in a row are ONE message with two questions
-            # in it as far as the model is concerned, and a small one answers
-            # both -- the older first. Observed on a device: "What is magnetic
-            # force?" opened with the Earth's rotation changing a shadow's
-            # length, then closed by answering both out loud. Until 16 Sep the
-            # closing nudge separated them as a side effect; removing it left
-            # them adjacent.
-            #
-            # The stub is CONSTANT, which is what the nudge could never be. The
-            # prompt therefore stays a strict extension of the previous turn's,
-            # so the cache still covers it, and it costs ~5 tokens against the
-            # nudge's ~28.
-            if out and out[-1]["role"] == "user" and message.role == "user":
-                out.append({"role": "assistant", "content": TURN_SEPARATOR})
-            out.append({"role": message.role, "content": message.content})
-        return out
+        current = self.messages[-1]
+        earlier = self.earlier_questions(questions)
+        content = (
+            follow_up_message(earlier, current.content, self.profile.style)
+            if earlier
+            else current.content
+        )
+        return [{"role": current.role, "content": content}]
 
     @property
     def preview(self) -> Optional[str]:

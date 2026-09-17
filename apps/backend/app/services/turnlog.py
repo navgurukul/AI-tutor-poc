@@ -39,6 +39,8 @@ BACKEND_FIELDS: Sequence[str] = (
     "turn_id",
     "session_id",
     "question_chars",
+    # Earlier questions carried into the prompt: 0 for a new topic, 1 for a
+    # follow-up. It counted messages until 17 Sep; older rows do not compare.
     "history_msgs",
     "retrieval_ms",      # embedding + search + gate; the cheap part
     "sources",

@@ -45,8 +45,8 @@ STYLE_RULES = {
     # instruction.
     #
     # Length is not free even though the student is reading rather than
-    # waiting: the closing line comes back through the history window on the
-    # next turn (see Session.history), and generation runs at ~15.6 tokens/s.
+    # waiting: generation runs at ~15.6 tokens/s. (No part of a reply comes back
+    # on the next turn any more; see Session.history.)
     #
     # No question-mark requirement. It used to end "your reply MUST end with a
     # question mark", which the model obeyed to the letter and made every
@@ -75,6 +75,50 @@ EXCERPT_PREAMBLE = (
     "Use the student's textbook excerpts when relevant, prioritizing their "
     "wording and examples over your own knowledge."
 )
+
+# A follow-up ("How can we reduce it?") reaches the model as ONE student
+# message that names the earlier question as background, never as earlier chat
+# turns. Every chat-turn shape tried failed on a 1.5B model, each differently:
+# two questions in a row got both answered, a fixed "(answered)" turn was
+# copied as the whole reply, and the opening sentence of the real answer was
+# copied for length -- topic switches came back as one sentence. See
+# Session.history for which questions get this at all.
+#
+# The rule line is last because the model weights the end of the prompt most,
+# and it spells the rule's length and example out in a few words rather than
+# only naming it. Naming it did not land. Live, Mac, shipped Class 6 corpus,
+# 20 pronoun follow-ups and 12 like "Why?" / "Tell me more.", one-sentence
+# replies:
+#
+#                                     pronoun   no pointer   prompt tokens
+#   opening sentence as a chat turn    11/20       6/12          327
+#   "...follow the most important
+#    rule."                            15/20       5/12          325
+#   "...the most important rule:
+#    5 to 6 plain sentences, with
+#    one everyday example."   <- now    9/20       0/12          338
+#
+# Not the whole rule restated: ~70 more tokens of prefill on every follow-up,
+# ~2s on the target CPU. Each style needs a line here; a test holds them to it.
+FOLLOW_UP_PROMPT = (
+    'My earlier question was: "{earlier}"\n'
+    "My follow-up question: {question}\n"
+    "Answer only the follow-up question, and strictly follow the most important rule: {rule}"
+)
+FOLLOW_UP_RULES = {
+    "socratic": "5 to 6 plain sentences, with one everyday example.",
+    "direct": "a clear answer, then one short worked example.",
+    "exam_prep": "the answer, the marking points, and one common mistake to avoid.",
+}
+
+
+def follow_up_message(earlier: List[str], question: str, style: str = "socratic") -> str:
+    """The follow-up as the model reads it, earlier questions oldest first."""
+    return FOLLOW_UP_PROMPT.format(
+        earlier='", then "'.join(q.strip() for q in earlier),
+        question=question.strip(),
+        rule=FOLLOW_UP_RULES.get(style, FOLLOW_UP_RULES["socratic"]),
+    )
 
 
 def build_system_prompt(
