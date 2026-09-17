@@ -19,11 +19,12 @@ It prints three things:
                         survives extraction but not filtering is a regression,
                         and the exit code is non-zero so CI can catch it.
 
-  THE PAGE TABLE        exercise density per page, sorted. The threshold should
-                        sit in a gap in this list rather than on a slope; on the
-                        Class 6 book the answer pages measure 0.00-0.08 and the
-                        exercise pages 0.40-1.02, which is why 0.40 is the
-                        default and why it is safe to be approximate.
+  THE PAGE TABLE        exercise density per page, sorted, marking the pages
+                        dropped. Density is not enough on its own: on the Class
+                        6 book lesson pages reach 0.43 and exercise pages start
+                        at 0.44, and only the instruction-stem requirement keeps
+                        the lesson pages. Read the rows either side of the
+                        threshold, not just the threshold.
 
   WHAT WOULD GO         a sample of the dropped paragraphs, to read.
 

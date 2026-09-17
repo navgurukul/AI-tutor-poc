@@ -20,7 +20,7 @@ from typing import List, Optional, Sequence
 # Heading detection lives in pdf_text because reflow has to apply it first --
 # a heading only reaches this module as its own paragraph because that pass
 # already recognised it. Shared rather than duplicated so the two agree.
-from app.services.rag.pdf_text import looks_like_heading
+from app.services.rag import pdf_text
 from app.services.rag.quality import (
     clean_heading,
     is_question_only,
@@ -93,9 +93,10 @@ def chunk_pages(
     that remain, and a heading is only kept if it names a topic. A chunk left
     with nothing but questions is dropped at the end.
 
-    Measured on the Class 6 book: 12 of 132 pages and 8.4% of paragraphs go,
-    and none of the 70 answer phrases in the two evaluation sets is lost from
-    the corpus. See `scripts/eval/corpus_filter_report.py`.
+    Measured on the Class 6 book: 16 of 132 pages are treated as exercises,
+    14.8% of the text goes, and none of the 69 answer phrases in the two
+    evaluation sets is lost from the corpus. See
+    `scripts/eval/corpus_filter_report.py`.
     """
     chunks: List[Chunk] = []
     buffer: List[str] = []
@@ -146,21 +147,22 @@ def chunk_pages(
                 paragraphs = keep_on_exercise_page(paragraphs)
             else:
                 paragraphs = strip_apparatus(paragraphs)
-        for para in paragraphs:
-            if looks_like_heading(para):
+        for index, para in enumerate(paragraphs):
+            if pdf_text.is_section_heading(paragraphs, index):
                 # "" for a line that names no topic, so the breadcrumb falls
                 # back to "Class 6 > Science" instead of carrying "28620C" or
                 # an activity step into every vector in the section.
                 label = clean_heading(para) if drop_exercises else para
                 if not label and drop_exercises:
                     # Rejected as a heading, but the words are still the book's.
-                    # On a narrow column reflow calls a lot of ordinary prose a
-                    # heading -- "The support at which the rod of a lever is" is
-                    # how p.96 defines the fulcrum -- and consuming it as a
-                    # heading that is then thrown away would delete it from the
-                    # corpus outright. So it falls through and is treated as
-                    # body text, which is also the first time that text reaches
-                    # the prompt as prose rather than as a citation label.
+                    # Before reflow read each line against the next it called a
+                    # lot of ordinary prose a heading -- "The support at which the
+                    # rod of a lever is" is how p.96 defines the fulcrum -- and
+                    # consuming one as a heading that is then thrown away deletes
+                    # it from the corpus outright. Reflow no longer does that, but
+                    # anything clean_heading rejects still falls through to body
+                    # text, because deleting the book's words is the one mistake
+                    # no later stage can undo.
                     pass
                 else:
                     # A heading opens a new topic, so close the current chunk

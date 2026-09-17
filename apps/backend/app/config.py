@@ -180,14 +180,18 @@ class Settings(BaseSettings):
     # blanks in backwards and taught the student that opposite poles repel.
     #
     # Only applies at ingest, so changing it means re-ingesting the PDF. Off
-    # (RAG_FILTER_CORPUS=0) reproduces the pre-2026-09-16 index exactly.
+    # (RAG_FILTER_CORPUS=0) skips the filter but not the reflow in pdf_text, which
+    # is not behind a flag: since 2026-09-17 it keeps sentences whole and drops
+    # figure captions, so "off" no longer reproduces the 2026-09-16 index.
     rag_filter_corpus: bool = True
     # Share of a page's paragraphs that must be exercise apparatus, alongside at
     # least one explicit instruction stem, before the whole page is dropped.
-    # 0.40 sits in an empty gap: on this book the pages holding an answer
-    # measure 0.00-0.08 and the exercise pages 0.40-1.02. At this value 12 of
-    # 132 pages go and none of the 70 answer phrases in the two evaluation sets
-    # is lost. Re-measure for a new book with
+    # The stem is what makes 0.40 safe, not a gap in the densities: since reflow
+    # keeps a prose paragraph whole (2026-09-17), lesson pages holding an answer
+    # reach 0.43 (p.42, p.36, p.86) and exercise pages start at 0.44 -- but none
+    # of those lesson pages carries a stem. At this value 16 of 132 pages go,
+    # 14.8% of the text, and none of the 69 answer phrases in the two evaluation
+    # sets is lost. Re-measure for a new book with
     # scripts/eval/corpus_filter_report.py.
     rag_exercise_page_ratio: float = 0.40
     # Prepend "Class 6 > Science > <heading>" to a chunk before embedding, so a
@@ -199,8 +203,34 @@ class Settings(BaseSettings):
     rag_embed_breadcrumb: bool = True
     # Characters per chunk, and the overlap carried between neighbours so a
     # definition split across a boundary survives in at least one of them.
-    rag_chunk_chars: int = 1200
-    rag_chunk_overlap_chars: int = 180
+    #
+    # Sized against rag_passage_max_chars (600) and rag_context_max_chars (800),
+    # not on its own. This was 1200, and 1200 only worked by accident: the old
+    # reflow broke a chunk at every false heading, so the median chunk was 491
+    # characters. Once reflow kept sections whole (2026-09-17) the median doubled
+    # to 1,014 and context recall fell from 51% to 32% -- the gravity, lever and
+    # sublimation definitions were retrieved, then trimmed out by the passage
+    # limit or cut with the second passage by the budget.
+    #
+    # Swept on the reflowed Class 6 book. Gold quotes reaching the prompt (of 31)
+    # + benchmark.py answers (of 30), and gold quotes split across a chunk
+    # boundary, which the groundedness gold set refuses to score:
+    #
+    #   old corpus  16 + 20 = 36   split 0
+    #   1200        10 + 16 = 26   split 0
+    #   800         16 + 21 = 37   split 2
+    #   700         15 + 20 = 35   split 0   <- here
+    #   600         17 + 20 = 37   split 1
+    #   500         12 + 19 = 31   split 2
+    #
+    # 600-800 are indistinguishable at this sample size; which quote a boundary
+    # happens to cut is luck of placement, not a trend. 700 is the one of them
+    # the gold set can score unchanged, which keeps the end-to-end eval
+    # comparable with earlier runs. Below 600, more small chunks compete for
+    # rag_top_k's two slots. Re-measure if the passage limit or the budget
+    # changes -- the three move together.
+    rag_chunk_chars: int = 700
+    rag_chunk_overlap_chars: int = 105
     # Chunks embedded per Ollama call during ingestion.
     rag_embed_batch_size: int = 16
     # Upload ceiling for a single PDF.

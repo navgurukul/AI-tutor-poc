@@ -251,11 +251,15 @@ def _is_exercise_item(text: str) -> bool:
 def exercise_density(paragraphs: List[str]) -> float:
     """Share of a page's paragraphs that are exercise apparatus.
 
-    Needed because on an end-of-chapter exercise page reflow gives every visual
-    line its own paragraph, and the items are split across them: "3. Right or
-    wrong ? If wrong, write the" ends one and "correct sentence. (a) Bones are
-    soft." begins the next. Tracking a run line by line keeps breaking on the
-    continuations, so the page is judged as a whole instead.
+    The page is judged as a whole because no single item condemns it: an
+    exercise is a spread of short stems, options and blanks.
+
+    Counted per paragraph, so the number moves with how reflow draws
+    paragraphs. It used to split every visual line, which made a lesson page
+    look like dozens of harmless paragraphs; now that a prose paragraph stays
+    whole while each exercise item is still its own, a lesson page scores
+    higher than it did. page_is_exercise's stem requirement is what keeps that
+    safe -- see there.
     """
     paragraphs = [" ".join((p or "").split()) for p in paragraphs]
     paragraphs = [p for p in paragraphs if p]
@@ -289,10 +293,9 @@ def keep_on_exercise_page(paragraphs: List[str]) -> List[str]:
     an instruction, not a bare question, and long enough to be a clause rather
     than a fragment of a numbered item.
 
-    The shredding that reflow does to a narrow column is harmless here, because
-    chunk_pages merges adjacent paragraphs again afterwards: "Soil has both
-    biotic and abiotic" and "constituents." are kept separately and come back
-    together in the chunk.
+    The four-word floor relies on reflow keeping a wrapped sentence together.
+    It did not always: "Soil has both biotic and abiotic" and "constituents."
+    used to arrive as two paragraphs, and the floor would have taken the second.
     """
     out: List[str] = []
     for para in paragraphs:
@@ -328,12 +331,16 @@ def page_is_exercise(paragraphs: List[str], ratio: float = 0.40) -> bool:
     table, which is full of "(a)" markers and no instructions, from going with
     it.
 
-    The 0.40 default is not a guess. Measured over this book, the pages holding
-    an answer sit at a density of 0.00-0.08 and the exercise pages at 0.40-1.02,
-    so the threshold sits in an empty gap rather than on a slope. Checked
-    against all 70 answer phrases in the two evaluation sets (benchmark.py's
-    ANSWER_KEY and docs/groundedness/evalset.json): at 0.40, twelve pages are
-    dropped and **no answer phrase is lost** from the corpus.
+    Density alone does not separate the two, and the stem is load-bearing.
+    Measured over this book with reflow keeping paragraphs whole, lesson pages
+    holding an answer reach 0.43 (p.42, p.36, p.86) and exercise pages start at
+    0.44 -- no gap -- but none of those lesson pages carries a stem. Checked
+    against all 69 answer phrases in the two evaluation sets (benchmark.py's
+    ANSWER_KEY and docs/groundedness/evalset.json): at 0.40, 16 pages are
+    treated as exercises, 14.8% of the text goes, and **no answer phrase is
+    lost** from the corpus. Two of those pages (p.79, p.100) are fill-in-the-
+    blanks the filter used to miss, because the old line-splitting broke their
+    instruction in half.
 
     Re-measure this if the book changes. `scripts/eval/corpus_filter_report.py`
     prints the density table and the answer-phrase check.
