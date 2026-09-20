@@ -100,6 +100,11 @@ class Source(BaseModel):
     grade: Optional[int] = None
     subject: Optional[str] = None
     distance: float = 0.0
+    # The actual excerpt text handed to the model, not just where it came
+    # from. Added 2026-09-18: the citation list previously named the source
+    # but not what it said, which meant verifying a grounded answer required
+    # reading the raw retrieval trace or the PDF itself rather than the app.
+    text: str = ""
 
 
 class RetrievalMetrics(BaseModel):
@@ -113,6 +118,10 @@ class RetrievalMetrics(BaseModel):
     """
 
     query_language: str = ""
+    # A respelled variant of the question that was searched IN ADDITION to the
+    # question as spoken (see services/rag/spell.py); empty when there was
+    # none, which is the common case.
+    query_variant: str = ""
     # The distance ceiling that applied, which is per query language -- a hit
     # at 0.55 is a good English result rejected and a fine Hindi one accepted.
     ceiling: float = 0.0

@@ -154,6 +154,25 @@ class IngestionService:
             job.hint = "Delete it first if you want to re-ingest."
             return
 
+        # Not blocked, unlike the check above -- deleting a document, then
+        # re-uploading the identical file, is sometimes exactly what you mean
+        # to do (undoing a mistaken delete). What it cannot be is silent: the
+        # hash-dedup above only ever sees documents still present, so once
+        # the original is gone this is the only thing that can still say
+        # "you have seen this exact file before." A warning here, surfaced
+        # like the text-quality ones below, is what closes that gap.
+        warnings: List[str] = []
+        removed = self.store.find_removed_by_hash(digest)
+        if removed:
+            warnings.append(
+                "This exact file was already removed from the library once, on {} "
+                "(was '{}', Class {} {}). Make sure this is the replacement you "
+                "meant to upload, not the same file again.".format(
+                    removed["removed_at"], removed["title"],
+                    removed["grade"], removed["subject"],
+                )
+            )
+
         job.status = "extracting"
         job.stage_detail = "Reading and cleaning the PDF"
         # Extraction is synchronous and CPU-bound; off the event loop it would block
@@ -170,6 +189,22 @@ class IngestionService:
             )
             return
 
+        # A text layer that exists but is a symbol/dingbat font's glyph IDs,
+        # not real characters, is functionally the same failure as no text
+        # layer at all -- unlike looks_mis_decoded below, there is nothing
+        # here worth storing with a caveat, so this refuses rather than warns.
+        if pdf_text.looks_like_garbage_script(pages):
+            job.status = "error"
+            job.error = (
+                "The text layer in this PDF does not decode to readable characters "
+                "-- likely a legacy or symbol font without a usable character map."
+            )
+            job.hint = (
+                "Run it through OCR first (any tool that produces a searchable PDF "
+                "in a normal font), then upload the result."
+            )
+            return
+
         # Mis-decoded Devanagari is the one failure that looks like success.
         # The text has the right script and the right length, it embeds without
         # complaint, and it retrieves nothing -- so the only symptom is a tutor
@@ -182,22 +217,21 @@ class IngestionService:
         # them. Legacy Chanakya/Kruti fonts are converted during extraction
         # (legacy_hindi); anything still wrong is stored WITH a warning, so the
         # setup page says why answers from this book may be poor.
-        warning = ""
         if pdf_text.looks_mis_decoded(pages):
             rate = pdf_text.devanagari_breakage_rate(pages)
-            warning = (
+            warnings.append((
                 "Some Hindi text did not extract cleanly ({:.1f} broken letters per "
                 "100 characters); answers from this book may be less accurate."
-            ).format(rate or 0.0)
+            ).format(rate or 0.0))
         elif (job.language or "").strip().lower() in ("hindi", "marathi") and \
                 pdf_text.devanagari_share(pages) < 0.2:
-            warning = (
+            warnings.append(
                 "Very little Hindi text came out of this PDF -- it may use an old "
                 "font that could not be converted. Answers from it may be poor."
             )
-        if warning:
-            job.hint = warning
-            logger.warning("Ingesting %s with a warning: %s", job.filename, warning)
+        if warnings:
+            job.hint = " ".join(warnings)
+            logger.warning("Ingesting %s with a warning: %s", job.filename, job.hint)
 
         chunks = chunk_pages(
             pages,
@@ -259,7 +293,7 @@ class IngestionService:
         reset_pinned_cache()
         job.stage_detail = "Added {} chunks from {} pages".format(
             job.chunks_done, raw_page_count
-        ) + (" -- warning: " + warning if warning else "")
+        ) + (" -- warning: " + job.hint if warnings else "")
         logger.info(
             "Ingested %s (class %s %s): %d pages -> %d chunks in %.1fs",
             job.title, job.grade, job.subject, raw_page_count, job.chunks_done,

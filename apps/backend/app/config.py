@@ -266,6 +266,14 @@ class Settings(BaseSettings):
     # Reciprocal Rank Fusion damping. Rank-based, so BM25 scores and cosine
     # distances never need a common scale.
     rag_rrf_k: int = 60
+    # Search a respelled variant of a Hindi/Marathi question IN ADDITION to the
+    # question as spoken, when it holds a word the library has never seen (a
+    # speech-to-text slip like जैब for जैव). See services/rag/spell.py. The
+    # original is always searched and the model always gets the question as
+    # asked. A dictionary lookup against a vocabulary built in the background:
+    # no model call, no waiting, and a second search only for the questions
+    # that need one. Off = search the question as spoken and nothing else.
+    rag_spell_correct: bool = True
 
     # --- The relevance gate ---
     # There is no single rag_max_distance any more, and there cannot be: the

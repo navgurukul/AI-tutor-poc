@@ -206,4 +206,6 @@ def format_turn(metrics: TurnMetrics, label: str = "turn") -> str:
             if metrics.groundedness is not None
             else "n/a ({})".format(metrics.groundedness_note or "not measured")
         ),
+    ) + (
+        " | also searched {!r}".format(r.query_variant) if r.query_variant else ""
     )

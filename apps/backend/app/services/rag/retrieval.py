@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from app.config import settings
 from app.schemas import RetrievalMetrics
+from app.services.rag import spell
 from app.services.rag.embeddings import embed_documents, embed_query
 from app.services.rag.gate import gate_dense_hits, resolve_query_language
 from app.services.rag.metrics import elapsed_ms
@@ -119,25 +120,55 @@ def looks_like_exercise(text: str) -> bool:
     return marks >= 3 or (marks >= 2 and len(text.split()) < 60)
 
 
-# How much further away an explanation may be and still displace an exercise.
-# Without a bound the reorder promotes anything that is not an exercise: for
-# "What are the types of motion?" it would have put "The SI unit of length is
-# metre" (0.371) ahead of the activity on linear motion (0.364). In the science
-# books an activity box is often where the content is; only an explanation that
-# is about as relevant deserves its place.
+# Section names that hold term -> one-line-definition entries rather than
+# explanation. Found 2026-09-18 chasing a live hallucination: asked where
+# black soil is found, retrieval's top hit was a "शब्दावली" (glossary) chunk
+# that correctly named the soil ("रेगर") but never said where -- the model
+# kept the one true fact and invented the rest ("उत्तरी भारत", wrong) rather
+# than admitting the gap. A prompt instruction not to guess was tried and
+# failed (see tutor.py's GROUNDED_ANSWER_RULE history) -- it changed what the
+# model invented, not whether it invented. This is the structural fix
+# instead: a glossary entry answers "what is it called", never "where/why/
+# how", so it carries exactly the shape that leaves a small model room to
+# improvise. Matched on the heading, not the text -- unlike an exercise, a
+# glossary line reads as fluent prose and has no shape of its own to detect.
+_GLOSSARY_HEADINGS = re.compile(
+    r"शब्दावली|glossary|key\s*terms?|keywords?", re.IGNORECASE
+)
+
+
+def looks_like_glossary(heading: str) -> bool:
+    """True for a chunk sitting under a glossary / key-terms heading."""
+    return bool(heading and _GLOSSARY_HEADINGS.search(heading))
+
+
+def _looks_thin(hit: "Retrieved") -> bool:
+    """An exercise or a glossary entry: correct, but rarely a full answer."""
+    return looks_like_exercise(hit.text) or looks_like_glossary(hit.heading)
+
+
+# How much further away an explanation may be and still displace an exercise
+# or glossary entry. Without a bound the reorder promotes anything that is
+# not one of these: for "What are the types of motion?" it would have put
+# "The SI unit of length is metre" (0.371) ahead of the activity on linear
+# motion (0.364). In the science books an activity box is often where the
+# content is; only an explanation that is about as relevant deserves its
+# place.
 _EXPLANATION_SLACK = 0.03
 
 
 def _explanations_first(hits: Sequence[Retrieved]) -> List[Retrieved]:
-    """Fused order, except an exercise yields to a nearly-as-relevant explanation.
+    """Fused order, except a thin hit yields to a nearly-as-relevant explanation.
 
     An exercise often ranks well because it repeats the lesson's sentences as
     fill-in items -- "(क) उज्जैन की प्राचीन और ऐतिहासिक नगरी के बाहर ..." --
     but it hands the model a question where it needed an answer: asked what
     संज्ञा is, the model was given "(क) इस वाक्य में संज्ञा शब्द कौन-सा है?" and
-    cited it. Exercises are never dropped: they already cleared the gate, and
-    when nothing explanatory is close, the story lines inside one still beat an
-    unaided answer.
+    cited it. A glossary entry has the same problem from the other direction:
+    it hands the model a correct one-line definition and nothing to answer
+    "where/why/how" with. Neither is ever dropped: both already cleared the
+    gate, and when nothing more explanatory is close, a thin hit still beats
+    an unaided answer.
 
     Distances are the dense leg's; a lexical-only hit carries the 1.0
     placeholder and so can never displace anything.
@@ -145,15 +176,47 @@ def _explanations_first(hits: Sequence[Retrieved]) -> List[Retrieved]:
     ordered = list(hits)
     for i in range(len(ordered)):
         current = ordered[i]
-        if not looks_like_exercise(current.text):
+        if not _looks_thin(current):
             continue
         for j in range(i + 1, len(ordered)):
             candidate = ordered[j]
-            if (not looks_like_exercise(candidate.text)
+            if (not _looks_thin(candidate)
                     and candidate.distance <= current.distance + _EXPLANATION_SLACK):
                 ordered.insert(i, ordered.pop(j))
                 break
     return ordered
+
+
+def _pool_dense(searches: Sequence[Sequence[Retrieved]]) -> List[Retrieved]:
+    """One dense list out of several searches: each passage at its best distance.
+
+    A single search is returned untouched, so a question with no variant
+    behaves exactly as it did before variants existed.
+    """
+    if len(searches) == 1:
+        return list(searches[0])
+    best: Dict[int, Retrieved] = {}
+    for hits in searches:
+        for hit in hits:
+            held = best.get(hit.chunk_id)
+            if held is None or hit.distance < held.distance:
+                best[hit.chunk_id] = hit
+    return sorted(best.values(), key=lambda h: h.distance)
+
+
+def _interleave(rankings: Sequence[Sequence[Retrieved]]) -> List[Retrieved]:
+    """Several ranked lists as one, by best rank: every list's first hit, then
+    every list's second, skipping a passage already taken."""
+    if len(rankings) == 1:
+        return list(rankings[0])
+    seen = set()
+    pooled: List[Retrieved] = []
+    for position in range(max((len(r) for r in rankings), default=0)):
+        for ranking in rankings:
+            if position < len(ranking) and ranking[position].chunk_id not in seen:
+                seen.add(ranking[position].chunk_id)
+                pooled.append(ranking[position])
+    return pooled
 
 
 async def retrieve(
@@ -200,18 +263,36 @@ async def retrieve(
         trace.grade = grade
         trace.query_language = resolve_query_language(language, question)
 
+        # The question as spoken is ALWAYS searched. When it holds a word the
+        # library has never seen and there is a likely respelling (a speech-
+        # recognition slip like जैब for जैव), that respelling is searched in
+        # ADDITION and the two pools of candidates are merged -- never swapped
+        # in for the original, so a wrong guess costs some extra candidates
+        # rather than the right answer. See rag/spell.py.
+        queries = [question]
+        if settings.rag_spell_correct:
+            alternative, fixes = spell.query_variant(question, store)
+            if alternative:
+                queries.append(alternative)
+                trace.query_variant = alternative
+                logger.info(
+                    "Also searching a respelled variant: %s",
+                    ", ".join("{} -> {}".format(f.original, f.corrected) for f in fixes),
+                )
+
         # The store's model, not config's: after a re-embed cutover they differ.
         embed_started = time.perf_counter()
-        vector = await embed_query(question, model=store.embedding_model)
+        vectors = [await embed_query(q, model=store.embedding_model) for q in queries]
         trace.embed_ms = elapsed_ms(embed_started)
 
         candidates = settings.rag_candidates
         trace.candidates = candidates
 
         dense_started = time.perf_counter()
-        dense = store.search(
-            vector, grade=grade, subject=subject, language=language, k=candidates
-        )
+        dense = _pool_dense([
+            store.search(v, grade=grade, subject=subject, language=language, k=candidates)
+            for v in vectors
+        ])
         trace.dense_ms = elapsed_ms(dense_started)
         trace.dense_hits = len(dense)
         if dense:
@@ -241,17 +322,15 @@ async def retrieve(
             )
             return []
 
-        match_query = build_match_query(question)
-        trace.lexical_query = bool(match_query)
+        match_queries = [m for m in (build_match_query(q) for q in queries) if m]
+        trace.lexical_query = bool(match_queries)
         lexical_started = time.perf_counter()
-        lexical = (
+        lexical = _interleave([
             store.search_lexical(
-                match_query, grade=grade, subject=subject, language=language,
-                k=candidates,
+                m, grade=grade, subject=subject, language=language, k=candidates
             )
-            if match_query
-            else []
-        )
+            for m in match_queries
+        ])
         trace.lexical_ms = elapsed_ms(lexical_started)
         trace.lexical_hits = len(lexical)
 
@@ -574,12 +653,19 @@ def pinned_context(
 
 
 def reset_pinned_cache() -> None:
-    """Forget the pinned block. Call after ingestion changes the corpus."""
+    """Forget what is derived from the corpus: the pinned block and the spelling
+    vocabulary. Call after ingestion or a delete changes it."""
     _PINNED.clear()
+    spell.invalidate()
 
 
 def citations(hits: Sequence[Retrieved]) -> List[dict]:
-    """Compact source list for the UI."""
+    """Source list for the UI, including the excerpt actually shown to the model.
+
+    The text is the same string that went into the prompt, not a fresh fetch
+    -- so what a student or teacher reads in the citation panel is provably
+    what the model was grounded on, not a claim about it.
+    """
     return [
         {
             "title": h.document_title,
@@ -589,6 +675,7 @@ def citations(hits: Sequence[Retrieved]) -> List[dict]:
             "grade": h.grade,
             "subject": h.subject,
             "distance": round(h.distance, 4),
+            "text": h.text,
         }
         for h in hits
     ]

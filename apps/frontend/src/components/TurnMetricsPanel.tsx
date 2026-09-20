@@ -187,6 +187,13 @@ export function TurnMetricsPanel({ metrics }: { metrics: ClientTurnMetrics }) {
 
       <div className="metrics__group">
         <h4 className="metrics__heading">Retrieval</h4>
+        {r.query_variant && (
+          <Row
+            label="Also searched"
+            value={r.query_variant}
+            hint="a word the textbooks never use looked like a speech-recognition slip, so this respelling was searched as well as the question as spoken; the answer is still to the question as asked"
+          />
+        )}
         {r.abstained ? (
           <>
             <Row label="Passages used" value="none — answered unaided" />

@@ -62,6 +62,25 @@ RETRIEVAL_RULE = (
 # real limit of a 2B, 4-bit-quantized model on less-common multi-syllable
 # names, not something retrieval or wording can fully fix -- this is a
 # mitigation, not a guaranteed correction.
+#
+# A "say the text doesn't specify" clause was tried here 2026-09-18, after a
+# live session on the (known-mistagged, see
+# corpus-mistagged-class10-as-class6) Geography corpus caught the "never
+# invent" rule above failing when the passage answers the TOPIC but not the
+# QUESTION -- asked "काली मिट्टी कहाँ पाई जाती है" (where is black soil
+# found) against a passage that only says black soil is called "regur",
+# never a location, the model padded the gap with "उत्तरी भारत" (North
+# India, wrong) and other invented specifics rather than admitting the text
+# didn't say. REVERTED the same day: replayed the identical question against
+# the added clause and it still fabricated a location ("उत्तरी भाग") and a
+# fake place name ("चिकंबारण"), plus new nonsense words not seen before
+# ("बर्फ" / snow, in a desert; "चाकू" / knife). An explicit instruction not
+# to guess did not stop this model from guessing -- it only changed what it
+# guessed. That is a capability ceiling on a 2B, 4-bit-quantized model under
+# pressure to fill a word budget, not an instruction-following gap, so paying
+# extra per-turn tokens for this clause bought nothing measured. See
+# golden-set-corpus-missing and the retrieval-side glossary-chunk filtering
+# in retrieval.py for the levers that actually address this.
 GROUNDED_ANSWER_RULE = (
     "Answer using the facts in the text above, mainly in the text's own "
     "wording. If the text supports it, add one everyday example in one "

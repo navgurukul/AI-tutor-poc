@@ -24,6 +24,8 @@ export interface Citation {
   subject?: string | null;
   /** Cosine distance; smaller is a closer match. Kept for debugging. */
   distance?: number;
+  /** The excerpt actually handed to the model for this turn, not a re-fetch. */
+  text?: string;
 }
 
 /**
@@ -77,6 +79,8 @@ export interface RetrievalMetrics {
 
   abstained: boolean;
   abstain_reason: string;
+  /** A respelled variant searched in addition to the question as spoken. */
+  query_variant?: string;
 }
 
 /** What one answer cost, end to end. Mirrors the backend `TurnMetrics`. */

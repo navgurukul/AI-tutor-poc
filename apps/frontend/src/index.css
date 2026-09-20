@@ -412,10 +412,32 @@ button {
 
 .citations__item {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   font-size: 12.5px;
   line-height: 1.35;
+}
+
+.citations__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.citations__excerpt {
+  margin: 0 0 0 calc(7px * 2 + 11px);
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  /* The exact excerpt the model was given -- not reflowed or summarised, so
+     it stays exactly as long as the source text, scrolling rather than
+     truncating if that runs long. */
+  max-height: 8em;
+  overflow-y: auto;
+  white-space: pre-wrap;
 }
 
 .citations__page {

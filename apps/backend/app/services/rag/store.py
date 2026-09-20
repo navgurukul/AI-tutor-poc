@@ -19,8 +19,9 @@ import sqlite3
 import struct
 import threading
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,13 @@ class LibraryStore:
                     text text not null
                 );
                 create index if not exists idx_chunks_document on chunks(document_id);
+                create table if not exists removed_documents (
+                    sha256 text primary key,
+                    title text not null,
+                    grade integer not null,
+                    subject text not null,
+                    removed_at text not null
+                );
                 """
             )
             # Full-text index over the same rows, in the same file. `trigram`
@@ -341,6 +349,42 @@ class LibraryStore:
             ).fetchone()
         return dict(row) if row else None
 
+    def find_removed_by_hash(self, sha256: str) -> Optional[Dict[str, Any]]:
+        """Was this exact file in the library before, and then taken out?
+
+        Deleting a document does not erase this row -- see `delete_document`.
+        A hit here does not mean the file is bad; a title was corrected, a
+        book got replaced by a better edition, all legitimate. It means the
+        upload is worth a second look before trusting it silently, which the
+        exact-hash check in `_ingest` cannot offer once the original is gone.
+        """
+        conn = self._require()
+        with self._lock:
+            row = conn.execute(
+                "select title, grade, subject, removed_at from removed_documents "
+                "where sha256 = ?",
+                (sha256,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def iter_chunk_texts(self) -> Iterator[str]:
+        """Every chunk's text, one document at a time.
+
+        A generator taking the lock per document rather than reading the whole
+        corpus under one hold: the spelling vocabulary is built from this in
+        the background, and a search must not wait behind it.
+        """
+        conn = self._require()
+        with self._lock:
+            document_ids = [r[0] for r in conn.execute("select id from documents")]
+        for document_id in document_ids:
+            with self._lock:
+                rows = conn.execute(
+                    "select text from chunks where document_id = ?", (document_id,)
+                ).fetchall()
+            for row in rows:
+                yield row[0]
+
     def coverage(self) -> List[Dict[str, Any]]:
         """Which (grade, subject) pairs actually have content behind them."""
         conn = self._require()
@@ -451,9 +495,22 @@ class LibraryStore:
         stale row still satisfies MATCH, and reading it fails with "fts5:
         missing row from content table". The student sees a citation to a
         book that is gone.
+
+        Also records the file's hash in `removed_documents` before it is
+        gone -- see `find_removed_by_hash`. Found the gap this closes
+        2026-09-18: a mistagged Class 10 book (see
+        corpus-mistagged-class10-as-class6) was deleted meaning to be
+        replaced, and the exact same wrong file got re-uploaded by mistake
+        minutes later -- the hash-based dedup in `_ingest` could not catch it
+        because it only checks documents still present, and the one just
+        deleted no longer was.
         """
         conn = self._require()
         with self._lock, conn:
+            doc = conn.execute(
+                "select sha256, title, grade, subject from documents where id = ?",
+                (document_id,),
+            ).fetchone()
             rows = conn.execute(
                 "select id, text from chunks where document_id = ?", (document_id,)
             ).fetchall()
@@ -470,6 +527,15 @@ class LibraryStore:
                 )
             conn.execute("delete from chunks where document_id = ?", (document_id,))
             cursor = conn.execute("delete from documents where id = ?", (document_id,))
+            if cursor.rowcount > 0 and doc is not None:
+                conn.execute(
+                    "insert or replace into removed_documents "
+                    "(sha256, title, grade, subject, removed_at) values (?, ?, ?, ?, ?)",
+                    (
+                        doc["sha256"], doc["title"], doc["grade"], doc["subject"],
+                        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    ),
+                )
         return cursor.rowcount > 0
 
     # -- re-embedding ------------------------------------------------------

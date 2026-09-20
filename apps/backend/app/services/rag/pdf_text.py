@@ -566,6 +566,61 @@ def looks_mis_decoded(pages: Sequence[str]) -> bool:
     return rate is not None and rate > _DEVA_BREAKAGE_LIMIT
 
 
+# `devanagari_breakage_rate` only ever looks inside the Devanagari block
+# (ऀ-ॿ), on the assumption that a broken font map still lands on *some*
+# Devanagari codepoint -- true for Chanakya/Kruti-style fonts, which are
+# themselves "Hindi-shaped". It is not true in general: found 2026-09-18
+# fetching a Class 6 Geography replacement from a third-party mirror, whose
+# extracted "Hindi" text was entirely Dingbats-block symbols (✐✁✂✄...,
+# U+2700-27BF) -- a proprietary font's glyph IDs read through a missing or
+# wrong ToUnicode map, same root failure as the pypdf bug this project
+# already fixed once, just landing somewhere `looks_mis_decoded` cannot see
+# at all (zero Devanagari codepoints -> `devanagari_breakage_rate` returns
+# None -> no warning, ever). Caught by hand that time, by actually reading
+# the extracted text before trusting it -- this check is what makes that
+# unnecessary going forward.
+#
+# Script-agnostic on purpose: rather than enumerate every symbol/private-use
+# range a broken font map could land in, this asks the opposite question --
+# how much of the "text" is NOT in a script this library ever teaches in
+# (Latin or Devanagari), and not ordinary punctuation either? A normal book,
+# in any mix of English/Hindi/Marathi, scores near 0. A font-glyph dump scores
+# near 1.
+#
+# Punctuation is allow-listed explicitly rather than matched with `\w`:
+# Python's `\w` follows Unicode's alphanumeric property, which excludes the
+# Dingbats block (category So, "Symbol, other") entirely -- the first version
+# of this check used `\w` to find "letterlike" characters and it matched
+# nothing at all in the garbage sample, so the ratio was computed over zero
+# candidates and never tripped. Counting non-whitespace characters directly,
+# with punctuation allow-listed, is what actually classifies a dingbat as
+# "not expected" instead of silently excluding it from consideration.
+_EXPECTED_CHAR = re.compile(
+    r"[A-Za-zऀ-ॿ0-9.,!?;:'\"()\[\]{}\-–—/%&@#*+=<>~`|_]"
+)
+# Below this many non-whitespace characters the ratio is noise -- a title
+# page or a handful of section numbers must not trip the check.
+_GARBAGE_MIN_CHARS = 400
+# Clean books (English, Hindi, Marathi, or a mix) measure near 0. A pure
+# symbol-font dump measures near 1; this sits well below that gap rather than
+# at its edge, the same margin `_DEVA_BREAKAGE_LIMIT` uses.
+_GARBAGE_SCRIPT_LIMIT = 0.15
+
+
+def looks_like_garbage_script(pages: Sequence[str]) -> bool:
+    """True when the "text" is mostly characters outside every script this
+    library actually teaches in -- a symbol/dingbat font masquerading as text,
+    carrying zero recoverable information. Treated the same as
+    `looks_like_scan`: this is not degraded text, it is no text.
+    """
+    text = "\n".join(pages)
+    non_space = [ch for ch in text if not ch.isspace()]
+    if len(non_space) < _GARBAGE_MIN_CHARS:
+        return False
+    expected = sum(1 for ch in non_space if _EXPECTED_CHAR.match(ch))
+    return (1 - expected / len(non_space)) > _GARBAGE_SCRIPT_LIMIT
+
+
 def looks_like_scan(cleaned_pages: Sequence[str]) -> bool:
     """True when a PDF is images with no text layer.
 

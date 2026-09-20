@@ -50,13 +50,18 @@ export function ChatBubble({ role, text, sources, metrics }: ChatMessage) {
           <ol className="citations__list">
             {sources.map((source, index) => (
               <li className="citations__item" key={`${source.page_start}-${index}`}>
-                <span className="citations__page">{pageLabel(source)}</span>
-                <span className="citations__where">
-                  <span className="citations__title">{source.title}</span>
-                  {source.heading && (
-                    <span className="citations__heading">{source.heading}</span>
-                  )}
-                </span>
+                <div className="citations__row">
+                  <span className="citations__page">{pageLabel(source)}</span>
+                  <span className="citations__where">
+                    <span className="citations__title">{source.title}</span>
+                    {source.heading && (
+                      <span className="citations__heading">{source.heading}</span>
+                    )}
+                  </span>
+                </div>
+                {source.text && (
+                  <p className="citations__excerpt">{source.text}</p>
+                )}
               </li>
             ))}
           </ol>

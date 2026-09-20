@@ -21,6 +21,7 @@ from app.services import stt as stt_service
 from app.services import tts as tts_service
 from app.services.ollama_client import OllamaError, client
 from app.services.rag import service as rag_service
+from app.services.rag import spell
 from app.services.rag.embeddings import embed_query
 
 logging.basicConfig(
@@ -182,6 +183,10 @@ async def _warm_in_order(include_model: bool) -> None:
     await _warm_embeddings()
     if include_model:
         await _warm_cpu()
+    # Last, and in its own thread: a pure-Python scan of the corpus that must
+    # not contend with anything above. Until it finishes, questions are
+    # simply searched as spoken.
+    spell.ensure_built(rag_service.store)
 
 
 @asynccontextmanager
