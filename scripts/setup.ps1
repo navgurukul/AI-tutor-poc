@@ -169,27 +169,29 @@ if (-not (Test-Path $envPath)) {
 }
 
 # 5. Piper voice model files - not an npm dependency, so nothing else fetches
-#    these. Downloaded once from the official rhasspy/piper-voices repo.
-#    Size-checked the same way as step 1b, and downloaded via Get-FileSafely
-#    so an interrupted download can't masquerade as a completed one.
+#    these. Downloaded once from navgurukul-ai/Indian_accent_60, and renamed:
+#    the repo names them model.onnx/model.json, the app looks for the names in
+#    src/config/voice.ts. Size-checked the same way as step 1b, and downloaded
+#    via Get-FileSafely so an interrupted download can't masquerade as a
+#    completed one.
 if (-not (Test-Path $modelsDir)) {
     New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
 }
 
-$onnxPath = Join-Path $modelsDir "en_US-amy-medium.onnx"
-$jsonPath = Join-Path $modelsDir "en_US-amy-medium.json"
-$baseUrl  = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium"
+$onnxPath = Join-Path $modelsDir "indian-accent-60.onnx"
+$jsonPath = Join-Path $modelsDir "indian-accent-60.json"
+$baseUrl  = "https://huggingface.co/navgurukul-ai/Indian_accent_60/resolve/main"
 
 if (-not (Test-ValidFile $onnxPath (10MB))) {
-    Step "Downloading Piper voice model (~60MB, one-time)..."
-    Get-FileSafely "$baseUrl/en_US-amy-medium.onnx" $onnxPath
+    Step "Downloading Piper voice model (~61MB, one-time)..."
+    Get-FileSafely "$baseUrl/model.onnx" $onnxPath
 } else {
     Step "Voice model (.onnx) already present - skipping download."
 }
 
 if (-not (Test-ValidFile $jsonPath 100)) {
     Step "Downloading Piper voice config..."
-    Get-FileSafely "$baseUrl/en_US-amy-medium.onnx.json" $jsonPath
+    Get-FileSafely "$baseUrl/model.json" $jsonPath
 } else {
     Step "Voice model config already present - skipping download."
 }

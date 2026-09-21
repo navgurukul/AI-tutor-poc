@@ -236,11 +236,19 @@ each school, no GPL-3.0 espeak-ng (that ships inside the Piper *backend* voice,
 which this build does not have), and no unverified third-party re-export of the
 IndicConformer weights.
 
-The Piper voice that *is* here runs in the browser and comes from the
-`react-sts-hooks` package's own assets — still check its licence, but it is a
-much smaller surface than a 470 MB acoustic model from an unaffiliated account.
+The Piper voice that *is* here runs in the browser: `Indian_accent_60` from
+the `navgurukul-ai` Hugging Face account, which replaced the `en_US-amy-medium`
+voice that came with `react-sts-hooks`.
 
 What remains:
+
+0. **The browser voice's licence.** The HF repo
+   (https://huggingface.co/navgurukul-ai/Indian_accent_60) ships no LICENSE
+   file and carries no licence tag, so the terms are simply unstated — and
+   Piper voices are normally trained with, and shipped alongside, GPL-3.0
+   espeak-ng phonemisation. That was previously a blocker this variant did not
+   have. Get the terms in writing from the account owner before a fleet
+   rollout; it is a 63 MB redistributable going to thousands of devices.
 
 1. **Textbook copyright.** `library.db` is built from third-party PDFs and the
    tutor quotes them back with page citations. Redistributing that as a

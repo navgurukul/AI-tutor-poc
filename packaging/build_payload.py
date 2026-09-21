@@ -49,7 +49,7 @@ PINS = json.loads((Path(__file__).resolve().parent / "pins.json").read_text())
 #
 # So detect it: prune only what the source demonstrably does not reference.
 SPEECH_ASSETS = [
-    "models",                             # en_US-amy-medium.onnx
+    "models",                             # indian-accent-60.onnx
     "piper-wasm",
     "ort-wasm-simd-threaded.jsep.wasm",   # onnxruntime-web
     "ort-wasm-simd-threaded.jsep.mjs",
