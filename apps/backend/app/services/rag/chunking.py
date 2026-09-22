@@ -1,3 +1,18 @@
+"""SUPERSEDED by libs/textbook-ingest (2026-09-21).
+
+The app no longer calls this module: app.services.rag.ingest goes through the
+`textbook_ingest` library, which was built after measuring these rules against
+eight books from two publishers and finding that the ones encoding a single
+publisher's vocabulary or typography did not generalise.
+
+It is kept only as the "old" side of scripts/eval/ingest_comparison.py, which
+runs both pipelines over the same books so a change can be shown to be an
+improvement rather than merely a difference. Do not add behaviour here -- it
+would not reach the app, and it would make the comparison dishonest.
+
+Original docstring follows.
+"""
+
 """Split cleaned textbook text into chunks worth embedding.
 
 Two things make a chunk retrievable. It has to be about one thing, which means

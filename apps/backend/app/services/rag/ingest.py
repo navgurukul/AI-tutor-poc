@@ -17,10 +17,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+import textbook_ingest
+
 from app.config import settings
 from app.services.ollama_client import OllamaError
-from app.services.rag import pdf_text
-from app.services.rag.chunking import chunk_pages
 from app.services.rag.embeddings import embed_documents
 from app.services.rag.store import LibraryStore, StoreUnavailable
 
@@ -145,33 +145,39 @@ class IngestionService:
 
         job.status = "extracting"
         job.stage_detail = "Reading and cleaning the PDF"
-        # pypdf is synchronous and CPU-bound; off the event loop it would block
-        # every chat request for the duration of a large book.
-        pages, raw_page_count = await asyncio.to_thread(pdf_text.extract_and_clean, data)
-        job.pages = raw_page_count
-
-        if pdf_text.looks_like_scan(pages):
-            job.status = "error"
-            job.error = "No text layer found -- this looks like a scanned PDF."
-            job.hint = (
-                "Run it through OCR first (any tool that produces a searchable PDF), "
-                "then upload the result."
-            )
-            return
-
-        chunks = chunk_pages(
-            pages,
+        # Cleaning lives in the textbook-ingest library so it can be reused
+        # outside this POC, and so it can be measured against more than one
+        # publisher's books -- see libs/textbook-ingest. pypdf is synchronous
+        # and CPU-bound; off the event loop it would block every chat request
+        # for the duration of a large book.
+        options = textbook_ingest.IngestOptions(
             chunk_chars=settings.rag_chunk_chars,
             overlap_chars=settings.rag_chunk_overlap_chars,
-            drop_exercises=settings.rag_filter_corpus,
+            filter_apparatus=settings.rag_filter_corpus,
             exercise_page_ratio=settings.rag_exercise_page_ratio,
         )
-        if not chunks:
+        try:
+            result = await asyncio.to_thread(
+                textbook_ingest.ingest,
+                [textbook_ingest.Source(name=job.filename, data=data)],
+                options,
+            )
+        except textbook_ingest.UnusableBook as exc:
             job.status = "error"
-            job.error = "The PDF produced no usable text after cleaning."
+            job.error = exc.detail
+            job.hint = exc.hint or None
             return
 
+        chunks = result.chunks
+        raw_page_count = result.stats["pages"]
+        job.pages = raw_page_count
         job.chunks_total = len(chunks)
+        # A book that ingests with a chapter missing is the failure mode worth
+        # shouting about: it looks successful and answers nothing from the gap.
+        if result.skipped:
+            job.hint = "Could not read: {}. The rest of the book was ingested.".format(
+                ", ".join(result.skipped)
+            )
         job.status = "embedding"
         job.stage_detail = "Embedding {} chunks".format(len(chunks))
 
@@ -190,13 +196,18 @@ class IngestionService:
         try:
             for start in range(0, len(chunks), batch_size):
                 batch = chunks[start : start + batch_size]
+                # The breadcrumb is the caller's decision -- the library has no
+                # opinion about grade or subject. Measured over 373 MSCERT
+                # chunks it injected wrong vocabulary into 47% and right into
+                # 43%, so RAG_EMBED_BREADCRUMB now defaults off; re-enable it
+                # once heading validation is shown to have improved.
+                breadcrumb = (
+                    ["Class {}".format(job.grade), job.subject]
+                    if settings.rag_embed_breadcrumb
+                    else None
+                )
                 vectors = await embed_documents(
-                    [
-                        c.embedding_text(
-                            job.grade, job.subject, settings.rag_embed_breadcrumb
-                        )
-                        for c in batch
-                    ]
+                    [c.embedding_text(breadcrumb) for c in batch]
                 )
                 await asyncio.to_thread(
                     self.store.add_chunks,

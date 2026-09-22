@@ -197,11 +197,22 @@ class Settings(BaseSettings):
     rag_exercise_page_ratio: float = 0.40
     # Prepend "Class 6 > Science > <heading>" to a chunk before embedding, so a
     # paragraph that has stopped naming its subject still carries the chapter's
-    # vocabulary. Worth having only because headings are now validated before
-    # they are used -- an unvalidated one put "28620C" and "3. Fill in the
-    # blanks with the appropriate" in front of real prose. RAG_EMBED_BREADCRUMB=0
-    # embeds the prose alone, to A/B the two on a real corpus.
-    rag_embed_breadcrumb: bool = True
+    # vocabulary.
+    #
+    # Now OFF by default, on measurement (2026-09-21). Over the 373 chunks of
+    # the shipped MSCERT corpus, the breadcrumb injected vocabulary the prose
+    # did not already have into 334 of them -- and in 175 of those (47% of the
+    # whole corpus) the heading was junk: a flattened table row ("Yes Yes
+    # None"), a credits line ("Assistant Special Officer, English"), half a
+    # sentence ("The British scientist Michael"). Only 159 (43%) carried a real
+    # topic. It was a coin flip, and on NCERT it is worse, because the headings
+    # it picks up are running headers ("SCIENCE64", "/ Beehive").
+    #
+    # The idea is sound; it was sitting on heading detection that was wrong
+    # about half the time. Turn it back on once the library's heading
+    # validation is shown to have improved that -- and note that turning it off
+    # does NOT stop false headings cutting chunks, which is a separate cost.
+    rag_embed_breadcrumb: bool = False
     # Characters per chunk, and the overlap carried between neighbours so a
     # definition split across a boundary survives in at least one of them.
     #
@@ -231,6 +242,26 @@ class Settings(BaseSettings):
     # rag_top_k's two slots. Re-measure if the passage limit or the budget
     # changes -- the three move together.
     rag_chunk_chars: int = 700
+    # Overlap was set to 0 on 2026-09-21 and put back to 105 on 2026-09-22.
+    # The first measurement was not wrong, it was incomplete, and the way it was
+    # incomplete is worth recording.
+    #
+    # It rebuilt the corpus at 105 and at 0 and checked the 39 gold ANSWER
+    # PHRASES from benchmark.py and the groundedness set. All 39 survived either
+    # way, so overlap looked like 33 wasted chunks. But those phrases are short
+    # -- a few words each -- and a short phrase rarely straddles a boundary.
+    #
+    # The groundedness set also carries 31 GOLD QUOTES, which are whole
+    # multi-sentence passages, and those do straddle. At overlap 0, A1-shadow
+    # breaks in half: "If an opaque object comes in the way of a light source,
+    # light does not pass through it." lands in one chunk and "...This dark part
+    # is called the 'shadow of the object'." in the next, so the definition is
+    # in neither chunk whole. 29 of 31 quotes survive at 0; 30 of 31 at 105.
+    #
+    # The cost is 10 chunks on this book (313 -> 323, +3%), not the +9.7% the
+    # first measurement implied, because the corpus is smaller now that front
+    # matter is dropped. A definition the model reads in one piece is worth
+    # that. Re-measure against the gold QUOTES, not the phrases, if this moves.
     rag_chunk_overlap_chars: int = 105
     # Chunks embedded per Ollama call during ingestion.
     rag_embed_batch_size: int = 16
