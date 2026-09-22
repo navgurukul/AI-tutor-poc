@@ -1,0 +1,6 @@
+# Build metadata from `pip install -e`. Regenerated on every install, and it
+# records absolute paths from whichever machine ran it.
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/

@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "textbook-ingest"
+version = "0.1.0"
+description = "Turn a school textbook PDF into clean, chunkable text that survives a change of publisher."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+dependencies = []
+
+[project.optional-dependencies]
+# PDF reading. Optional so the library can be driven from already-extracted
+# text -- useful in tests, and for callers with their own extractor.
+pdf = ["pypdf>=5,<7"]
+dev = ["pypdf>=5,<7", "pytest>=7"]
+
+[project.scripts]
+textbook-ingest = "textbook_ingest.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
