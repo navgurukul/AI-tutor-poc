@@ -604,6 +604,9 @@ def main(argv=None):
     ap.add_argument("--rescore", default="",
                     help="re-judge a previous run-*.json without calling the tutor")
     ap.add_argument("--no-calibration", action="store_true")
+    ap.add_argument("--allow-corpus-drift", action="store_true",
+                    help="run even though some gold quotes are no longer in the "
+                         "corpus; their context recall becomes meaningless")
     ap.add_argument("--check-evalset", action="store_true",
                     help="verify the gold set against the corpus and stop")
     args = ap.parse_args(argv)
@@ -622,7 +625,19 @@ def main(argv=None):
               "answer key was edited into something no correct answer matches:")
         for m in problems:
             print("   " + m)
-        return 2
+        if not args.allow_corpus_drift:
+            return 2
+        # Deliberately an opt-in flag rather than a silent tolerance, and
+        # deliberately NOT a reason to edit the gold set: trimming a quote until
+        # it matches is how a filter that deleted a real answer gets recorded as
+        # an improvement. The run proceeds, the drift is printed again in the
+        # report, and context recall for the affected items reads low because
+        # the evidence genuinely is not in the corpus any more.
+        print("   ...proceeding anyway (--allow-corpus-drift). Context recall "
+              "for the items above is NOT trustworthy in this run.")
+        drift_notes = list(problems)
+    else:
+        drift_notes = []
     print("gold set checks out: {} quotes verbatim in the corpus, {} reference "
           "answers cover their own keys.".format(
               sum(len(i.get("gold_evidence") or []) for i in evalset["items"]),

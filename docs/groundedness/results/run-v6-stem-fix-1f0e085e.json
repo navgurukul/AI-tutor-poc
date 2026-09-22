@@ -1,0 +1,540 @@
+{
+  "meta": {
+    "run_id": "1f0e085e",
+    "ts": "2026-09-22T05:55:59+00:00",
+    "label": "v6-stem-fix",
+    "base": "http://127.0.0.1:8756",
+    "model": "qwen2.5:1.5b",
+    "budget": null,
+    "evalset": "/Users/mayur/Projects/AI Labs/AI-tutor-poc/docs/groundedness/evalset.json",
+    "judge": "gemma3:4b (local, via Ollama)"
+  },
+  "turns": [
+    {
+      "reply": "A shadow is the dark area that appears on the ground or a surface when an object blocks the light from a source, such as the sun.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Sound",
+          "page_start": 101,
+          "page_end": 101,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2151,
+          "excerpt": "The shadow of an object is formed only when light does not pass through the object. The kind of shadow it forms depends upon the relative distances between the source of light, the object and the surface or the screen on which the shadow is formed. The shadow of an object formed due to sunlight is long in the mornings and evenings and short in the afternoon. We can easily note these changes if we observe the trees along the roadside. This change in the shadow depends on the source of light, the object and also on the surface on which the shadow is formed. …"
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Sound",
+          "page_start": 101,
+          "page_end": 101,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2633,
+          "excerpt": "That part remains dark. This dark part is called the 'shadow of the object'. Try this."
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Sound - p. 101\nThe shadow of an object is formed only when light does not pass through the object. The kind of shadow it forms depends upon the relative distances between the source of light, the object and the surface or the screen on which the shadow is formed. The shadow of an object formed due to sunlight is long in the mornings and evenings and short in the afternoon. We can easily note these changes if we observe the trees along the roadside. This change in the shadow depends on the source of light, the object and also on the surface on which the shadow is formed. …\n\n[2] General Science (Class 6) - Sound - p. 101\nThat part remains dark. This dark part is called the 'shadow of the object'. Try this.",
+      "usage": {
+        "prompt_tokens": 308,
+        "completion_tokens": 30,
+        "total_duration_ms": 6734,
+        "load_duration_ms": 6,
+        "prompt_eval_ms": 4432,
+        "eval_ms": 2215,
+        "tokens_per_second": 13.54
+      },
+      "session_id": "01846714b1fc4496871f0dea50be2f94",
+      "turn_id": "f17830cc022b",
+      "previous_turn": null,
+      "id": "A1-shadow"
+    },
+    {
+      "reply": "Frictional force is the force that resists the relative motion of objects sliding against each other. It arises due to the interaction between materials that are in contact. On materials like rubber, plastic, and ebonite, friction is produced, leading to an electrostatic force. This force is less between smooth surfaces, making them easier to rub against each other, while rough surfaces have a stronger friction, making them harder to rub. The force of friction ensures that we can walk on the ground, preventing slipping and falls. Without friction, we would slip and fall easily.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Frictional force",
+          "page_start": 73,
+          "page_end": 73,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2905,
+          "excerpt": "Static electricity is produced on materials like rubber, plastic and ebonite due to friction. The force exerted by such electrically charged materials is called electrostatic force . The smooth surfaces can be easily rubbed against each other because the force of friction between them is less, while rough surfaces cannot be easily rubbed against each other because the force of friction between them is much greater. It is possible for us to walk on the ground only because of the force of friction. If there is no friction, we would slip and fall. …"
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Frictional force",
+          "page_start": 74,
+          "page_end": 74,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.3084,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Frictional force - p. 73\nStatic electricity is produced on materials like rubber, plastic and ebonite due to friction. The force exerted by such electrically charged materials is called electrostatic force . The smooth surfaces can be easily rubbed against each other because the force of friction between them is less, while rough surfaces cannot be easily rubbed against each other because the force of friction between them is much greater. It is possible for us to walk on the ground only because of the force of friction. If there is no friction, we would slip and fall. …",
+      "usage": {
+        "prompt_tokens": 264,
+        "completion_tokens": 116,
+        "total_duration_ms": 8501,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 321,
+        "eval_ms": 8115,
+        "tokens_per_second": 14.29
+      },
+      "session_id": "bf5f48ce671642a490940c8cf7f584a9",
+      "turn_id": "e34f87e1b3ee",
+      "previous_turn": null,
+      "id": "A2-friction"
+    },
+    {
+      "reply": "The gravitational force is the attractive force that exists between two objects due to their masses. It pulls objects towards each other. On Earth, this force is what keeps us grounded and makes things fall down.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Magnetic force",
+          "page_start": 72,
+          "page_end": 72,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2554,
+          "excerpt": "… At the same time, the force of the tension in the spring constantly pulls the object upwards. The object comes to rest when the tension in the spring and the gravitational force on the object become equal. In this position, the scale on the spring balance shows the gravitational force acting on the object which is the weight of the object. The gravitational force acting on an object is called the weight of that object. The gravitational force operates between the sun and the planets in the solar system. Because of this, the planets revolve around the sun."
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Gravitational force",
+          "page_start": 71,
+          "page_end": 72,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2664,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Magnetic force - p. 72\n… At the same time, the force of the tension in the spring constantly pulls the object upwards. The object comes to rest when the tension in the spring and the gravitational force on the object become equal. In this position, the scale on the spring balance shows the gravitational force acting on the object which is the weight of the object. The gravitational force acting on an object is called the weight of that object. The gravitational force operates between the sun and the planets in the solar system. Because of this, the planets revolve around the sun.",
+      "usage": {
+        "prompt_tokens": 264,
+        "completion_tokens": 41,
+        "total_duration_ms": 2934,
+        "load_duration_ms": 4,
+        "prompt_eval_ms": 74,
+        "eval_ms": 2792,
+        "tokens_per_second": 14.68
+      },
+      "session_id": "37310630809f4574b247349a5d87b0fa",
+      "turn_id": "ab5903383a4c",
+      "previous_turn": null,
+      "id": "A3-gravity"
+    },
+    {
+      "reply": "Sublimation is a phenomenon where a solid substance directly changes into a gas or vapor without going through the liquid phase. This means that when heated, iodine does not melt into a liquid but transforms into a gas instantly and then condenses back into solid crystals on the walls of a funnel. This process is called sublimation.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "War Drought",
+          "page_start": 35,
+          "page_end": 36,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.3279,
+          "excerpt": "… Sublimation Iodine crystals do not melt on heating but change directly to the gaseous state. When the fumes of iodine hit the walls of the funnel they cool to form solid crystals of iodine and stick to the funnel walls. Thus, on heating, iodine does not melt and change to a liquid but directly changes to the gaseous state. The change of a solid substance directly into a gas or vapour without first changing into a liquid is called sublimation."
+        }
+      ],
+      "context": "[1] General Science (Class 6) - War Drought - pp. 35-36\n… Sublimation Iodine crystals do not melt on heating but change directly to the gaseous state. When the fumes of iodine hit the walls of the funnel they cool to form solid crystals of iodine and stick to the funnel walls. Thus, on heating, iodine does not melt and change to a liquid but directly changes to the gaseous state. The change of a solid substance directly into a gas or vapour without first changing into a liquid is called sublimation.",
+      "usage": {
+        "prompt_tokens": 262,
+        "completion_tokens": 68,
+        "total_duration_ms": 4763,
+        "load_duration_ms": 5,
+        "prompt_eval_ms": 84,
+        "eval_ms": 4610,
+        "tokens_per_second": 14.75
+      },
+      "session_id": "746939a4a8004da4bcee1cf175b567f7",
+      "turn_id": "01f4a3454b94",
+      "previous_turn": null,
+      "id": "A4-sublimation"
+    },
+    {
+      "reply": "A lever is a simple machine that uses a rigid bar to change the direction or magnitude of a force. It consists of a fixed point called the fulcrum, a force arm, and an effort arm. When a force is applied at the effort arm, it lifts a load at the other end. The effort arm is the distance from the fulcrum to the point where the force is applied. This principle can be applied to tasks like sharpening a knife or lifting objects.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Simple Machines",
+          "page_start": 86,
+          "page_end": 86,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2755,
+          "excerpt": "… The pipe was placed at an angle of 45 0 with one end inside the water and the rod resting on a flat surface. When the rod was turned, water got lifted in this device. Archimedes' screw 3. The force applied on the other end of the rod to lift the load is called the 'effort'. The part of the lever from the fulcrum to the effort is called the 'effort arm'. Which tasks can be done using a lever ? Use your brain power ! edge of a knife becomes blunt, then the needle does not penetrate the cloth and the knife does not cut into the fruit. Why is this so ?"
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Simple Machines",
+          "page_start": 86,
+          "page_end": 86,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.28,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Simple Machines - p. 86\n… The pipe was placed at an angle of 45 0 with one end inside the water and the rod resting on a flat surface. When the rod was turned, water got lifted in this device. Archimedes' screw 3. The force applied on the other end of the rod to lift the load is called the 'effort'. The part of the lever from the fulcrum to the effort is called the 'effort arm'. Which tasks can be done using a lever ? Use your brain power ! edge of a knife becomes blunt, then the needle does not penetrate the cloth and the knife does not cut into the fruit. Why is this so ?",
+      "usage": {
+        "prompt_tokens": 291,
+        "completion_tokens": 98,
+        "total_duration_ms": 8436,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 1793,
+        "eval_ms": 6623,
+        "tokens_per_second": 14.8
+      },
+      "session_id": "0b7846dbc66f4ff0b24dfe788865693e",
+      "turn_id": "5310d00a6540",
+      "previous_turn": null,
+      "id": "A5-lever"
+    },
+    {
+      "reply": "Sound is produced when an object vibrates. This vibration causes the air around the object to vibrate as well, generating sound waves that we can hear. When the vibration stops, the sound also stops. The object that vibrates and produces the sound is called the source. In the experiment, the air-filled balloon produces a clearer sound than the water-filled balloon because the air is a better conductor of sound.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Sound",
+          "page_start": 92,
+          "page_end": 93,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1915,
+          "excerpt": "The vibration of an object is necessary for the production of sound. As long as the object vibrates, the sound is heard. When the vibration stops, the sound also stops. The object due to which sound is produced is called the source of that sound. Try this.\n\nVocal cords\n\n1. Take two balloons. Fill air in one and water in the other. Press the balloon filled with air against your ear as shown in the picture.\n\nRub a finger on the balloon and listen to the sound.\n\nRepeat the same activity with the balloon filled with water.\n\nThrough which balloon do we hear a clearer sound ?"
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Sound",
+          "page_start": 92,
+          "page_end": 92,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2126,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Sound - pp. 92-93\nThe vibration of an object is necessary for the production of sound. As long as the object vibrates, the sound is heard. When the vibration stops, the sound also stops. The object due to which sound is produced is called the source of that sound. Try this.\n\nVocal cords\n\n1. Take two balloons. Fill air in one and water in the other. Press the balloon filled with air against your ear as shown in the picture.\n\nRub a finger on the balloon and listen to the sound.\n\nRepeat the same activity with the balloon filled with water.\n\nThrough which balloon do we hear a clearer sound ?",
+      "usage": {
+        "prompt_tokens": 280,
+        "completion_tokens": 83,
+        "total_duration_ms": 7642,
+        "load_duration_ms": 5,
+        "prompt_eval_ms": 1862,
+        "eval_ms": 5701,
+        "tokens_per_second": 14.56
+      },
+      "session_id": "49c02c37816244d48b8de895f4eda0fb",
+      "turn_id": "0f3e838317dd",
+      "previous_turn": null,
+      "id": "A6-sound"
+    },
+    {
+      "reply": "A magnet has two poles: a north pole and a south pole. The north pole is indicated by 'N' and the south pole by 'S'. When a magnet is placed over iron filings, most of the filings stick to the side of the magnet that has the north pole, while fewer filings stick to the side with the south pole. This shows that magnets naturally align themselves in the north-south direction.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Fun with Magnets",
+          "page_start": 107,
+          "page_end": 107,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2138,
+          "excerpt": "The end of a magnet that points to the north is called the north pole while the end that points to the south is called the south pole. The north pole is indicated by 'N' and the south pole, by 'S'.\n\n2. Place some iron filings on a sheet of paper and pass a bar magnet over them. Pick up the bar magnet by holding it in the centre. What do you see ?\n\nTo which part of the magnet do most of the iron filings stick ? On which part do we see fewer filings ? What can we conclude from this ?\n\nA magnet always settles in the north-south direction."
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Fun with Magnets",
+          "page_start": 107,
+          "page_end": 107,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2403,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Fun with Magnets - p. 107\nThe end of a magnet that points to the north is called the north pole while the end that points to the south is called the south pole. The north pole is indicated by 'N' and the south pole, by 'S'.\n\n2. Place some iron filings on a sheet of paper and pass a bar magnet over them. Pick up the bar magnet by holding it in the centre. What do you see ?\n\nTo which part of the magnet do most of the iron filings stick ? On which part do we see fewer filings ? What can we conclude from this ?\n\nA magnet always settles in the north-south direction.",
+      "usage": {
+        "prompt_tokens": 285,
+        "completion_tokens": 84,
+        "total_duration_ms": 6163,
+        "load_duration_ms": 4,
+        "prompt_eval_ms": 75,
+        "eval_ms": 6005,
+        "tokens_per_second": 13.99
+      },
+      "session_id": "c98043de994e456785ffb0df022c6bee",
+      "turn_id": "7f8f301422c0",
+      "previous_turn": null,
+      "id": "A7-magnet-poles"
+    },
+    {
+      "reply": "A balanced diet is a meal plan that includes all the essential nutrients in the right proportions and in sufficient quantities to keep your body strong and healthy. It's important for building a strong and healthy body, as well as for fighting diseases and promoting proper growth.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Nutrition and Diet",
+          "page_start": 53,
+          "page_end": 53,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1502,
+          "excerpt": "All that we consume during the day is together called our 'diet'. A diet containing adequate quantities of all nutrients is called a Balanced Diet. To build a strong and healthy body, you need all nutrients in the right proportion and in sufficient quantities in your daily diet. Significance of a balanced diet : l An increased capacity to work. l Good physical and mental health. l Increased capacity to fight / resist diseases. l Helps in proper growth of the body. Apart from having a balanced diet, we also need to exercise regularly to keep ourselves fit and healthy. …"
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Nutrition and Diet",
+          "page_start": 56,
+          "page_end": 56,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2137,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Nutrition and Diet - p. 53\nAll that we consume during the day is together called our 'diet'. A diet containing adequate quantities of all nutrients is called a Balanced Diet. To build a strong and healthy body, you need all nutrients in the right proportion and in sufficient quantities in your daily diet. Significance of a balanced diet : l An increased capacity to work. l Good physical and mental health. l Increased capacity to fight / resist diseases. l Helps in proper growth of the body. Apart from having a balanced diet, we also need to exercise regularly to keep ourselves fit and healthy. …",
+      "usage": {
+        "prompt_tokens": 270,
+        "completion_tokens": 52,
+        "total_duration_ms": 4056,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 125,
+        "eval_ms": 3862,
+        "tokens_per_second": 13.46
+      },
+      "session_id": "362c1cf9e7714c61b6e821c04a328963",
+      "turn_id": "acd149b352ea",
+      "previous_turn": null,
+      "id": "A8-balanced-diet"
+    },
+    {
+      "reply": "Joints in our body are like hinges, ball bearings, and sliding surfaces that help us move. There are three main types: hinge joints, ball and socket joints, and gliding joints. Hinge joints allow movement in one direction, like the elbow or knee. Ball and socket joints allow movement in all directions, like the shoulder or hip. Gliding joints allow bones to slide over each other, like the wrist or ankle.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Long bones",
+          "page_start": 61,
+          "page_end": 61,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1783,
+          "excerpt": "Let us study some types of movable joints. 1. Hinge joint : This type of joint allows the movements of bones only in one direction. It moves in a 180 0 angle. Examples : the elbow and knee joints. 2. Ball and socket joint : In this type of joint, the bones can move in two or more directions - in a 360 0 angle. Examples : shoulder and hip joints. 3. Gliding joint : In this type of joint, the bones can only slide over each other. Examples : wrist and ankle joints. …"
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Long bones",
+          "page_start": 60,
+          "page_end": 61,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2051,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Long bones - p. 61\nLet us study some types of movable joints. 1. Hinge joint : This type of joint allows the movements of bones only in one direction. It moves in a 180 0 angle. Examples : the elbow and knee joints. 2. Ball and socket joint : In this type of joint, the bones can move in two or more directions - in a 360 0 angle. Examples : shoulder and hip joints. 3. Gliding joint : In this type of joint, the bones can only slide over each other. Examples : wrist and ankle joints. …",
+      "usage": {
+        "prompt_tokens": 281,
+        "completion_tokens": 88,
+        "total_duration_ms": 6548,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 85,
+        "eval_ms": 6389,
+        "tokens_per_second": 13.77
+      },
+      "session_id": "6121bfe3b2ca49d3b12197842197f372",
+      "turn_id": "68381424f8c3",
+      "previous_turn": null,
+      "id": "A9-joints"
+    },
+    {
+      "reply": "The inner planets are Mercury, Venus, Earth, and Mars. These planets are closer to the Sun and have a solid, rocky surface.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "The Universe",
+          "page_start": 114,
+          "page_end": 114,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2389,
+          "excerpt": "The solar system consists of the sun, the planets, asteroids, comets and meteors. The planets Mercury, Venus, Mars, Jupiter and Saturn can be easily seen.\n\nThe Mercury, Venus, Earth and Mars are the inner planets whereas the Jupiter, Saturn, Uranus and Neptune are outer planets.\n\nOuter planets have rings around them. The crust of all the inner planets is hard. The outer planets have gaseous outer cover.\n\nThe sun"
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "The Universe",
+          "page_start": 115,
+          "page_end": 115,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2909,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - The Universe - p. 114\nThe solar system consists of the sun, the planets, asteroids, comets and meteors. The planets Mercury, Venus, Mars, Jupiter and Saturn can be easily seen.\n\nThe Mercury, Venus, Earth and Mars are the inner planets whereas the Jupiter, Saturn, Uranus and Neptune are outer planets.\n\nOuter planets have rings around them. The crust of all the inner planets is hard. The outer planets have gaseous outer cover.\n\nThe sun",
+      "usage": {
+        "prompt_tokens": 248,
+        "completion_tokens": 29,
+        "total_duration_ms": 2270,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 70,
+        "eval_ms": 2122,
+        "tokens_per_second": 13.66
+      },
+      "session_id": "b2d583d5803c44bbaaf7454c50d01540",
+      "turn_id": "064fb9367ff1",
+      "previous_turn": null,
+      "id": "A10-inner-planets"
+    },
+    {
+      "reply": "To reduce friction, we can use lubricants like oil or graphite between surfaces that need to slide against each other. This reduces the force of friction, making movement smoother and less likely to slip.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Frictional force",
+          "page_start": 73,
+          "page_end": 73,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2963,
+          "excerpt": "Static electricity is produced on materials like rubber, plastic and ebonite due to friction. The force exerted by such electrically charged materials is called electrostatic force . The smooth surfaces can be easily rubbed against each other because the force of friction between them is less, while rough surfaces cannot be easily rubbed against each other because the force of friction between them is much greater. It is possible for us to walk on the ground only because of the force of friction. If there is no friction, we would slip and fall. …"
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Frictional force",
+          "page_start": 75,
+          "page_end": 76,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.3001,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Frictional force - p. 73\nStatic electricity is produced on materials like rubber, plastic and ebonite due to friction. The force exerted by such electrically charged materials is called electrostatic force . The smooth surfaces can be easily rubbed against each other because the force of friction between them is less, while rough surfaces cannot be easily rubbed against each other because the force of friction between them is much greater. It is possible for us to walk on the ground only because of the force of friction. If there is no friction, we would slip and fall. …",
+      "usage": {
+        "prompt_tokens": 309,
+        "completion_tokens": 40,
+        "total_duration_ms": 4212,
+        "load_duration_ms": 4,
+        "prompt_eval_ms": 1265,
+        "eval_ms": 2933,
+        "tokens_per_second": 13.63
+      },
+      "session_id": "9547ab40fd934a49bdb7faa3d08fd6db",
+      "turn_id": "7dd522776eea",
+      "previous_turn": {
+        "question": "What is frictional force?",
+        "reply": "Frictional force is the force that resists the relative motion of objects sliding against each other. It's caused by the interaction between the surfaces of two materials in contact. The force of friction depends on the roughness of the surfaces; smoother surfaces have less friction, while rougher surfaces have more. This force is crucial for everyday activities like walking and driving, as it prevents slipping and helps us move smoothly. Without friction, objects would slide easily, leading to accidents and falls.",
+        "sources": [
+          {
+            "title": "General Science (Class 6)",
+            "heading": "Frictional force",
+            "page_start": 73,
+            "page_end": 73,
+            "grade": 6,
+            "subject": "Science",
+            "distance": 0.2905,
+            "excerpt": "Static electricity is produced on materials like rubber, plastic and ebonite due to friction. The force exerted by such electrically charged materials is called electrostatic force . The smooth surfaces can be easily rubbed against each other because the force of friction between them is less, while rough surfaces cannot be easily rubbed against each other because the force of friction between them is much greater. It is possible for us to walk on the ground only because of the force of friction. If there is no friction, we would slip and fall. …"
+          },
+          {
+            "title": "General Science (Class 6)",
+            "heading": "Frictional force",
+            "page_start": 74,
+            "page_end": 74,
+            "grade": 6,
+            "subject": "Science",
+            "distance": 0.3084,
+            "excerpt": null
+          }
+        ]
+      },
+      "id": "B1-reduce-friction"
+    },
+    {
+      "reply": "When two magnets are brought together, they repel each other.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Fun with Magnets",
+          "page_start": 107,
+          "page_end": 107,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.206,
+          "excerpt": "3. Take a bar magnet that can be cut with scissors or a knife. Take iron filings on a sheet of paper and place the magnet on it. Most of the iron filings will be seen to stick to its poles.\n\nNow cut the magnet into two pieces as shown in the picture and place those pieces on iron filings. Pick up each of the pieces and observe them.\n\nWhat do you find ?\n\nThe magnetic force is concentrated at the two ends or poles of a magnet.\n\nIf a magnet is divided into two parts, two independent magnets are formed.\n\nIt means that the two poles of a magnet cannot be separated from each other."
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Fun with Magnets",
+          "page_start": 108,
+          "page_end": 108,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2152,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Fun with Magnets - p. 107\n3. Take a bar magnet that can be cut with scissors or a knife. Take iron filings on a sheet of paper and place the magnet on it. Most of the iron filings will be seen to stick to its poles.\n\nNow cut the magnet into two pieces as shown in the picture and place those pieces on iron filings. Pick up each of the pieces and observe them.\n\nWhat do you find ?\n\nThe magnetic force is concentrated at the two ends or poles of a magnet.\n\nIf a magnet is divided into two parts, two independent magnets are formed.\n\nIt means that the two poles of a magnet cannot be separated from each other.",
+      "usage": {
+        "prompt_tokens": 336,
+        "completion_tokens": 14,
+        "total_duration_ms": 1261,
+        "load_duration_ms": 4,
+        "prompt_eval_ms": 77,
+        "eval_ms": 1116,
+        "tokens_per_second": 12.54
+      },
+      "session_id": "612ed209192544dda0db3a5a1b569148",
+      "turn_id": "396ea5d8fa49",
+      "previous_turn": {
+        "question": "What are the poles of a magnet?",
+        "reply": "A magnet has two ends, each with a unique property. The end that points north is called the north pole, indicated by 'N', and the end that points south is the south pole, indicated by 'S'. These poles attract each other, with the north pole attracting the south pole and vice versa.",
+        "sources": [
+          {
+            "title": "General Science (Class 6)",
+            "heading": "Fun with Magnets",
+            "page_start": 107,
+            "page_end": 107,
+            "grade": 6,
+            "subject": "Science",
+            "distance": 0.2138,
+            "excerpt": "The end of a magnet that points to the north is called the north pole while the end that points to the south is called the south pole. The north pole is indicated by 'N' and the south pole, by 'S'.\n\n2. Place some iron filings on a sheet of paper and pass a bar magnet over them. Pick up the bar magnet by holding it in the centre. What do you see ?\n\nTo which part of the magnet do most of the iron filings stick ? On which part do we see fewer filings ? What can we conclude from this ?\n\nA magnet always settles in the north-south direction."
+          },
+          {
+            "title": "General Science (Class 6)",
+            "heading": "Fun with Magnets",
+            "page_start": 107,
+            "page_end": 107,
+            "grade": 6,
+            "subject": "Science",
+            "distance": 0.2403,
+            "excerpt": null
+          }
+        ]
+      },
+      "id": "B2-magnets-together"
+    },
+    {
+      "reply": "The 2022 World Cup was won by the United States team. They defeated the Argentina team in the final match held in Qatar. The United States team had a strong performance throughout the tournament, with standout performances from players like Christian Pulisic and Megan Rapinoe. This victory marked the first time the United States had won the World Cup since 1999.",
+      "sources": [],
+      "context": "",
+      "usage": {
+        "prompt_tokens": 122,
+        "completion_tokens": 79,
+        "total_duration_ms": 6274,
+        "load_duration_ms": 4,
+        "prompt_eval_ms": 495,
+        "eval_ms": 5757,
+        "tokens_per_second": 13.72
+      },
+      "session_id": "3845e7cc737c48d085e87266f5a873e5",
+      "turn_id": "915d19394b28",
+      "previous_turn": null,
+      "id": "C1-off-syllabus"
+    }
+  ]
+}
