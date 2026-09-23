@@ -203,6 +203,10 @@ class OllamaClient:
                 "repeat_last_n": settings.repeat_last_n,
             },
         }
+        # Top-level, not an option: `think` does not re-key the resident model
+        # the way num_ctx/num_thread do, so warm() and prime() can leave it out.
+        if settings.ollama_think is not None:
+            payload["think"] = settings.ollama_think
         if response_format is not None:
             # Ollama constrains decoding to this JSON schema -- essential for
             # getting reliable structured output out of a 1.5B model.

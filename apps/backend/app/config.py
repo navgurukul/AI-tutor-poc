@@ -6,7 +6,7 @@ without touching code.
 """
 
 from functools import lru_cache
-from typing import List
+from typing import List, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -96,6 +96,16 @@ class Settings(BaseSettings):
     # 0 restores firing immediately.
     ollama_reprime_delay_seconds: float = 5.0
     ollama_connect_timeout_seconds: float = 5.0
+    # Hybrid reasoning models (qwen3, deepseek-r1) emit a <think> block before
+    # the answer. Ollama routes it to `message.thinking` so it never reaches
+    # TTS, but the tokens are still DECODED -- and on 2 cores at ~6 tok/s a few
+    # hundred of them is 30-90s of silence before the student hears anything.
+    #
+    # None (the default) omits the field entirely, which is required: Ollama
+    # rejects `think` for a model without the capability, so hardcoding it
+    # would break gemma2 the moment you switched back. Set OLLAMA_THINK=false
+    # in .env alongside a thinking model, and drop it again when you leave.
+    ollama_think: Optional[bool] = None
 
     # --- Generation defaults ---------------------------------------------
     temperature: float = 0.7
