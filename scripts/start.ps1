@@ -11,7 +11,7 @@
 
   Requires Ollama running locally (installed separately - `winget install
   Ollama.Ollama`) with the configured model pulled. The model is OLLAMA_MODEL in
-  apps/backend/.env (default gemma2:2b); this script prints the exact
+  apps/backend/.env (default sarvam-1-chat); this script prints the exact
   `ollama pull ...` line for whatever you've set. The backend starts without it,
   but /health reports degraded and chat requests fail until it's reachable.
 
@@ -55,7 +55,7 @@ function Test-UrlOk($url) {
 }
 
 # Which LLM the backend expects - read from apps/backend/.env (OLLAMA_MODEL),
-# falling back to the template, then gemma2:2b. So the checks below follow
+# falling back to the template, then sarvam-1-chat. So the checks below follow
 # whatever model you've configured.
 function Get-OllamaModel {
     foreach ($f in @((Join-Path $backendDir ".env"), (Join-Path $backendDir ".env.example"))) {
@@ -65,9 +65,23 @@ function Get-OllamaModel {
             if ($m) { return $m.Matches[0].Groups[1].Value }
         }
     }
-    return "gemma2:2b"
+    return "sarvam-1-chat"
 }
+
+# How to get that model. A model with a Modelfile in scripts\ (sarvam-1-chat) is
+# built locally from its base weights -- `ollama pull` alone cannot fetch it.
+function Get-ModelInstallCommand($model) {
+    $name = ($model -split ':')[0]
+    $mf = Join-Path $repoRoot "scripts\$name.Modelfile"
+    if (Test-Path $mf) {
+        $from = (Select-String -Path $mf -Pattern '^FROM\s+(\S+)' | Select-Object -First 1).Matches[0].Groups[1].Value
+        return "ollama pull $from; ollama create $name -f scripts\$name.Modelfile"
+    }
+    return "ollama pull $model"
+}
+
 $ollamaModel = Get-OllamaModel
+$installCmd = Get-ModelInstallCommand $ollamaModel
 
 Write-Host ""
 Write-Host "==> Checking Ollama ($ollamaModel)..." -ForegroundColor Cyan
@@ -77,13 +91,13 @@ if (Test-UrlOk "http://localhost:11434/api/version") {
         Write-Host "Ollama is up, '$ollamaModel' is pulled." -ForegroundColor Green
     } else {
         Write-Host "Ollama is up, but '$ollamaModel' isn't pulled yet." -ForegroundColor Yellow
-        Write-Host "  Run:  ollama pull $ollamaModel" -ForegroundColor Yellow
+        Write-Host "  Run:  $installCmd" -ForegroundColor Yellow
         Write-Host "  (or set OLLAMA_MODEL in apps\backend\.env to one you have). Continuing." -ForegroundColor DarkGray
     }
 } else {
     Write-Host "Ollama isn't responding on http://localhost:11434." -ForegroundColor Yellow
     Write-Host "  Install it (winget install Ollama.Ollama), make sure it's running," -ForegroundColor Yellow
-    Write-Host "  then:  ollama pull $ollamaModel" -ForegroundColor Yellow
+    Write-Host "  then:  $installCmd" -ForegroundColor Yellow
     Write-Host "  Continuing anyway; answers show 'model unavailable' until it's reachable." -ForegroundColor DarkGray
 }
 

@@ -17,7 +17,7 @@ import unicodedata
 from collections import Counter
 from typing import List, Optional, Sequence, Tuple
 
-from app.services.rag import legacy_hindi
+from app.services.rag import devanagari, legacy_hindi
 
 logger = logging.getLogger(__name__)
 
@@ -93,19 +93,13 @@ def _normalise_characters(text: str) -> str:
     for source, target in _PUNCTUATION_MAP.items():
         text = text.replace(source, target)
     text = unicodedata.normalize("NFKC", text)
-    return _DOUBLED_MATRA.sub(r"\1", text)
+    # Font-map damage: doubled matras, and the फ family. Shared with the
+    # structural pipeline so the two cannot drift apart.
+    return devanagari.repair(text)
 
 
-# The same dependent vowel sign twice in a row. No Hindi or Marathi word has
-# one -- a matra modifies the consonant before it, and a second identical one
-# has nothing to modify -- so collapsing it cannot damage real text.
-#
-# PyMuPDF produces it on some NCERT fonts, where the matra is drawn as two
-# overlapping glyphs and both are mapped. Measured 2026-09-10: ehve102.pdf
-# ("न्याय की कुर्सी") at 6.9 per 100 Devanagari characters -- "न्यााय",
-# "बााहर", "थाा" -- so the chapter's own title word matched zero chunks and
-# questions about the story missed it entirely.
-_DOUBLED_MATRA = re.compile(r"([ा-ौॢॣ])\1+")
+# Devanagari font-map repairs now live in `devanagari`; see that module for
+# what they are and what each one was measured on.
 
 
 def _page_lines(page_text: str) -> List[str]:

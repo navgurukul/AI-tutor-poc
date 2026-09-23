@@ -67,6 +67,11 @@ class Retrieved:
     grade: int
     subject: str
     language: str = ""
+    # What the ingestion classifier called this passage: "paragraph",
+    # "exercise", "table", "caption", "formula", ... or "" on a library
+    # ingested before the structural pipeline. Retrieval reads it to keep
+    # exercises out of factual answers; see `retrieval.looks_like_exercise`.
+    content_type: str = ""
 
 
 # A medium arrives in two spellings: the name the setup page's dropdown saves
@@ -174,6 +179,30 @@ class LibraryStore:
             )
         return self._conn
 
+    # Columns added after the first release. `create table if not exists`
+    # will not add a column to a table that already exists, so these are
+    # applied separately against libraries built earlier.
+    #
+    # Both are filled by the structural ingestion pipeline. On a library
+    # ingested before it, `content_type` is '' -- which the retrieval filter
+    # reads as "unknown", and falls back to the text heuristic for. That is
+    # what lets an old library go on working until it is re-ingested.
+    _ADDED_COLUMNS = (
+        ("chunks", "content_type", "text not null default ''"),
+        ("chunks", "section", "text not null default ''"),
+    )
+
+    def _add_missing_columns(self, conn: sqlite3.Connection) -> None:
+        for table, column, kind in self._ADDED_COLUMNS:
+            existing = {
+                row[1] for row in conn.execute("pragma table_info({})".format(table))
+            }
+            if column not in existing:
+                conn.execute(
+                    "alter table {} add column {} {}".format(table, column, kind)
+                )
+                logger.info("Added column %s.%s to the library.", table, column)
+
     # -- schema ------------------------------------------------------------
     def _migrate(self) -> None:
         conn = self._require()
@@ -219,6 +248,7 @@ class LibraryStore:
                 );
                 """
             )
+            self._add_missing_columns(conn)
             # Full-text index over the same rows, in the same file. `trigram`
             # rather than the default unicode61: unicode61 shatters Devanagari
             # conjuncts -- कार्य becomes क, र, य -- which is useless for BM25.
@@ -443,8 +473,9 @@ class LibraryStore:
             for chunk, vector in records:
                 cursor = conn.execute(
                     """insert into chunks
-                           (document_id, ordinal, page_start, page_end, heading, text)
-                       values (?, ?, ?, ?, ?, ?)""",
+                           (document_id, ordinal, page_start, page_end, heading,
+                            text, content_type, section)
+                       values (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         document_id,
                         chunk.ordinal,
@@ -452,6 +483,13 @@ class LibraryStore:
                         chunk.page_end,
                         chunk.heading,
                         chunk.text,
+                        # getattr, not chunk.content_type, so both chunkers
+                        # can write through this method while the structural
+                        # pipeline is behind a flag. The old one has neither
+                        # field and its rows keep the '' default, which the
+                        # retrieval filter reads as "unknown".
+                        getattr(chunk, "content_type", "") or "",
+                        getattr(chunk, "section", "") or "",
                     ),
                 )
                 chunk_id = int(cursor.lastrowid)
@@ -660,7 +698,7 @@ class LibraryStore:
         placeholders = ",".join("?" for _ in chunk_ids)
         sql = """
             select c.id as chunk_id, c.text, c.heading, c.page_start, c.page_end,
-                   d.title, d.grade, d.subject, d.language
+                   d.title, d.grade, d.subject, d.language, c.content_type
             from chunks c
             join documents d on d.id = c.document_id
             where c.id in ({})
@@ -679,6 +717,7 @@ class LibraryStore:
                 grade=r["grade"],
                 subject=r["subject"],
                 language=r["language"] or "",
+                content_type=r["content_type"] or "",
             )
             for r in rows
         }
@@ -728,7 +767,7 @@ class LibraryStore:
         where = ("where " + " and ".join(filters)) if filters else ""
         sql = """
             select c.id as chunk_id, c.text, c.heading, c.page_start, c.page_end,
-                   d.title, d.grade, d.subject, d.language
+                   d.title, d.grade, d.subject, d.language, c.content_type
             from chunks c
             join documents d on d.id = c.document_id
             {where}
@@ -748,6 +787,7 @@ class LibraryStore:
                 grade=r["grade"],
                 subject=r["subject"],
                 language=r["language"] or "",
+                content_type=r["content_type"] or "",
             )
             for r in rows
         ]
@@ -799,7 +839,7 @@ class LibraryStore:
             )
             select knn.chunk_id, knn.distance, c.text, c.heading,
                    c.page_start, c.page_end, d.title, d.grade, d.subject,
-                   d.language
+                   d.language, c.content_type
             from knn
             join chunks c on c.id = knn.chunk_id
             join documents d on d.id = c.document_id
@@ -821,6 +861,7 @@ class LibraryStore:
                 grade=r["grade"],
                 subject=r["subject"],
                 language=r["language"] or "",
+                content_type=r["content_type"] or "",
             )
             for r in rows
         ]
@@ -868,7 +909,7 @@ class LibraryStore:
 
         sql = """
             select c.id as chunk_id, c.text, c.heading, c.page_start, c.page_end,
-                   d.title, d.grade, d.subject, d.language
+                   d.title, d.grade, d.subject, d.language, c.content_type
             from chunks_fts
             join chunks c on c.id = chunks_fts.rowid
             join documents d on d.id = c.document_id
@@ -891,6 +932,7 @@ class LibraryStore:
                 grade=r["grade"],
                 subject=r["subject"],
                 language=r["language"] or "",
+                content_type=r["content_type"] or "",
             )
             for r in rows
         ]

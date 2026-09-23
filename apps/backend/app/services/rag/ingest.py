@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 
 from app.config import settings
 from app.services.ollama_client import OllamaError
-from app.services.rag import pdf_text
+from app.services.rag import ingestion, pdf_text
 from app.services.rag.retrieval import reset_pinned_cache
 from app.services.rag.chunking import chunk_pages
 from app.services.rag.embeddings import embed_documents
@@ -30,6 +30,41 @@ logger = logging.getLogger(__name__)
 # Finished jobs are kept so the page can show the outcome after the fact, but
 # not forever -- this is a POC, and the list is a UI convenience, not a record.
 _MAX_REMEMBERED_JOBS = 40
+
+
+@dataclass
+class _StoredChunk:
+    """A pipeline chunk in the shape the store and the embedder expect.
+
+    An adapter rather than a change to either side: `chunking.Chunk` and
+    `ingestion.model.Chunk` are both right for their own pipeline, and while
+    `rag_structural_ingestion` can be switched off, both have to reach
+    `store.add_chunks` through one interface.
+    """
+
+    ordinal: int
+    text: str
+    heading: str
+    page_start: int
+    page_end: int
+    content_type: str = ""
+    section: str = ""
+
+    def embedding_text(self, grade: int, subject: str) -> str:
+        """What actually gets embedded: breadcrumb, then prose.
+
+        Byte-identical in format to `chunking.Chunk.embedding_text`, and that
+        is load-bearing rather than tidy. The per-language ceilings in config
+        (rag_ceiling_en/hi/mr) were calibrated against distances produced with
+        THIS breadcrumb in front of the text. Change the separator or the
+        field order and every distance shifts, so the gate is silently
+        miscalibrated and the only symptom is a tutor that abstains more, or
+        less, than it should.
+        """
+        crumbs = ["Class {}".format(grade), subject]
+        if self.heading:
+            crumbs.append(self.heading)
+        return "{}\n\n{}".format(" > ".join(crumbs), self.text)
 
 
 @dataclass
@@ -143,42 +178,79 @@ class IngestionService:
             finally:
                 job.finished_at = time.time()
 
-    async def _ingest(self, job: IngestJob, data: bytes) -> None:
-        digest = hashlib.sha256(data).hexdigest()
-        existing = self.store.find_by_hash(digest)
-        if existing:
+    # -- chunk production --------------------------------------------------
+    #
+    # Both paths return (chunks, page_count, warning), or (None, 0, "") when
+    # they have already failed the job. Both run in a worker thread: they are
+    # synchronous and CPU-bound, and on the event loop they would block every
+    # chat request for the length of a book.
+
+    def _structural_chunks(self, job: IngestJob, data: bytes):
+        """The 8-stage pipeline: geometry, classification, validation."""
+        chunks, report = ingestion.build_chunks(
+            data,
+            {
+                "file_name": job.filename,
+                "subject": job.subject,
+                "grade": job.grade,
+                "medium": job.language,
+            },
+        )
+
+        verdict = report["validate"]["verdict"]
+        if not verdict["usable"] and settings.rag_reject_unusable_documents:
+            # The one case where an upload is refused. A document whose text
+            # layer is unreadable does not produce a poor book, it produces a
+            # book that answers nothing -- and stored, it is indistinguishable
+            # from the tutor simply being bad. See validate._verdict.
             job.status = "error"
-            job.error = "This exact PDF is already in the library as '{}' (Class {} {}).".format(
-                existing["title"], existing["grade"], existing["subject"]
+            job.error = verdict["message"]
+            job.hint = (
+                "Run it through OCR first (any tool that produces a searchable "
+                "PDF), then upload the result."
+                if verdict["reason"] in ("no_text", "unreadable_text_layer")
+                else None
             )
-            job.hint = "Delete it first if you want to re-ingest."
-            return
-
-        # Not blocked, unlike the check above -- deleting a document, then
-        # re-uploading the identical file, is sometimes exactly what you mean
-        # to do (undoing a mistaken delete). What it cannot be is silent: the
-        # hash-dedup above only ever sees documents still present, so once
-        # the original is gone this is the only thing that can still say
-        # "you have seen this exact file before." A warning here, surfaced
-        # like the text-quality ones below, is what closes that gap.
-        warnings: List[str] = []
-        removed = self.store.find_removed_by_hash(digest)
-        if removed:
-            warnings.append(
-                "This exact file was already removed from the library once, on {} "
-                "(was '{}', Class {} {}). Make sure this is the replacement you "
-                "meant to upload, not the same file again.".format(
-                    removed["removed_at"], removed["title"],
-                    removed["grade"], removed["subject"],
-                )
+            logger.warning(
+                "Refused %s: %s (%s)", job.filename, verdict["reason"], verdict["message"]
             )
+            return None, 0, ""
 
-        job.status = "extracting"
-        job.stage_detail = "Reading and cleaning the PDF"
-        # Extraction is synchronous and CPU-bound; off the event loop it would block
-        # every chat request for the duration of a large book.
-        pages, raw_page_count = await asyncio.to_thread(pdf_text.extract_and_clean, data)
-        job.pages = raw_page_count
+        logger.info(
+            "%s: %d pages (%d two-column) -> %d chunks, median %d tokens, "
+            "%d over the %d-token cap; types %s",
+            job.filename,
+            report["extract"]["pages"],
+            report["layout"]["two_column"],
+            len(chunks),
+            report["chunk"]["tokens"]["median"],
+            report["chunk"]["tokens"]["over_cap"],
+            report["chunk"]["tokens"]["cap"],
+            report["chunk"]["by_type"],
+        )
+        adapted = [
+            _StoredChunk(
+                ordinal=index,
+                text=chunk.text,
+                heading=chunk.section,
+                page_start=chunk.page,
+                page_end=chunk.page_end,
+                content_type=chunk.content_type,
+                section=chunk.section,
+            )
+            for index, chunk in enumerate(chunks)
+        ]
+        return adapted, report["extract"]["pages"], ingestion.warning_for(report)
+
+    def _legacy_chunks(self, job: IngestJob, data: bytes):
+        """The line-statistical chunker this port replaces.
+
+        Kept behind `rag_structural_ingestion` so the two can be compared on
+        the same PDF. It produces different chunk boundaries, so a library
+        holding some of each retrieves from both with no way to tell which
+        chunker produced a bad answer -- switch, then re-ingest everything.
+        """
+        pages, raw_page_count = pdf_text.extract_and_clean(data)
 
         if pdf_text.looks_like_scan(pages):
             job.status = "error"
@@ -187,8 +259,9 @@ class IngestionService:
                 "Run it through OCR first (any tool that produces a searchable PDF), "
                 "then upload the result."
             )
-            return
+            return None, 0, ""
 
+        warnings: List[str] = []
         # A text layer that exists but is a symbol/dingbat font's glyph IDs,
         # not real characters, is functionally the same failure as no text
         # layer at all -- unlike looks_mis_decoded below, there is nothing
@@ -203,7 +276,7 @@ class IngestionService:
                 "Run it through OCR first (any tool that produces a searchable PDF "
                 "in a normal font), then upload the result."
             )
-            return
+            return None, 0, ""
 
         # Mis-decoded Devanagari is the one failure that looks like success.
         # The text has the right script and the right length, it embeds without
@@ -229,9 +302,7 @@ class IngestionService:
                 "Very little Hindi text came out of this PDF -- it may use an old "
                 "font that could not be converted. Answers from it may be poor."
             )
-        if warnings:
-            job.hint = " ".join(warnings)
-            logger.warning("Ingesting %s with a warning: %s", job.filename, job.hint)
+        warning = " ".join(warnings)
 
         chunks = chunk_pages(
             pages,
@@ -240,6 +311,60 @@ class IngestionService:
             max_chars=settings.rag_chunk_max_chars,
             min_chars=settings.rag_chunk_min_chars,
         )
+        return chunks, raw_page_count, warning
+
+    async def _ingest(self, job: IngestJob, data: bytes) -> None:
+        digest = hashlib.sha256(data).hexdigest()
+        existing = self.store.find_by_hash(digest)
+        if existing:
+            job.status = "error"
+            job.error = "This exact PDF is already in the library as '{}' (Class {} {}).".format(
+                existing["title"], existing["grade"], existing["subject"]
+            )
+            job.hint = "Delete it first if you want to re-ingest."
+            return
+
+        # Not blocked, unlike the check above -- deleting a document, then
+        # re-uploading the identical file, is sometimes exactly what you mean
+        # to do (undoing a mistaken delete). What it cannot be is silent: the
+        # hash-dedup above only ever sees documents still present, so once
+        # the original is gone this is the only thing that can still say
+        # "you have seen this exact file before." A warning here, surfaced
+        # like the text-quality ones, is what closes that gap.
+        removed_warning = ""
+        removed = self.store.find_removed_by_hash(digest)
+        if removed:
+            removed_warning = (
+                "This exact file was already removed from the library once, on {} "
+                "(was '{}', Class {} {}). Make sure this is the replacement you "
+                "meant to upload, not the same file again.".format(
+                    removed["removed_at"], removed["title"],
+                    removed["grade"], removed["subject"],
+                )
+            )
+
+        job.status = "extracting"
+        job.stage_detail = "Reading and cleaning the PDF"
+
+        if settings.rag_structural_ingestion:
+            chunks, raw_page_count, warning = await asyncio.to_thread(
+                self._structural_chunks, job, data
+            )
+            if chunks is None:
+                return  # job already carries the error and the hint
+        else:
+            chunks, raw_page_count, warning = await asyncio.to_thread(
+                self._legacy_chunks, job, data
+            )
+            if chunks is None:
+                return
+
+        job.pages = raw_page_count
+        warning = " ".join(w for w in (removed_warning, warning) if w)
+        if warning:
+            job.hint = warning
+            logger.warning("Ingesting %s with a warning: %s", job.filename, warning)
+
         if not chunks:
             job.status = "error"
             job.error = "The PDF produced no usable text after cleaning."
@@ -293,7 +418,7 @@ class IngestionService:
         reset_pinned_cache()
         job.stage_detail = "Added {} chunks from {} pages".format(
             job.chunks_done, raw_page_count
-        ) + (" -- warning: " + job.hint if warnings else "")
+        ) + (" -- warning: " + job.hint if warning else "")
         logger.info(
             "Ingested %s (class %s %s): %d pages -> %d chunks in %.1fs",
             job.title, job.grade, job.subject, raw_page_count, job.chunks_done,

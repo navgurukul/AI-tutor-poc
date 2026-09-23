@@ -1,0 +1,24 @@
+# The tutor's LLM: Sarvam-1 (2B, 10 Indic languages + English) with a chat
+# template and stop tokens that make it usable through /api/chat.
+#
+#   ollama pull hf.co/bartowski/sarvam-1-GGUF:Q4_K_M      # ~1.5 GB, one-time
+#   ollama create sarvam-1-chat -f scripts/sarvam-1-chat.Modelfile
+#
+# `create` reuses the pulled weights blob; nothing is downloaded twice.
+#
+# Why a Modelfile at all: sarvam-1 is a base model, and the published GGUF's
+# template only renders a single system/prompt pair and stops only on
+# <|im_start|>/<|im_end|>. The model actually ends its turns with "</s>" and
+# sometimes "[/INST]", which then came through as literal text -- on screen
+# and read aloud by TTS (measured 2026-09-23). This template renders the whole
+# message list, so replayed history is byte-identical turn to turn and Ollama's
+# prompt cache (and the backend's re-prime) keeps working.
+FROM hf.co/bartowski/sarvam-1-GGUF:Q4_K_M
+TEMPLATE """{{- range .Messages }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end }}<|im_start|>assistant
+"""
+PARAMETER stop "</s>"
+PARAMETER stop "[/INST]"
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|im_start|>"

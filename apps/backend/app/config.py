@@ -21,11 +21,14 @@ class Settings(BaseSettings):
 
     # --- Ollama -----------------------------------------------------------
     ollama_host: str = "http://localhost:11434"
-    # One model for every language. gemma2:2b, not qwen2.5:1.5b: the 1.5B model
-    # can't produce coherent Hindi/Marathi at all. A per-language split (English
+    # One model for every language. sarvam-1-chat since 2026-09-23: Sarvam-1
+    # (2B) built with scripts/sarvam-1-chat.Modelfile. It replaced gemma2:2b,
+    # whose Gujarati was unusable and Marathi unreliable; Sarvam's tokenizer
+    # also packs ~3.5 Devanagari chars per token against gemma's ~2.5, so the
+    # same CPU speaks Indic answers faster. A per-language split (English
     # on the smaller model) was tried and reverted -- on the 4 GB target every
     # language switch reloaded a model, which was slower than just running one.
-    ollama_model: str = "gemma2:2b"
+    ollama_model: str = "sarvam-1-chat"
     # Keep the model resident in RAM between questions. Ollama unloads it after
     # 5 min idle by default, so the next question eats the full cold load again
     # (~10-20s on a 4 GB CPU). "-1" = never unload; a duration like "30m" also
@@ -685,6 +688,94 @@ class Settings(BaseSettings):
     # boundary survives in at least one of them. Zero at a heading -- see
     # chunking.flush().
     rag_chunk_overlap_chars: int = 180
+
+    # --- structural ingestion (app/services/rag/ingestion) ----------------
+    # Chunk bounds in TOKENS, for the ported 8-stage pipeline. The character
+    # bounds above belong to the old paragraph-packing chunker and are read
+    # only while `rag_structural_ingestion` is false.
+    #
+    # The target is set against `rag_passage_token_cap` (70), NOT against what
+    # embeds best, and that is the whole point of the change. A retrieved
+    # passage is cut to the cap by `retrieval.trim_passage` before it reaches
+    # the model, keeping the HEAD of the chunk. So a chunk larger than the cap
+    # is a chunk the model only ever sees the opening of.
+    #
+    # Measured on the Class X Geography library, 2026-09-20, before this port:
+    #     chunk size, estimated tokens : median 344 | p75 623 | p90 797
+    #     chunks larger than the cap   : 305/369 (83%)
+    #     median delivery              : 16% of the chunk
+    # and the failure that exposed it: asked "काली मृदा कहाँ पाई जाती है", the
+    # correct chunk (ord=71, 749 tokens) was retrieved and trimmed to its
+    # first 45 tokens -- "इन मृदाओं का रंग काला है और इन्हे 'रेगर' मृदाएँ भी कहा
+    # जाता है।" -- which says what the soil is CALLED and not where it is
+    # found. महाराष्ट्र, सौराष्ट्र and मालवा sat at roughly token 400 and were
+    # never sent. The model invented an answer and the UI cited the right page
+    # beside it.
+    #
+    # Set EQUAL to the cap, which is the largest value that still delivers the
+    # whole chunk: the builder closes a chunk before adding the sentence that
+    # would pass the target, so chunks land at or under it and `trim_passage`
+    # becomes a no-op. Bigger would embed better and deliver worse -- measured
+    # 2026-09-20 on docs/RAG_ architecture.pdf, sweeping the target against the
+    # share of indexed tokens that can actually reach the model:
+    #
+    #     target  median  p90   over cap   deliverable
+    #        90      78    89      93        88.5%
+    #        70      62    69       1        99.6%     <- chosen
+    #        60      51    59       1        99.6%
+    #        45      37    44       1       100.0%
+    #
+    # Below 70 buys nothing and costs embedding context, so the target tracks
+    # the cap rather than sitting under it. If `rag_passage_token_cap` moves,
+    # move this with it and re-ingest -- they are one decision in two places.
+    #
+    # The residual `over cap` of 1 is a single sentence longer than the cap on
+    # its own. `trim_passage` will not cut mid-sentence (a 2026-09-09 incident
+    # where it did broke an answer), so that one is delivered long or not at
+    # all, and delivered long is right.
+    #
+    # The max is what a single paragraph may reach before it is split on
+    # sentences.
+    rag_chunk_target_tokens: int = 70
+    rag_chunk_max_tokens: int = 120
+    # Floor, in tokens. Low on purpose, for the same reason the character
+    # floor was: a one-line definition is exactly what a definition question
+    # wants, and a higher floor drops it silently.
+    rag_chunk_min_tokens: int = 12
+    # The most a chunk may repeat from the one before it, in tokens.
+    #
+    # Overlap exists so a fact split across a boundary still appears whole
+    # somewhere. Upstream carried one whole sentence, which at its 260-token
+    # target was about 12% of a chunk. At a 70-token target the same sentence
+    # is most of one: measured on the Class 12 Physics library, 2026-09-20,
+    # 44% of every chunk was a verbatim repeat of its predecessor.
+    #
+    # That is not merely wasted index. Adjacent chunks embed to near-identical
+    # vectors, so they take the top two ranks TOGETHER -- and the two passages
+    # the model is given then say the same thing twice, which is the whole
+    # context budget spent on one chunk's worth of information. It shows up as
+    # low groundedness for a reason that has nothing to do with the prompt.
+    #
+    # 12 tokens keeps a short connective sentence ("It is called the regur
+    # soil.") and drops a long one. 0 disables overlap entirely.
+    rag_chunk_overlap_max_tokens: int = 12
+    # Use the 8-stage structural pipeline (extract -> layout -> detect ->
+    # repair -> classify -> normalize -> chunk -> validate) instead of the
+    # line-statistical `pdf_text` + `chunking` pair.
+    #
+    # A flag rather than a straight replacement because the two produce
+    # different chunk boundaries, and a library holding some of each retrieves
+    # from both with no way to tell which chunker produced a bad answer. Flip
+    # it, re-ingest everything, and compare; it is not meant to live long.
+    rag_structural_ingestion: bool = True
+    # Refuse a document whose text layer the validator calls unusable --
+    # single characters rather than words, or legacy glyphs nothing could
+    # convert. The old pipeline only ever warned, which is how a book that
+    # answers nothing got into the library looking like a book that works.
+    #
+    # False restores the warn-and-store behaviour.
+    rag_reject_unusable_documents: bool = True
+
     # Chunks embedded per Ollama call during ingestion.
     rag_embed_batch_size: int = 16
     # Upload ceiling for a single PDF.

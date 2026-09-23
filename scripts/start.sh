@@ -7,7 +7,7 @@
 #   From anywhere:  ./scripts/start.sh
 #
 #   Requires Ollama running locally (`ollama serve`) with the configured model
-#   pulled. The model is OLLAMA_MODEL in apps/backend/.env (default gemma2:2b);
+#   pulled. The model is OLLAMA_MODEL in apps/backend/.env (default sarvam-1-chat);
 #   this script prints the exact `ollama pull ...` line for whatever you've set.
 #   The backend starts without it, but /health reports degraded and chat
 #   requests fail until it's reachable.
@@ -35,7 +35,7 @@ c_cyan=$'\033[36m'; c_green=$'\033[32m'; c_yellow=$'\033[33m'; c_reset=$'\033[0m
 url_ok() { curl -sf --max-time 2 "$1" >/dev/null 2>&1; }
 
 # Which LLM the backend expects - OLLAMA_MODEL in apps/backend/.env, falling
-# back to the template, then gemma2:2b. The checks below follow it.
+# back to the template, then sarvam-1-chat. The checks below follow it.
 get_ollama_model() {
   local f m
   for f in "$backend_dir/.env" "$backend_dir/.env.example"; do
@@ -44,9 +44,23 @@ get_ollama_model() {
       if [ -n "$m" ]; then echo "$m"; return; fi
     fi
   done
-  echo "gemma2:2b"
+  echo "sarvam-1-chat"
+}
+
+# How to get that model. A model with a Modelfile in scripts/ (sarvam-1-chat) is
+# built locally from its base weights -- `ollama pull` alone cannot fetch it.
+model_install_cmd() {
+  local name="${1%%:*}" mf base
+  mf="$repo_root/scripts/$name.Modelfile"
+  if [ -f "$mf" ]; then
+    base="$(sed -n 's/^FROM[[:space:]]*//p' "$mf" | head -n1)"
+    echo "ollama pull $base && ollama create $name -f scripts/$name.Modelfile"
+  else
+    echo "ollama pull $1"
+  fi
 }
 ollama_model="$(get_ollama_model)"
+install_cmd="$(model_install_cmd "$ollama_model")"
 
 stop_port() {
   # Kill by the port's listener rather than a remembered PID: uvicorn reloads
@@ -71,13 +85,13 @@ if url_ok "$ollama_host/api/version"; then
   if curl -sf --max-time 3 "$ollama_host/api/tags" 2>/dev/null | grep -q -- "$ollama_model"; then
     printf "%sOllama is up, '%s' is pulled.%s\n" "$c_green" "$ollama_model" "$c_reset"
   else
-    printf "%sOllama is up, but '%s' isn't pulled yet.  Run:  ollama pull %s%s\n" \
-      "$c_yellow" "$ollama_model" "$ollama_model" "$c_reset"
+    printf "%sOllama is up, but '%s' isn't pulled yet.  Run:  %s%s\n" \
+      "$c_yellow" "$ollama_model" "$install_cmd" "$c_reset"
     printf '%s  (or set OLLAMA_MODEL in apps/backend/.env to one you have). Continuing.%s\n' "$c_yellow" "$c_reset"
   fi
 else
-  printf "%sOllama isn't responding on %s - start it ('ollama serve'), then:  ollama pull %s%s\n" \
-    "$c_yellow" "$ollama_host" "$ollama_model" "$c_reset"
+  printf "%sOllama isn't responding on %s - start it ('ollama serve'), then:  %s%s\n" \
+    "$c_yellow" "$ollama_host" "$install_cmd" "$c_reset"
   printf '%s  Continuing anyway; /health reports degraded until it is reachable.%s\n' "$c_yellow" "$c_reset"
 fi
 

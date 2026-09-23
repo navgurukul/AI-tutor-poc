@@ -108,7 +108,17 @@ _MIN_QUESTIONS_FOR_A_LIST = 2
 
 
 def looks_like_exercise(text: str) -> bool:
-    """A chunk that asks questions rather than answers them."""
+    """A chunk that asks questions rather than answers them, judged from text.
+
+    The FALLBACK path. A library ingested by the structural pipeline carries
+    `content_type` on every chunk, decided from the PDF's own geometry and
+    typography, and `is_exercise` prefers that. This function is what remains
+    for rows ingested before it, where the only evidence left is the words.
+
+    Keeping it is not politeness to old data: re-ingesting a library takes
+    hours on the target hardware, and a tutor that answered from multiple
+    choice distractors in the meantime is the exact failure this guards.
+    """
     instructions = len(_EXERCISE_INSTRUCTIONS.findall(text))
     questions = text.count("?")
     asks = instructions > 0 or questions >= _MIN_QUESTIONS_FOR_A_LIST
@@ -118,6 +128,32 @@ def looks_like_exercise(text: str) -> bool:
              + len(_LETTERED_PARTS.findall(text))
              + (1 if questions >= _MIN_QUESTIONS_FOR_A_LIST else 0))
     return marks >= 3 or (marks >= 2 and len(text.split()) < 60)
+
+
+# Content types that ask a student to do something rather than explain
+# anything. `caption` is deliberately NOT here -- a figure caption often
+# carries the one sentence that names what the figure shows.
+_EXERCISE_CONTENT_TYPES = frozenset({"exercise"})
+
+
+def is_exercise(hit: Retrieved) -> bool:
+    """Whether a retrieved passage is a workbook item rather than an explanation.
+
+    Structural first, textual second. The classifier reads the page's
+    geometry -- repeated option markers, a numbered question stem, an exercise
+    heading -- which is evidence the text alone does not carry, and it reads it
+    once at ingest rather than on every hit of every turn.
+
+    It also settles a misclassification the text heuristic could not. Lettered
+    parts "(क) ... (ख) ..." are how a chapter enumerates the thing it is
+    explaining AND how it lists multiple-choice options; counting them from
+    text alone classed the Class 10 Geography resource-classification list --
+    the literal answer to "संसाधनों के वर्गीकरण से आप क्या समझते हैं" -- as an
+    exercise (2026-09-14). Geometry separates the two; a regex cannot.
+    """
+    if hit.content_type:
+        return hit.content_type in _EXERCISE_CONTENT_TYPES
+    return looks_like_exercise(hit.text)
 
 
 # Section names that hold term -> one-line-definition entries rather than
@@ -144,7 +180,7 @@ def looks_like_glossary(heading: str) -> bool:
 
 def _looks_thin(hit: "Retrieved") -> bool:
     """An exercise or a glossary entry: correct, but rarely a full answer."""
-    return looks_like_exercise(hit.text) or looks_like_glossary(hit.heading)
+    return is_exercise(hit) or looks_like_glossary(hit.heading)
 
 
 # How much further away an explanation may be and still displace an exercise

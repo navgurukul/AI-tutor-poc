@@ -278,7 +278,8 @@ gaplessly and faster than real time, so first audio lands well under a second wi
 opener trick or pre-buffer needed.
 
 ### One model, tuned for latency
-`gemma2:2b` for every language (`OLLAMA_MODEL`). `qwen2.5:1.5b` is faster but its Hindi is
+Sarvam-1 (`sarvam-1-chat`) for every language (`OLLAMA_MODEL`), since 2026-09-23; before
+that `gemma2:2b`. `qwen2.5:1.5b` is faster but its Hindi is
 unusable (repetition loops or word salad — no decoding setting in between), and a
 per-language split was tried and reverted: on a 4 GB box every language switch reloaded a
 model, which cost more than it saved. To keep it responsive on CPU the backend also runs

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # One-shot setup for the AI Tutor POC on macOS/Linux. The counterpart to
 # scripts/setup.ps1 on Windows: installs frontend, desktop, and backend
-# dependencies, creates local .env files, and downloads the speech model files
-# (backend TTS voices, and the speech-to-text models).
+# dependencies, creates local .env files, downloads the speech model files
+# (backend TTS voices, and the speech-to-text models), and installs Ollama with
+# the tutor's LLM (sarvam-1-chat) and embedding model (bge-m3).
 #
 # USAGE
 #   From anywhere:  ./scripts/setup.sh
@@ -10,14 +11,15 @@
 #   was interrupted partway is retried rather than treated as complete.
 #
 # PREREQUISITES
-#   - python3 on PATH (for the backend virtualenv).
-#   - Ollama installed and running for the tutor's answers:
-#       brew install ollama            # macOS  (or from https://ollama.com)
-#       ollama pull <model>            # the model set in apps/backend/.env
-#                                      # (OLLAMA_MODEL, default gemma2:2b ~1.6 GB)
-#     The exact 'ollama pull ...' line is printed at the end of this script.
-#   - ~850 MB of one-time model downloads happen below (IndicConformer ~470 MB,
-#     Whisper EN ~145 MB, backend TTS voices ~200 MB). Resumable - just re-run if the connection drops.
+#   - python3, node/npm and curl on PATH.
+#   - Ollama is installed if missing (Homebrew on macOS, the official install
+#     script on Linux, which asks for sudo), started if not running, and given
+#     the models in apps/backend/.env: OLLAMA_MODEL (default sarvam-1-chat,
+#     built from scripts/sarvam-1-chat.Modelfile, ~1.5 GB) and
+#     RAG_EMBEDDING_MODEL (default bge-m3, ~1.2 GB).
+#   - ~850 MB of speech model downloads (IndicConformer ~470 MB, Whisper EN
+#     ~145 MB, backend TTS voices ~200 MB) plus ~2.7 GB of Ollama models, all
+#     one-time. Resumable - just re-run if the connection drops.
 #
 #   After this finishes, start everything with:  ./scripts/start.sh
 set -euo pipefail
@@ -48,19 +50,21 @@ download_safely() {
   mv -f "$tmp" "$out"
 }
 
-# The LLM is chosen by OLLAMA_MODEL in apps/backend/.env (falls back to the
-# template, then gemma2:2b). The "pull the model" hint derives from this.
-get_ollama_model() {
-  local f
+# A setting from apps/backend/.env, falling back to the template, then to $2.
+get_env_value() {
+  local f v
   for f in "$backend_dir/.env" "$backend_dir/.env.example"; do
     if [ -f "$f" ]; then
-      local m
-      m="$(sed -n 's/^[[:space:]]*OLLAMA_MODEL[[:space:]]*=[[:space:]]*\([^[:space:]]*\).*/\1/p' "$f" | head -n1)"
-      if [ -n "$m" ]; then echo "$m"; return; fi
+      v="$(sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\([^[:space:]]*\).*/\1/p" "$f" | head -n1)"
+      if [ -n "$v" ]; then echo "$v"; return; fi
     fi
   done
-  echo "gemma2:2b"
+  echo "$2"
 }
+
+# The LLM is chosen by OLLAMA_MODEL in apps/backend/.env (falls back to the
+# template, then sarvam-1-chat). Step 7 installs whatever this says.
+get_ollama_model() { get_env_value OLLAMA_MODEL sarvam-1-chat; }
 
 command -v python3 >/dev/null || { echo "python3 not found on PATH. Install it and re-run." >&2; exit 1; }
 
@@ -154,13 +158,76 @@ else
 fi
 
 
+# 7. Ollama and the models the backend asks for. Every sub-step is skipped when
+#    already done, so a re-run costs a few seconds.
+ollama_host="$(get_env_value OLLAMA_HOST http://localhost:11434)"
 ollama_model="$(get_ollama_model)"
+embed_model="$(get_env_value RAG_EMBEDDING_MODEL bge-m3)"
 
-printf '\n%sSetup complete.%s\n\n' "$c_green" "$c_reset"
-printf '%sOne prerequisite start.sh does NOT install for you:%s\n' "$c_yellow" "$c_reset"
-printf '%s  Ollama must be installed and running, with the model pulled:%s\n' "$c_yellow" "$c_reset"
-printf '%s    brew install ollama          # or https://ollama.com%s\n' "$c_yellow" "$c_reset"
-printf '%s    ollama pull %s   # OLLAMA_MODEL in apps/backend/.env%s\n' "$c_yellow" "$ollama_model" "$c_reset"
-printf '%s    ollama pull bge-m3   # textbook search (embeddings)%s\n' "$c_yellow" "$c_reset"
-printf '%s  Without it the app still opens but replies show "model unavailable".%s\n\n' "$c_gray" "$c_reset"
+if ! command -v ollama >/dev/null 2>&1; then
+  if [ "$(uname)" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
+    step "Installing Ollama with Homebrew..."
+    brew install ollama
+  elif [ "$(uname)" = "Linux" ]; then
+    step "Installing Ollama with the official install script (asks for sudo)..."
+    curl -fsSL https://ollama.com/install.sh | sh
+  else
+    echo "Ollama is not installed. Install it from https://ollama.com and re-run." >&2
+    exit 1
+  fi
+else
+  step "Ollama already installed - skipping."
+fi
+
+if ! curl -sf --max-time 2 "$ollama_host/api/version" >/dev/null 2>&1; then
+  step "Starting the Ollama server in the background (log: ollama.log)..."
+  # nohup so it outlives this script: start.sh expects it running.
+  OLLAMA_HOST="${ollama_host#http://}" nohup ollama serve >"$repo_root/ollama.log" 2>&1 &
+  for _ in $(seq 1 30); do
+    curl -sf --max-time 2 "$ollama_host/api/version" >/dev/null 2>&1 && break
+    sleep 1
+  done
+  curl -sf --max-time 2 "$ollama_host/api/version" >/dev/null 2>&1 || {
+    echo "Ollama did not come up on $ollama_host - see ollama.log." >&2
+    exit 1
+  }
+else
+  step "Ollama server already running - skipping."
+fi
+
+# Whether `ollama list` has a model, with or without its implicit :latest tag.
+have_model() {
+  local want="$1"
+  case "$want" in *:*) ;; *) want="$want:latest" ;; esac
+  ollama list | awk 'NR > 1 { print $1 }' | grep -qxF -- "$want"
+}
+
+ensure_model() {
+  local name="${1%%:*}" mf base
+  mf="$repo_root/scripts/$name.Modelfile"
+  if [ -f "$mf" ]; then
+    # Built locally from its base weights -- `ollama pull` cannot fetch it.
+    base="$(sed -n 's/^FROM[[:space:]]*//p' "$mf" | head -n1)"
+    if have_model "$base"; then
+      step "Base weights $base already pulled - skipping download."
+    else
+      step "Pulling $base (one-time)..."
+      ollama pull "$base"
+    fi
+    # Always re-created: it reuses the pulled weights (about a second), and
+    # keeps the model in step with any edit to its Modelfile.
+    step "Building $name from scripts/$name.Modelfile..."
+    ollama create "$name" -f "$mf"
+  elif have_model "$1"; then
+    step "$1 already pulled - skipping."
+  else
+    step "Pulling $1 (one-time)..."
+    ollama pull "$1"
+  fi
+}
+
+ensure_model "$ollama_model"
+ensure_model "$embed_model"
+
+printf '\n%sSetup complete.%s LLM: %s, embeddings: %s\n' "$c_green" "$c_reset" "$ollama_model" "$embed_model"
 printf '%sThen: ./scripts/start.sh%s\n' "$c_green" "$c_reset"

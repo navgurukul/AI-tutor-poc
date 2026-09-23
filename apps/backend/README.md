@@ -1,7 +1,7 @@
 # AI Tutor POC — Offline LLM Backend
 
 FastAPI backend for an AI tutor that runs **entirely offline**. Every completion is
-generated locally by [Ollama](https://ollama.com) using `gemma2:2b` (one model for
+generated locally by [Ollama](https://ollama.com) using Sarvam-1 (`sarvam-1-chat`, one model for
 every language — see the `OLLAMA_MODEL` note below) — no external API calls, no
 internet needed at request time.
 
@@ -16,8 +16,9 @@ once the server is running, and the OpenAPI schema at `/openapi.json` can genera
 ## Quickstart
 
 ```bash
-# 1. One-time: install the model (needs internet ONCE, ~1.6 GB)
-ollama pull gemma2:2b
+# 1. One-time: install the model (needs internet ONCE, ~1.5 GB)
+ollama pull hf.co/bartowski/sarvam-1-GGUF:Q4_K_M
+ollama create sarvam-1-chat -f ../../scripts/sarvam-1-chat.Modelfile
 
 # 2. Make sure the Ollama daemon is running
 ollama serve          # skip if it already runs as a service
@@ -271,7 +272,7 @@ Copy `.env.example` to `.env` to override any of these:
 | Variable | Default | Notes |
 |---|---|---|
 | `OLLAMA_HOST` | `http://localhost:11434` | |
-| `OLLAMA_MODEL` | `gemma2:2b` | One model for every language. `qwen2.5:1.5b` is faster but can't do coherent Hindi/Marathi; a per-language split reloaded a model on every switch (slower on 4 GB). Any model from `ollama list`. |
+| `OLLAMA_MODEL` | `sarvam-1-chat` | One model for every language: Sarvam-1 (2B), built from `scripts/sarvam-1-chat.Modelfile`. Replaced `gemma2:2b`, whose Gujarati/Marathi were unusable. A per-language split reloaded a model on every switch (slower on 4 GB). Any model from `ollama list`. |
 | `OLLAMA_KEEP_ALIVE` | `-1` | How long Ollama keeps the model in RAM after a request. `-1` = never unload. Biggest felt-latency fix on 4 GB — the default unloads after 5 min idle and the reload is ~10-20 s. |
 | `WARM_MODEL_ON_STARTUP` | `true` | On boot, the backend fires a 1-token generation (background task) to load the model into RAM, so the first student's first question doesn't pay the cold start. |
 | `TEMPERATURE` | `0.7` | |

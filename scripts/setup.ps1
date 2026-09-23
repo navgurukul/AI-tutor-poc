@@ -1,8 +1,9 @@
 <#
 .SYNOPSIS
   One-shot setup for the AI Tutor POC: installs frontend, desktop, and backend
-  dependencies, creates local .env files, and downloads the speech model files
-  (backend TTS voices, and the speech-to-text models).
+  dependencies, creates local .env files, downloads the speech model files
+  (backend TTS voices, and the speech-to-text models), and installs Ollama with
+  the tutor's LLM (sarvam-1-chat) and embedding model (bge-m3).
 
 .USAGE
   From the repo root:  powershell -File scripts\setup.ps1
@@ -14,14 +15,13 @@
   - Python 3 on PATH for the backend virtualenv (the Microsoft Store's "python"
     shim doesn't count - install a real one, e.g.
     'winget install Python.Python.3.12').
-  - Ollama installed and running for the tutor's answers:
-      winget install Ollama.Ollama       # then it runs in the tray
-      ollama pull <model>                # the model set in apps/backend/.env
-                                         # (OLLAMA_MODEL, default gemma2:2b ~1.6 GB)
-    The exact 'ollama pull ...' line is printed at the end of this script.
-  - ~850 MB of one-time model downloads happen below (IndicConformer ~470 MB,
-    Whisper EN ~145 MB, backend TTS voices ~200 MB). Resumable - just re-run if the
-    connection drops.
+  - Ollama is installed with winget if missing, started if not running, and
+    given the models in apps/backend/.env: OLLAMA_MODEL (default sarvam-1-chat,
+    built from scripts/sarvam-1-chat.Modelfile, ~1.5 GB) and
+    RAG_EMBEDDING_MODEL (default bge-m3, ~1.2 GB).
+  - ~850 MB of speech model downloads (IndicConformer ~470 MB, Whisper EN
+    ~145 MB, backend TTS voices ~200 MB) plus ~2.7 GB of Ollama models, all
+    one-time. Resumable - just re-run if the connection drops.
 
   After this finishes, start everything with:
     powershell -File scripts\start.ps1
@@ -40,19 +40,22 @@ function Step($message) {
     Write-Host "==> $message" -ForegroundColor Cyan
 }
 
-# The LLM is chosen by OLLAMA_MODEL in apps/backend/.env (falls back to the
-# template, then to gemma2:2b). All the "pull the model" hints derive from this,
-# so pointing the app at qwen2.5:1.5b or a bigger model just works.
-function Get-OllamaModel {
+# A setting from apps/backend/.env, falling back to the template, then $default.
+function Get-EnvValue($name, $default) {
     foreach ($f in @((Join-Path $backendDir ".env"), (Join-Path $backendDir ".env.example"))) {
         if (Test-Path $f) {
-            $m = Select-String -Path $f -Pattern '^\s*OLLAMA_MODEL\s*=\s*(\S+)' |
+            $m = Select-String -Path $f -Pattern "^\s*$name\s*=\s*(\S+)" |
                  Select-Object -First 1
             if ($m) { return $m.Matches[0].Groups[1].Value }
         }
     }
-    return "gemma2:2b"
+    return $default
 }
+
+# The LLM is chosen by OLLAMA_MODEL in apps/backend/.env (falls back to the
+# template, then to sarvam-1-chat). Step 7 installs whatever this says, so
+# pointing the app at another model just works.
+function Get-OllamaModel { return Get-EnvValue "OLLAMA_MODEL" "sarvam-1-chat" }
 
 # True only if the file exists AND is at least $minBytes large - catches
 # partial/corrupt downloads left behind by an interrupted run, which a plain
@@ -264,17 +267,88 @@ if (-not (Get-ChildItem (Join-Path $enSttDir "*tokens.txt") -ErrorAction Silentl
 }
 
 
+# 7. Ollama and the models the backend asks for. Every sub-step is skipped when
+#    already done, so a re-run costs a few seconds.
+$ollamaHost  = Get-EnvValue "OLLAMA_HOST" "http://localhost:11434"
 $ollamaModel = Get-OllamaModel
+$embedModel  = Get-EnvValue "RAG_EMBEDDING_MODEL" "bge-m3"
+
+# curl.exe, not Invoke-WebRequest: see start.ps1's Test-UrlOk for why.
+function Test-OllamaUp {
+    curl.exe -sf --max-time 2 "$ollamaHost/api/version" *> $null
+    return $LASTEXITCODE -eq 0
+}
+
+# A freshly winget-installed ollama.exe is not on this session's PATH yet.
+function Get-OllamaExe {
+    $cmd = Get-Command ollama -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $default = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"
+    if (Test-Path $default) { return $default }
+    return $null
+}
+
+# Native commands do not trip $ErrorActionPreference, so check the exit code.
+function Invoke-Ollama {
+    & $script:ollamaExe @args
+    if ($LASTEXITCODE -ne 0) { throw "ollama $($args -join ' ') failed (exit $LASTEXITCODE)." }
+}
+
+$ollamaExe = Get-OllamaExe
+if (-not $ollamaExe) {
+    Step "Installing Ollama with winget..."
+    winget install --id Ollama.Ollama -e --accept-source-agreements --accept-package-agreements
+    $ollamaExe = Get-OllamaExe
+    if (-not $ollamaExe) { throw "Ollama was not found after installing. Install it from https://ollama.com and re-run." }
+} else {
+    Step "Ollama already installed - skipping."
+}
+
+if (-not (Test-OllamaUp)) {
+    Step "Starting the Ollama server in the background..."
+    Start-Process -FilePath $ollamaExe -ArgumentList "serve" -WindowStyle Hidden
+    for ($i = 0; $i -lt 30 -and -not (Test-OllamaUp); $i++) { Start-Sleep -Seconds 1 }
+    if (-not (Test-OllamaUp)) { throw "Ollama did not come up on $ollamaHost." }
+} else {
+    Step "Ollama server already running - skipping."
+}
+
+# Whether `ollama list` has a model, with or without its implicit :latest tag.
+function Test-HaveModel($want) {
+    if ($want -notmatch ':') { $want = "$want`:latest" }
+    $names = & $ollamaExe list | Select-Object -Skip 1 | ForEach-Object { ($_ -split '\s+')[0] }
+    return $names -contains $want
+}
+
+function Install-Model($model) {
+    $name = ($model -split ':')[0]
+    $mf = Join-Path $repoRoot "scripts\$name.Modelfile"
+    if (Test-Path $mf) {
+        # Built locally from its base weights -- `ollama pull` cannot fetch it.
+        $base = (Select-String -Path $mf -Pattern '^FROM\s+(\S+)' | Select-Object -First 1).Matches[0].Groups[1].Value
+        if (Test-HaveModel $base) {
+            Step "Base weights $base already pulled - skipping download."
+        } else {
+            Step "Pulling $base (one-time)..."
+            Invoke-Ollama pull $base
+        }
+        # Always re-created: it reuses the pulled weights (about a second), and
+        # keeps the model in step with any edit to its Modelfile.
+        Step "Building $name from scripts\$name.Modelfile..."
+        Invoke-Ollama create $name -f $mf
+    } elseif (Test-HaveModel $model) {
+        Step "$model already pulled - skipping."
+    } else {
+        Step "Pulling $model (one-time)..."
+        Invoke-Ollama pull $model
+    }
+}
+
+Install-Model $ollamaModel
+Install-Model $embedModel
 
 Write-Host ""
-Write-Host "Setup complete." -ForegroundColor Green
-Write-Host ""
-Write-Host "One prerequisite start.ps1 does NOT install for you:" -ForegroundColor Yellow
-Write-Host "  Ollama must be installed and running, with the model pulled:" -ForegroundColor Yellow
-Write-Host "    winget install Ollama.Ollama" -ForegroundColor Yellow
-Write-Host "    ollama pull $ollamaModel   # OLLAMA_MODEL in apps\backend\.env" -ForegroundColor Yellow
-Write-Host "    ollama pull bge-m3          # textbook search (embeddings)" -ForegroundColor Yellow
-Write-Host "  Without it the app still opens but replies show 'model unavailable'." -ForegroundColor DarkGray
+Write-Host "Setup complete. LLM: $ollamaModel, embeddings: $embedModel" -ForegroundColor Green
 Write-Host ""
 Write-Host "Then: powershell -File scripts\start.ps1" -ForegroundColor Green
 Write-Host "  (starts the backend, then opens the AI Tutor in a borderless window)"
