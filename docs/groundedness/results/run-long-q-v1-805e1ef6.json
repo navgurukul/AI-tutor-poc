@@ -1,0 +1,486 @@
+{
+  "meta": {
+    "run_id": "805e1ef6",
+    "ts": "2026-09-23T05:13:51+00:00",
+    "label": "long-q-v1",
+    "base": "http://127.0.0.1:8756",
+    "model": "qwen2.5:1.5b",
+    "budget": null,
+    "evalset": "docs/groundedness/evalset-long.json",
+    "judge": "gemma3:4b (local, via Ollama)"
+  },
+  "turns": [
+    {
+      "reply": "Certainly! When washing rice, you can use either the sedimentation method or the decantation method to clean it. \n\nFirstly, the sedimentation method involves adding water to the rice and letting it sit. The heavier grains of rice will sink to the bottom, while the lighter dust particles will float on the surface. By tilting the vessel, you can easily pour off the dirty water, leaving behind the clean rice. This method works because the heavier grains of rice settle at the bottom, while the lighter dust particles remain in the water.\n\nAlternatively, the decantation method involves pouring the water off the rice, leaving the clean grains behind. This method works because the water with the dust particles is poured off, while the clean rice remains in the vessel. Both methods effectively remove the impurities from the rice, ensuring it is clean and ready for cooking.",
+      "sources": [
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "METHODS OF SEPARATION",
+          "page_start": 38,
+          "page_end": 39,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2057,
+          "excerpt": "Rice or pulses are usually washed before cooking. When you add water to these, the impurities like dust particles You may have also noticed similar sieves being used at construction sites get separated. These impurities go into water. Now, what will sink to the bottom of the vessel - rice or dust? Why? Have you seen that the vessel is tilted to pour out the dirty water? When the heavier component in a mixture settles after water is added to it, the process is called sedimentation. When the water (along with the dust) is removed, the process is called decantation (Fig. 5.8). …"
+        },
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "METHODS OF SEPARATION",
+          "page_start": 38,
+          "page_end": 38,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2824,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] NCERT Class 6 Science - METHODS OF SEPARATION - pp. 38-39\nRice or pulses are usually washed before cooking. When you add water to these, the impurities like dust particles You may have also noticed similar sieves being used at construction sites get separated. These impurities go into water. Now, what will sink to the bottom of the vessel - rice or dust? Why? Have you seen that the vessel is tilted to pour out the dirty water? When the heavier component in a mixture settles after water is added to it, the process is called sedimentation. When the water (along with the dust) is removed, the process is called decantation (Fig. 5.8). …",
+      "usage": {
+        "prompt_tokens": 345,
+        "completion_tokens": 175,
+        "total_duration_ms": 13972,
+        "load_duration_ms": 2580,
+        "prompt_eval_ms": 2562,
+        "eval_ms": 8824,
+        "tokens_per_second": 19.83
+      },
+      "session_id": "1ea1ec49588c407995b6c5df04484337",
+      "turn_id": "5dd70bc10b7f",
+      "previous_turn": null,
+      "id": "L1-clean-rice"
+    },
+    {
+      "reply": "When your mother boils water in a pan for tea, two processes are happening: evaporation and condensation. \n\nFirst, as the water heats up, it turns into steam. This steam rises and cools as it moves through the air. When it hits the lid of the pot, it cools down and turns back into water, forming the small drops you see. This process is called condensation. \n\nThe water in the pot is continuously evaporating into the air, and then condensing back into water droplets when it cools down. This cycle continues until all the water has been converted into steam, and then back into water droplets.",
+      "sources": [
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "METHODS OF SEPARATION",
+          "page_start": 41,
+          "page_end": 41,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2384,
+          "excerpt": "Take a metal plate with some ice on it. Hold the plate just above the spout of the kettle as shown in Fig. 5.13. What do you observe? Let all the water in the kettle boil off.\n\nWhen the steam comes in contact with the metal plate cooled with ice, it condenses and forms liquid water. The water drops that you observed falling from the plate, were due to condensation of steam. The process of conversion of water vapour into its liquid form is called condensation.\n\nDid you ever see water drops condensed under a plate that has been used to cover a vessel containing milk that has just been boiled?"
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "War Drought",
+          "page_start": 34,
+          "page_end": 34,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2415,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] NCERT Class 6 Science - METHODS OF SEPARATION - p. 41\nTake a metal plate with some ice on it. Hold the plate just above the spout of the kettle as shown in Fig. 5.13. What do you observe? Let all the water in the kettle boil off.\n\nWhen the steam comes in contact with the metal plate cooled with ice, it condenses and forms liquid water. The water drops that you observed falling from the plate, were due to condensation of steam. The process of conversion of water vapour into its liquid form is called condensation.\n\nDid you ever see water drops condensed under a plate that has been used to cover a vessel containing milk that has just been boiled?",
+      "usage": {
+        "prompt_tokens": 342,
+        "completion_tokens": 133,
+        "total_duration_ms": 17396,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 1666,
+        "eval_ms": 11214,
+        "tokens_per_second": 11.86
+      },
+      "session_id": "aac7f402737541d7aee9103d917abcfd",
+      "turn_id": "b3256972f1be",
+      "previous_turn": null,
+      "id": "L2-tea-pan-lid"
+    },
+    {
+      "reply": "Certainly! The term \"habitat\" refers to the environment where an organism naturally lives and thrives. For instance, a fish lives in water, while a camel lives in desert environments. Adaptation, on the other hand, is the process by which an organism changes its characteristics to better suit its environment. A fish has adapted to live in water by having gills for breathing underwater and a streamlined body for efficient swimming. Similarly, a camel has adapted to live in deserts by having thick fur to protect it from the sun and heat, and a hump to store fat for water and food during long journeys. Thus, each organism has developed specific adaptations that allow it to survive and thrive in its particular habitat.",
+      "sources": [
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "HABITAT AND ADAPTATION",
+          "page_start": 81,
+          "page_end": 81,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1474,
+          "excerpt": "… We have taken only two examples from a very wide variety of animals and plants that live on the Earth. In all this variety of organisms, we will find that they have certain features that help them live in the surroundings in which they are normally found. The presence of specific features or certain habits, which enable an organism to live naturally in a place is called adaptation. Adaptation of organisms differ depending on their place of dwelling. That is why a fish cannot live out of water and a camel cannot live in sea."
+        },
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "HABITAT AND ADAPTATION",
+          "page_start": 81,
+          "page_end": 81,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1616,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] NCERT Class 6 Science - HABITAT AND ADAPTATION - p. 81\n… We have taken only two examples from a very wide variety of animals and plants that live on the Earth. In all this variety of organisms, we will find that they have certain features that help them live in the surroundings in which they are normally found. The presence of specific features or certain habits, which enable an organism to live naturally in a place is called adaptation. Adaptation of organisms differ depending on their place of dwelling. That is why a fish cannot live out of water and a camel cannot live in sea.",
+      "usage": {
+        "prompt_tokens": 317,
+        "completion_tokens": 145,
+        "total_duration_ms": 14266,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 2590,
+        "eval_ms": 11659,
+        "tokens_per_second": 12.44
+      },
+      "session_id": "6a55d0f816e5485a9ef8c0c4b5cc9fce",
+      "turn_id": "ccf30e0b04d6",
+      "previous_turn": null,
+      "id": "L3-fish-and-camel"
+    },
+    {
+      "reply": "The two ends of a magnet are called poles. These poles are near the ends of the magnet and attract each other. When you bring two magnets close, their poles attract each other, causing them to stick together. However, if you turn one of the magnets around first, it changes the direction of the poles, causing them to push each other away instead. This is because the magnetic poles are attracted to each other, but the magnets' orientation affects how they interact with each other.",
+      "sources": [
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "POLES OF MAGNET",
+          "page_start": 129,
+          "page_end": 129,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2158,
+          "excerpt": "to two ends of a bar magnet. Poles of a magnet are said to be near these ends. Try and bring a few magnets of different shapes to the classroom. Check for the location of the poles on these magnets using iron filings. Can you now mark the location of poles in the kind of magnets shown in Fig. 13.4?"
+        },
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "FINDING DIRECTIONS",
+          "page_start": 129,
+          "page_end": 129,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2423,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] NCERT Class 6 Science - POLES OF MAGNET - p. 129\nto two ends of a bar magnet. Poles of a magnet are said to be near these ends. Try and bring a few magnets of different shapes to the classroom. Check for the location of the poles on these magnets using iron filings. Can you now mark the location of poles in the kind of magnets shown in Fig. 13.4?",
+      "usage": {
+        "prompt_tokens": 291,
+        "completion_tokens": 98,
+        "total_duration_ms": 8697,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 2702,
+        "eval_ms": 5978,
+        "tokens_per_second": 16.39
+      },
+      "session_id": "1e0a219a9dff422b95f48ebf44340778",
+      "turn_id": "7e8611f4a330",
+      "previous_turn": null,
+      "id": "L4-two-bar-magnets"
+    },
+    {
+      "reply": "Sure, I'd be happy to explain. An electric circuit is a path that allows electricity to flow from one point to another. Inside the circuit, the direction of the current is taken to be from the positive terminal of the electric cell to the negative terminal. When a bulb is connected to an electric cell, the current flows through the wires and the bulb. If there's a break in the path of the current, like a break in the filament of the bulb, the current can't flow, and the bulb won't light up. One reason a bulb might not light up is a break in its filament.",
+      "sources": [
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "AN ELECTRIC CIRCUIT",
+          "page_start": 119,
+          "page_end": 119,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1461,
+          "excerpt": "In an electric circuit, the direction of current is taken to be from the positive to the negative terminal of the electric cell as shown in Fig.12.6. When the An electric bulb may fuse due to many reasons. One reason for a bulb to fuse is a break in its filament. A break in the filament of an electric bulb means a break in the path of the current between the terminals of the electric cell. Therefore, a fused bulb does not light up as no current passes through its filament.\n\nNow we know how to make a bulb light up using an electric cell. Would you like to make a torch for yourself? Activity 3"
+        },
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "AN ELECTRIC CIRCUIT",
+          "page_start": 119,
+          "page_end": 119,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1827,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] NCERT Class 6 Science - AN ELECTRIC CIRCUIT - p. 119\nIn an electric circuit, the direction of current is taken to be from the positive to the negative terminal of the electric cell as shown in Fig.12.6. When the An electric bulb may fuse due to many reasons. One reason for a bulb to fuse is a break in its filament. A break in the filament of an electric bulb means a break in the path of the current between the terminals of the electric cell. Therefore, a fused bulb does not light up as no current passes through its filament.\n\nNow we know how to make a bulb light up using an electric cell. Would you like to make a torch for yourself? Activity 3",
+      "usage": {
+        "prompt_tokens": 351,
+        "completion_tokens": 124,
+        "total_duration_ms": 12123,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 2412,
+        "eval_ms": 9688,
+        "tokens_per_second": 12.8
+      },
+      "session_id": "e365d02b07bb4ea88fd931089e193064",
+      "turn_id": "b2e35fc4ea91",
+      "previous_turn": null,
+      "id": "L5-bulb-did-not-glow"
+    },
+    {
+      "reply": "Sure, I'd be happy to explain the water cycle to your sister. Water evaporates from oceans, rivers, and lakes when the sun heats it up. This water vapor rises into the air, where it cools and condenses into clouds. When the clouds get heavy, they release water back to the earth as rain, snow, or hail. This water then flows back into the oceans, rivers, and lakes, completing the cycle. This continuous process keeps the water supply on land.",
+      "sources": [
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "BACK TO THE OCEANS",
+          "page_start": 141,
+          "page_end": 142,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2136,
+          "excerpt": "… He wonders if this is also condensation of water vapour near the ground. What do you think? We now know that water brought back to the surface of the earth by rain, hail or snow, goes back to oceans. Thus, water from the ocean and surface of the earth goes into air as vapour; returns as rain, hail or snow and finally goes back to the ocean s. The circulation of water in this manner is known as the water cycle (Fig.14.9). This circulation of water between ocean and land is a continuous process. This maintains the supply of water on land. 14.5 WHAT IF IT RAINS HEAVILY?"
+        },
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "Disappearing Trick of Water",
+          "page_start": 139,
+          "page_end": 139,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2355,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] NCERT Class 6 Science - BACK TO THE OCEANS - pp. 141-142\n… He wonders if this is also condensation of water vapour near the ground. What do you think? We now know that water brought back to the surface of the earth by rain, hail or snow, goes back to oceans. Thus, water from the ocean and surface of the earth goes into air as vapour; returns as rain, hail or snow and finally goes back to the ocean s. The circulation of water in this manner is known as the water cycle (Fig.14.9). This circulation of water between ocean and land is a continuous process. This maintains the supply of water on land. 14.5 WHAT IF IT RAINS HEAVILY?",
+      "usage": {
+        "prompt_tokens": 363,
+        "completion_tokens": 100,
+        "total_duration_ms": 16170,
+        "load_duration_ms": 4,
+        "prompt_eval_ms": 4320,
+        "eval_ms": 11826,
+        "tokens_per_second": 8.46
+      },
+      "session_id": "5c05ecdcb2d243d3b09ae8f35032fdd2",
+      "turn_id": "64faa3b6c159",
+      "previous_turn": null,
+      "id": "L6-where-rain-comes-from"
+    },
+    {
+      "reply": "A balanced diet means having a mix of different foods that provide all the nutrients your body needs. Your diet should include a variety of foods like fruits, vegetables, grains, proteins, and fats. If you leave out some nutrients, like vitamins and minerals, it can affect how your body grows and fights diseases. A balanced diet helps you work better, stay healthy, and grow strong. To build a strong and healthy body, you need all nutrients in the right proportion and in sufficient quantities in your daily diet.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Nutrition and Diet",
+          "page_start": 53,
+          "page_end": 53,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2109,
+          "excerpt": "All that we consume during the day is together called our 'diet'. A diet containing adequate quantities of all nutrients is called a Balanced Diet. To build a strong and healthy body, you need all nutrients in the right proportion and in sufficient quantities in your daily diet. Significance of a balanced diet : l An increased capacity to work. l Good physical and mental health. l Increased capacity to fight / resist diseases. l Helps in proper growth of the body. Apart from having a balanced diet, we also need to exercise regularly to keep ourselves fit and healthy. …"
+        },
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "BALANCED DIET",
+          "page_start": 14,
+          "page_end": 14,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2154,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Nutrition and Diet - p. 53\nAll that we consume during the day is together called our 'diet'. A diet containing adequate quantities of all nutrients is called a Balanced Diet. To build a strong and healthy body, you need all nutrients in the right proportion and in sufficient quantities in your daily diet. Significance of a balanced diet : l An increased capacity to work. l Good physical and mental health. l Increased capacity to fight / resist diseases. l Helps in proper growth of the body. Apart from having a balanced diet, we also need to exercise regularly to keep ourselves fit and healthy. …",
+      "usage": {
+        "prompt_tokens": 323,
+        "completion_tokens": 103,
+        "total_duration_ms": 13960,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 3818,
+        "eval_ms": 10121,
+        "tokens_per_second": 10.18
+      },
+      "session_id": "1e4f73c6f3da4dc2b18cfc28fe4438c0",
+      "turn_id": "6a5c31f84526",
+      "previous_turn": null,
+      "id": "L7-only-rice-and-chapati"
+    },
+    {
+      "reply": "A fulcrum is a machine part that acts as a fulcrum, or pivot, for a lever. The fulcrum is the point around which the lever rotates. In your father's case, the fulcrum is the long iron rod that he used to lift the heavy stone. The three parts of a fulcrum machine are the fulcrum, the effort arm, and the load arm. The effort arm is the part of the fulcrum machine that the person uses to apply the force. The load arm is the part of the fulcrum machine that the load is placed on. The fulcrum machine works by applying a force to the effort arm, which causes the load arm to move, lifting the load.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Fulcrum Effort",
+          "page_start": 88,
+          "page_end": 88,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2924,
+          "excerpt": "… 1. All of you must have enjoyed sitting on a giant wheel. What makes the giant wheel go round ? The giant wheel is fitted to a rod at its centre. This rod is called an 'axle'. When the axle starts rotating with the help of electricity, the wheel fitted to it also starts rotating. This combination of an axle and a wheel is a simple machine. We see innumerable examples of its use. 2. When the pedal of a bicycle is rotated, the wheel starts rotating. How does this happen ? A wheel and axle A pulley How does it help to use a pulley ?"
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Simple Machines",
+          "page_start": 86,
+          "page_end": 86,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2959,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Fulcrum Effort - p. 88\n… 1. All of you must have enjoyed sitting on a giant wheel. What makes the giant wheel go round ? The giant wheel is fitted to a rod at its centre. This rod is called an 'axle'. When the axle starts rotating with the help of electricity, the wheel fitted to it also starts rotating. This combination of an axle and a wheel is a simple machine. We see innumerable examples of its use. 2. When the pedal of a bicycle is rotated, the wheel starts rotating. How does this happen ? A wheel and axle A pulley How does it help to use a pulley ?",
+      "usage": {
+        "prompt_tokens": 339,
+        "completion_tokens": 152,
+        "total_duration_ms": 10527,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 2260,
+        "eval_ms": 8248,
+        "tokens_per_second": 18.43
+      },
+      "session_id": "977cd1422f1f4d989c86b2036cb64292",
+      "turn_id": "33d70a5d26e4",
+      "previous_turn": null,
+      "id": "L8-crowbar-three-parts"
+    },
+    {
+      "reply": "Using the slanting wooden plank makes the work easier because it reduces the force needed to lift the heavy drum. It's like rolling a ball down a ramp instead of carrying it straight up. A screw and an axe both work on the same idea as the plank: they use inclined planes to make tasks easier. A screw is like a rolled-up ramp, and an axe is like a flat ramp. Both help to reduce the force needed to move things up or down a slope.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Simple Machines",
+          "page_start": 85,
+          "page_end": 86,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2695,
+          "excerpt": "… Therefore, less force is required to fit a screw than to hammer a nail. In other words, a screw is like a rolled up inclined plane made of an iron strip. A winding road or ghat that goes up a mountain is also like an inclined plane wrapped around the mountain. It helps big vehicles to climb up and down the mountain easily. Two routes, namely, a pathway and a road are available to climb the mountain shown in the picture. Compare the time and strength and your convenience required to reach the mountain top. 12.5 : Ghat A CB A B A wedge"
+        },
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Simple Machines",
+          "page_start": 84,
+          "page_end": 85,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2714,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Simple Machines - pp. 85-86\n… Therefore, less force is required to fit a screw than to hammer a nail. In other words, a screw is like a rolled up inclined plane made of an iron strip. A winding road or ghat that goes up a mountain is also like an inclined plane wrapped around the mountain. It helps big vehicles to climb up and down the mountain easily. Two routes, namely, a pathway and a road are available to climb the mountain shown in the picture. Compare the time and strength and your convenience required to reach the mountain top. 12.5 : Ghat A CB A B A wedge",
+      "usage": {
+        "prompt_tokens": 340,
+        "completion_tokens": 98,
+        "total_duration_ms": 7520,
+        "load_duration_ms": 5,
+        "prompt_eval_ms": 2284,
+        "eval_ms": 5210,
+        "tokens_per_second": 18.81
+      },
+      "session_id": "fb72eb54aa19405fb75ebf6a57e1f068",
+      "turn_id": "00938cdd77d9",
+      "previous_turn": null,
+      "id": "L9-drum-up-the-plank"
+    },
+    {
+      "reply": "Circular motion is the type of motion where an object moves along a circular path. When a girl rides a bicycle, the wheels move in circular paths around the axle, while the bicycle itself moves forward along a straight path. These are two different types of motion: circular motion for the wheels and translational motion for the bicycle.\n\nSpeed is a measure of how fast an object is moving. In the example of a bus traveling from Solapur to Pune, the speed is calculated by taking the ratio of the distance covered to the time taken. This helps us understand how quickly the bus is moving.",
+      "sources": [
+        {
+          "title": "General Science (Class 6)",
+          "heading": "Motion and Types of Motion",
+          "page_start": 67,
+          "page_end": 68,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2307,
+          "excerpt": "The motion of an object along a circular path is called circular motion.\n\nWhich types of motion are seen when a girl rides a bicycle as shown here ? Use your brain power !\n\nSpeed\n\nA bus covers the distance of about two hundred kilometres from Solapur to Pune in five hours. How much distance does the bus cover in one hour ? While solving this example, we take the ratio of the distance traversed and the time required to traverse that distance."
+        },
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "TYPES OF MOTION",
+          "page_start": 103,
+          "page_end": 103,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2594,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] General Science (Class 6) - Motion and Types of Motion - pp. 67-68\nThe motion of an object along a circular path is called circular motion.\n\nWhich types of motion are seen when a girl rides a bicycle as shown here ? Use your brain power !\n\nSpeed\n\nA bus covers the distance of about two hundred kilometres from Solapur to Pune in five hours. How much distance does the bus cover in one hour ? While solving this example, we take the ratio of the distance traversed and the time required to traverse that distance.",
+      "usage": {
+        "prompt_tokens": 301,
+        "completion_tokens": 119,
+        "total_duration_ms": 8601,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 1999,
+        "eval_ms": 6582,
+        "tokens_per_second": 18.08
+      },
+      "session_id": "4ddeba4aa76a492089490ef3f24bfd06",
+      "turn_id": "797e2b208121",
+      "previous_turn": null,
+      "id": "L10-bicycle-wheel"
+    },
+    {
+      "reply": "The metro ticket price is decided by the state government, as they set the regulations and rules for the metro system. The actual price of a ticket is determined by the fare structure, which includes factors like the distance traveled and the time of day. The coaches for the metro trains are made by a big factory near Chennai, which specializes in producing high-quality coaches for public transport systems.",
+      "sources": [],
+      "context": "",
+      "usage": {
+        "prompt_tokens": 182,
+        "completion_tokens": 77,
+        "total_duration_ms": 5578,
+        "load_duration_ms": 4,
+        "prompt_eval_ms": 1147,
+        "eval_ms": 4410,
+        "tokens_per_second": 17.46
+      },
+      "session_id": "8c5bd8fe6b19479aa9b9e3d4cf516612",
+      "turn_id": "528664d006bf",
+      "previous_turn": null,
+      "id": "L11-off-syllabus-metro"
+    },
+    {
+      "reply": "Rainwater harvesting involves collecting rainwater in a way that's practical and sustainable. The basic idea is to \"catch water where it falls,\" which means collecting rainwater where it naturally falls on rooftops, parks, and other open areas. This rainwater is then stored for later use, reducing the need to rely on distant water sources.\n\nIn your colony, the rainwater that falls on the concrete roads and buildings flows into the drains and eventually to rivers or lakes. This water is then transported long distances, requiring significant effort to bring it back to homes. To address this issue, schools can implement two techniques for rainwater harvesting:\n\n1. **Rainwater Harvesting Tanks**: These are containers that collect rainwater directly from roofs. The collected water can be used for various purposes such as watering plants, cleaning, or flushing toilets.\n\n2. **Green Roofs and Rain Gardens**: These techniques involve planting vegetation on rooftops and incorporating permeable materials in the ground. This allows rainwater to seep into the soil, reducing the volume of water that needs to be transported to drains. This method can be used in both schools and residential areas.\n\nBy implementing these techniques, you can ensure that rainwater is stored locally, reducing the need for long-distance water transport and making your school more sustainable and self-reliant.",
+      "sources": [
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "RAINWATER HARVESTING",
+          "page_start": 144,
+          "page_end": 144,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1419,
+          "excerpt": "One way of increasing the availability of water is to collect rainwater and store it for later use. Collecting rainwater in this way is called rainwater harvesting. The basic idea behind rainwater harvesting is \"Catch water where it falls\". What happens to the rainwater that falls in places that are mostly covered with concrete roads and buildings? It flows into the drains, isn't it? From there water goes to rivers or lakes, which could be far away. A lot of effort will then be required to get this water back into our homes as the water did not seep into the ground. …"
+        },
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "RAINWATER HARVESTING",
+          "page_start": 144,
+          "page_end": 144,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.1763,
+          "excerpt": null
+        }
+      ],
+      "context": "[1] NCERT Class 6 Science - RAINWATER HARVESTING - p. 144\nOne way of increasing the availability of water is to collect rainwater and store it for later use. Collecting rainwater in this way is called rainwater harvesting. The basic idea behind rainwater harvesting is \"Catch water where it falls\". What happens to the rainwater that falls in places that are mostly covered with concrete roads and buildings? It flows into the drains, isn't it? From there water goes to rivers or lakes, which could be far away. A lot of effort will then be required to get this water back into our homes as the water did not seep into the ground. …",
+      "usage": {
+        "prompt_tokens": 367,
+        "completion_tokens": 266,
+        "total_duration_ms": 31318,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 2214,
+        "eval_ms": 29061,
+        "tokens_per_second": 9.15
+      },
+      "session_id": "6aaa610cdee746648b8a0dc30777c644",
+      "turn_id": "4b5c5480ce55",
+      "previous_turn": {
+        "question": "What is rainwater harvesting?",
+        "reply": "Rainwater harvesting is a method of collecting and storing rainwater for later use, which helps to increase the availability of water in areas where traditional water sources are limited. The basic idea behind this method is to \"catch water where it falls,\" meaning that rainwater that falls on rooftops, gardens, and other open spaces is collected and stored for later use. This is particularly useful in areas where the ground is covered with concrete roads and buildings, which means that rainwater that would normally seep into the ground is instead directed into drains, rivers, or lakes, making it difficult to access for domestic use.",
+        "sources": [
+          {
+            "title": "NCERT Class 6 Science",
+            "heading": "RAINWATER HARVESTING",
+            "page_start": 144,
+            "page_end": 144,
+            "grade": 6,
+            "subject": "Science",
+            "distance": 0.1907,
+            "excerpt": "One way of increasing the availability of water is to collect rainwater and store it for later use. Collecting rainwater in this way is called rainwater harvesting. The basic idea behind rainwater harvesting is \"Catch water where it falls\". What happens to the rainwater that falls in places that are mostly covered with concrete roads and buildings? It flows into the drains, isn't it? From there water goes to rivers or lakes, which could be far away. A lot of effort will then be required to get this water back into our homes as the water did not seep into the ground. …"
+          },
+          {
+            "title": "NCERT Class 6 Science",
+            "heading": "RAINWATER HARVESTING",
+            "page_start": 144,
+            "page_end": 144,
+            "grade": 6,
+            "subject": "Science",
+            "distance": 0.2375,
+            "excerpt": null
+          }
+        ]
+      },
+      "id": "L12-concrete-colony"
+    }
+  ]
+}

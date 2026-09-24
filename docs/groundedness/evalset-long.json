@@ -1,0 +1,607 @@
+{
+  "name": "class6-science-long-questions-v1",
+  "note": "The same pipeline, asked the way a child actually talks. Every item in evalset.json is a bare definition question of 16-48 characters ('What is a shadow?'); every item here is 180-320 characters, carries a scene before the question, and asks for two or three things at once. That difference alone moves three things that are measured separately below: what the embedding of a long, chatty query retrieves; whether two or three sub-answers fit in rag_context_max_chars with rag_top_k passages; and whether a 1.5B model answers every part of a compound question or only the last part of it.",
+  "corpus": {
+    "document": "General Science (Class 6), MSCERT + NCERT Class 6 Science",
+    "publisher": "Maharashtra State Bureau of Textbook Production and Curriculum Research; NCERT",
+    "file": "data/PDF English/Class6_Sci_book.pdf, data/PDF NCERT/Class06-Science",
+    "grade": 6,
+    "subject": "Science",
+    "page_note": "pdf_page is chunks.page_start as apps/backend/data/library.db holds it after the textbook-ingest re-ingest -- the same number the tutor cites in its sources, so gold pages and cited pages can be compared directly. It is NOT the number printed on the sheet.",
+    "quotes_taken_from": "apps/backend/data/library.db chunks.text, byte-for-byte, so a quote here is what retrieval can actually return."
+  },
+  "profile": {
+    "level": "Class 6",
+    "subject": "Science",
+    "language": "English",
+    "style": "socratic"
+  },
+  "items": [
+    {
+      "id": "L1-clean-rice",
+      "set": "A",
+      "query": "Yesterday my mother bought a packet of rice from the shop and it had small pieces of stone in it, and some dust also came out when she washed it. Can you tell me which two different methods we should use to make that rice clean before cooking, and explain how each of those methods actually works?",
+      "previous_question": null,
+      "chapter": "Separation of Substances",
+      "asks_for": 2,
+      "gold_evidence": [
+        {
+          "pdf_page": 36,
+          "quote": "This method of handpicking can be used for separating slightly larger sized impurities like the pieces of dirt, stone, and husk from wheat, rice or pulses"
+        },
+        {
+          "pdf_page": 38,
+          "quote": "When the heavier component in a mixture settles after water is added to it, the process is called sedimentation. When the water (along with the dust) is removed, the process is called decantation"
+        }
+      ],
+      "reference_answer": "The pieces of stone can be taken out by handpicking. This method of handpicking can be used for separating slightly larger sized impurities like the pieces of dirt, stone, and husk from wheat, rice or pulses, and it suits your rice because the quantity of such impurities is usually not very large. The dust needs water. Rice or pulses are usually washed before cooking, and the impurities like dust particles get separated and go into the water. When the heavier component in a mixture settles after water is added to it, the process is called sedimentation, so the rice settles at the bottom of the vessel. When the water along with the dust is removed by tilting the vessel, the process is called decantation. Watch your mother the next time she washes rice, and see which of these two steps she does first.",
+      "required_facts": [
+        {
+          "fact": "the stones are removed by handpicking",
+          "any_of": ["handpicking", "hand-picking", "hand picking", "picking out", "pick out", "picking them out", "by hand"]
+        },
+        {
+          "fact": "adding water lets the heavier part settle -- sedimentation",
+          "any_of": ["sedimentation", "settles at the bottom", "settle at the bottom", "settles down", "settle down", "settles to the bottom"]
+        },
+        {
+          "fact": "pouring off the dirty water is decantation",
+          "any_of": ["decantation", "decanting", "decant", "pour out the", "pouring out the", "pour off", "pouring off", "removed by tilting"]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "sedimentation is (the process of )?(pouring|removing) (out )?(the )?water",
+          "why": "p.38: sedimentation is the settling, decantation is the removal of the water"
+        }
+      ]
+    },
+    {
+      "id": "L2-tea-pan-lid",
+      "set": "A",
+      "query": "When my mother boils water in a pan for tea, the water slowly becomes less and less, and after some time I can see many small drops of water sitting under the lid. Can you tell me the names of these two processes and explain what is happening to the water in each of them?",
+      "previous_question": null,
+      "chapter": "Separation of Substances",
+      "asks_for": 2,
+      "gold_evidence": [
+        {
+          "pdf_page": 40,
+          "quote": "The process of conversion of water into its vapour is called evaporation"
+        },
+        {
+          "pdf_page": 41,
+          "quote": "When the steam comes in contact with the metal plate cooled with ice, it condenses and forms liquid water. The water drops that you observed falling from the plate, were due to condensation of steam. The process of conversion of water vapour into its liquid form is called condensation."
+        }
+      ],
+      "reference_answer": "The water becoming less is evaporation. The process of conversion of water into its vapour is called evaporation, and the process of evaporation takes place continuously wherever water is present. The drops under the lid are condensation. When steam comes in contact with a surface that is cooler, it condenses and forms liquid water, and the process of conversion of water vapour into its liquid form is called condensation. So the water in the pan has not disappeared: it left as vapour and came back as liquid water on the cooler lid. Hold a cold metal plate above the steam next time and watch where the drops appear.",
+      "required_facts": [
+        {
+          "fact": "the water leaving the pan is evaporation",
+          "any_of": ["evaporation", "evaporates", "evaporate"]
+        },
+        {
+          "fact": "evaporation is water turning into its vapour",
+          "any_of": ["into its vapour", "into vapour", "into water vapour", "to water vapour", "becomes vapour", "turns into vapour", "changes into vapour", "changes to vapour", "water vapour"]
+        },
+        {
+          "fact": "the drops under the lid are condensation",
+          "any_of": ["condensation", "condenses", "condense"]
+        },
+        {
+          "fact": "condensation is vapour turning back into liquid water",
+          "any_of": ["into its liquid form", "into liquid form", "liquid form", "into liquid water", "back into water", "back to water", "forms liquid water", "becomes liquid"]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "condensation[^.]{0,30}(conversion|change|changing)[^.]{0,20}of (liquid )?water into (its )?(vapour|vapor|steam|gas)",
+          "why": "p.40-41: that is evaporation; condensation is vapour to liquid"
+        }
+      ]
+    },
+    {
+      "id": "L3-fish-and-camel",
+      "set": "A",
+      "query": "My teacher told the class that a fish cannot live out of water and that a camel cannot live in the sea. Can you explain what the two words habitat and adaptation mean, and then use both of those words to tell me why each of those animals can only live in its own place?",
+      "previous_question": null,
+      "chapter": "The Living Organisms and Their Surroundings",
+      "asks_for": 3,
+      "gold_evidence": [
+        {
+          "pdf_page": 80,
+          "quote": "The place where organisms live is called habitat. Habitat means a dwelling place (a home). The habitat provides food, water, air, shelter and other needs to organisms."
+        },
+        {
+          "pdf_page": 80,
+          "quote": "The presence of specific features or certain habits, which enable an organism to live naturally in a place is called adaptation. Adaptation of organisms differ depending on their place of dwelling. That is why a fish cannot live out of water and a camel cannot live in sea."
+        }
+      ],
+      "reference_answer": "The place where organisms live is called habitat, and habitat means a dwelling place, a home. The habitat provides food, water, air, shelter and other needs to organisms. The presence of specific features or certain habits, which enable an organism to live naturally in a place is called adaptation. The features of a fish help it to live inside water and the features of a camel help it to survive in a desert, and adaptation of organisms differ depending on their place of dwelling. That is why a fish cannot live out of water and a camel cannot live in sea. Pick any animal you saw on the way to school and try to name one feature of it that suits its own habitat.",
+      "required_facts": [
+        {
+          "fact": "habitat is the place where an organism lives",
+          "any_of": ["place where organisms live", "place where an organism lives", "place where plants and animals live", "place where living things live", "dwelling place", "where organisms live", "where an animal lives", "its home", "a home"]
+        },
+        {
+          "fact": "the habitat provides food, water, air and shelter",
+          "any_of": ["food, water, air", "food, water and air", "shelter", "provides food"]
+        },
+        {
+          "fact": "adaptation is the features or habits that let it live there",
+          "any_of": ["adaptation", "adaptations", "adapted"]
+        },
+        {
+          "fact": "that is why the fish cannot live out of water and the camel cannot live in the sea",
+          "any_of": ["cannot live out of water", "cannot live outside water", "cannot live outside of water", "cannot live in sea", "cannot live in the sea", "can only live in water", "would not survive in the sea"]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "habitat (means|is)[^.]{0,30}(features|habits) (which|that) enable",
+          "why": "p.80: that is the definition of adaptation, not of habitat"
+        }
+      ]
+    },
+    {
+      "id": "L4-two-bar-magnets",
+      "set": "A",
+      "query": "I keep two bar magnets in my school bag and something strange keeps happening with them. Sometimes when I bring them close they jump towards each other and stick, but if I turn one of them around first, they push each other away instead. What are the two ends of a magnet called, and why do these two different things happen?",
+      "previous_question": null,
+      "chapter": "Fun with Magnets",
+      "asks_for": 2,
+      "gold_evidence": [
+        {
+          "pdf_page": 107,
+          "quote": "The end of a magnet that points to the north is called the north pole while the end that points to the south is called the south pole. The north pole is indicated by 'N' and the south pole, by 'S'."
+        },
+        {
+          "pdf_page": 108,
+          "quote": "There is repulsion between like poles of a magnet, while there is attraction between the opposite poles."
+        }
+      ],
+      "reference_answer": "The end of a magnet that points to the north is called the north pole while the end that points to the south is called the south pole. The north pole is indicated by N and the south pole by S. What happens when you bring two magnets close depends on which ends meet. There is repulsion between like poles of a magnet, so a north pole pushes another north pole away, and that is the pushing you felt after turning one magnet around. There is attraction between the opposite poles, so a north pole and a south pole pull towards each other and the magnets stick. Before you try it again, can you predict from which end you are holding which of the two will happen?",
+      "required_facts": [
+        {
+          "fact": "the two ends are the north pole and the south pole",
+          "all_of": ["north pole", "south pole"]
+        },
+        {
+          "fact": "like poles repel",
+          "any_of": ["repulsion between like poles", "like poles repel", "same poles repel", "similar poles repel", "like poles push", "same poles push", "two north poles repel", "poles repel", "north pole pushes another north"]
+        },
+        {
+          "fact": "opposite poles attract",
+          "any_of": ["attraction between the opposite poles", "opposite poles attract", "unlike poles attract", "different poles attract", "opposite poles pull", "north and south pole attract", "north pole and a south pole attract", "opposite poles are attracted", "north and a south pole pull"]
+        }
+      ],
+      "forbidden_claims": [
+        {"pattern": "like poles attract", "why": "p.108: there is repulsion between like poles"},
+        {"pattern": "same poles attract", "why": "p.108: there is repulsion between like poles"},
+        {"pattern": "similar poles attract", "why": "p.108: there is repulsion between like poles"},
+        {"pattern": "opposite poles repel", "why": "p.108: there is attraction between the opposite poles"},
+        {"pattern": "unlike poles repel", "why": "p.108: there is attraction between the opposite poles"},
+        {"pattern": "opposite.{0,25}poles.{0,40}repel", "why": "p.108: there is attraction between the opposite poles"},
+        {"pattern": "north pole (is|means) the end (that |which )?points to(wards)? the south", "why": "p.107: the north pole is the end that points north"}
+      ],
+      "note": "The polarity trap from evalset.json B2, re-asked as a long scene. The same two facts now have to survive 320 characters of story before the question."
+    },
+    {
+      "id": "L5-bulb-did-not-glow",
+      "set": "A",
+      "query": "I joined a bulb to an electric cell with two wires the way my elder brother showed me, but the bulb did not glow at all. Can you explain to me what an electric circuit really is, in which direction the current is taken to flow inside it, and give me one reason why a bulb may not light up?",
+      "previous_question": null,
+      "chapter": "Electricity and Circuits",
+      "asks_for": 3,
+      "gold_evidence": [
+        {
+          "pdf_page": 119,
+          "quote": "Such an arrangement is an example of an electric circuit. The electric circuit provides a complete path for electricity to pass (current to flow) between the two terminals of the electric cell. The bulb glows only when current flows through the circuit."
+        },
+        {
+          "pdf_page": 119,
+          "quote": "In an electric circuit, the direction of current is taken to be from the positive to the negative terminal of the electric cell"
+        },
+        {
+          "pdf_page": 119,
+          "quote": "One reason for a bulb to fuse is a break in its filament. A break in the filament of an electric bulb means a break in the path of the current between the terminals of the electric cell. Therefore, a fused bulb does not light up as no current passes through its filament."
+        }
+      ],
+      "reference_answer": "The electric circuit provides a complete path for electricity to pass, that is for current to flow, between the two terminals of the electric cell. The bulb glows only when current flows through the circuit. In an electric circuit, the direction of current is taken to be from the positive to the negative terminal of the electric cell. One reason a bulb does not light up is that it has fused: one reason for a bulb to fuse is a break in its filament, and a break in the filament means a break in the path of the current between the terminals of the cell, so a fused bulb does not light up as no current passes through its filament. Trace your own connection with a pencil tip from one terminal of the cell all the way round to the other, and see whether the path is complete.",
+      "required_facts": [
+        {
+          "fact": "a circuit is a complete path for the current between the two terminals of the cell",
+          "any_of": ["complete path", "closed path", "continuous path", "complete loop", "closed loop"]
+        },
+        {
+          "fact": "the bulb glows only when current flows through the circuit",
+          "any_of": ["only when current flows", "current flows through the circuit", "current flows in the circuit", "current to flow", "when the current flows"]
+        },
+        {
+          "fact": "the current is taken to flow from the positive terminal to the negative terminal",
+          "any_of": ["positive to the negative", "positive terminal to the negative", "from positive to negative", "positive to negative terminal"]
+        },
+        {
+          "fact": "a break in the filament stops the current, so the bulb does not light",
+          "any_of": ["break in its filament", "break in the filament", "filament is broken", "broken filament", "fused", "fuse", "break in the path"]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "direction of (the )?current[^.]{0,40}(from|is taken to be from) (the )?negative",
+          "why": "p.119: the direction of current is taken to be from the positive to the negative terminal"
+        }
+      ]
+    },
+    {
+      "id": "L6-where-rain-comes-from",
+      "set": "A",
+      "query": "My little sister asked me where rain comes from, and also why the sea does not become empty even though the sun keeps drying up so much of its water every day. Can you explain the whole journey of the water to her, starting from how it goes up into the air and ending with how it comes back to the ocean?",
+      "previous_question": null,
+      "chapter": "Water",
+      "asks_for": 2,
+      "gold_evidence": [
+        {
+          "pdf_page": 140,
+          "quote": "At sufficient heights, the air becomes so cool that the water vapour present in it condenses to form tiny drops of water called droplets. It is these tiny droplets that remain floating in air and appear to us as clouds"
+        },
+        {
+          "pdf_page": 140,
+          "quote": "Thus, water in the form of vapour goes into air by evaporation and transpiration, forms clouds, and then comes back to the ground as rain, hail or snow."
+        },
+        {
+          "pdf_page": 141,
+          "quote": "returns as rain, hail or snow and finally goes back to the ocean"
+        }
+      ],
+      "reference_answer": "Water in the form of vapour goes into air by evaporation and transpiration. As the air moves up it gets cooler, and at sufficient heights the air becomes so cool that the water vapour present in it condenses to form tiny drops of water called droplets; it is these tiny droplets that remain floating in air and appear to us as clouds. Many droplets come together to form larger drops, and some drops become so heavy that they begin to fall, and those falling water-drops are what we call rain. So water goes into air as vapour, forms clouds, and then comes back to the ground as rain, hail or snow, and finally goes back to the ocean. The circulation of water in this manner is known as the water cycle, and it is a continuous process, which is why the sea is not emptied. Ask your sister to watch a pot of water on the stove and tell you where its water is going.",
+      "required_facts": [
+        {
+          "fact": "water goes into the air as vapour by evaporation (and transpiration)",
+          "any_of": ["evaporation and transpiration", "evaporation", "evaporates", "as vapour", "water vapour"]
+        },
+        {
+          "fact": "the vapour cools high up and condenses into droplets that appear as clouds",
+          "any_of": ["clouds", "cloud"]
+        },
+        {
+          "fact": "the drops fall as rain, hail or snow",
+          "any_of": ["rain, hail or snow", "rain, hail and snow", "rain or snow", "as rain", "falls as rain", "comes down as rain"]
+        },
+        {
+          "fact": "the whole circulation is called the water cycle",
+          "any_of": ["water cycle"]
+        }
+      ],
+      "forbidden_claims": []
+    },
+    {
+      "id": "L7-only-rice-and-chapati",
+      "set": "A",
+      "query": "At home I mostly eat only rice and chapati every day because I do not like vegetables or fruit very much. Can you tell me what a balanced diet actually means, which nutrients my food is supposed to contain, and what can happen to my body if I keep leaving some of them out?",
+      "previous_question": null,
+      "chapter": "Nutrition and Diet",
+      "asks_for": 3,
+      "gold_evidence": [
+        {
+          "pdf_page": 53,
+          "quote": "All that we consume during the day is together called our 'diet'. A diet containing adequate quantities of all nutrients is called a Balanced Diet."
+        },
+        {
+          "pdf_page": 55,
+          "quote": "Carbohydrates, fats, proteins, vitamins, minerals and fibre are the nutrients in food. A balanced diet includes all nutrients in the right quantities."
+        },
+        {
+          "pdf_page": 55,
+          "quote": "Whether a person is malnourished or has deficiency diseases depends upon the proportions of food taken."
+        }
+      ],
+      "reference_answer": "All that we consume during the day is together called our diet, and a diet containing adequate quantities of all nutrients is called a balanced diet. Carbohydrates, fats, proteins, vitamins, minerals and fibre are the nutrients in food, and a balanced diet includes all nutrients in the right quantities. To build a strong and healthy body you need all nutrients in the right proportion and in sufficient quantities in your daily diet. Whether a person is malnourished or has deficiency diseases depends upon the proportions of food taken, so leaving out a nutrient for a long time is what brings on a deficiency. Write down everything you ate yesterday and check which of those six nutrients is missing from your list.",
+      "required_facts": [
+        {
+          "fact": "a balanced diet has all the nutrients in adequate quantity",
+          "any_of": ["all nutrients", "all the nutrients", "adequate quantities", "right quantities", "right proportion"]
+        },
+        {
+          "fact": "it names the nutrients: carbohydrates, fats, proteins, vitamins, minerals",
+          "all_of": ["carbohydrate", "fat", "protein", "vitamin", "mineral"]
+        },
+        {
+          "fact": "missing nutrients cause deficiency diseases or malnutrition",
+          "any_of": ["deficiency disease", "deficiency diseases", "malnourished", "malnutrition", "deficiency"]
+        }
+      ],
+      "forbidden_claims": []
+    },
+    {
+      "id": "L8-crowbar-three-parts",
+      "set": "A",
+      "query": "My father lifted a heavy stone out of the ground in our field using a long iron rod that he rested on top of a brick near the stone. What is that kind of machine called, what are its three parts, and can you tell me what each one of those three parts actually does?",
+      "previous_question": null,
+      "chapter": "Simple Machines",
+      "asks_for": 3,
+      "gold_evidence": [
+        {
+          "pdf_page": 86,
+          "quote": "Such a machine is called a lever . A lever has three parts, namely, effort, load and fulcrum."
+        },
+        {
+          "pdf_page": 86,
+          "quote": "The support at which the rod of a lever is rested is called the 'fulcrum of a lever'. The lever rotates about the fulcrum."
+        },
+        {
+          "pdf_page": 86,
+          "quote": "The weight lifted by a lever or the force against which the lever acts is called the 'load'. The arm of the lever from the fulcrum to the load is called the 'load arm'."
+        },
+        {
+          "pdf_page": 86,
+          "quote": "The force applied on the other end of the rod to lift the load is called the 'effort'. The part of the lever from the fulcrum to the effort is called the 'effort arm'."
+        }
+      ],
+      "reference_answer": "Such a machine is called a lever, and a lever has three parts, namely, effort, load and fulcrum. The support at which the rod of a lever is rested is called the fulcrum of a lever, and the lever rotates about the fulcrum, so the brick your father used is the fulcrum. The weight lifted by a lever, or the force against which the lever acts, is called the load, which is the heavy stone. The force applied on the other end of the rod to lift the load is called the effort, which is what your father's hands supplied. Next time, ask him to move the brick closer to the stone and see whether the work becomes easier or harder.",
+      "required_facts": [
+        {
+          "fact": "the machine is a lever",
+          "any_of": ["lever"]
+        },
+        {
+          "fact": "its three parts are effort, load and fulcrum",
+          "all_of": ["effort", "load", "fulcrum"]
+        },
+        {
+          "fact": "the fulcrum is the support it rests on, and the lever turns about it",
+          "any_of": ["support at which", "support on which", "the support", "rests on", "rested on", "rotates about the fulcrum", "turns about the fulcrum", "pivot"]
+        },
+        {
+          "fact": "the load is the weight lifted or the force the lever acts against",
+          "any_of": ["weight lifted", "weight that is lifted", "force against which", "the weight being lifted", "the object being lifted", "the stone"]
+        },
+        {
+          "fact": "the effort is the force applied at the other end to lift the load",
+          "any_of": ["force applied", "force you apply", "force we apply", "applied on the other end", "push or pull you apply"]
+        }
+      ],
+      "forbidden_claims": [
+        {"pattern": "a lever has (two|four|five|2|4|5) parts", "why": "p.86: a lever has three parts"},
+        {"pattern": "fulcrum is the (weight|load)", "why": "p.86: the fulcrum is the support, the load is the weight lifted"}
+      ],
+      "note": "The book splits this answer over three chunks on one page: the three names and the fulcrum in one, the load in the next, the effort in a third. With rag_top_k at 2 and rag_context_max_chars at 800, the full answer cannot reach the prompt. Context recall here is the measurement of that, not a bug in the item."
+    },
+    {
+      "id": "L9-drum-up-the-plank",
+      "set": "A",
+      "query": "Outside the shop near my house I saw two men rolling a very heavy drum up a slanting wooden plank into a truck, instead of just lifting it straight up into it. Why does using that plank make their work easier, and is it true that a screw and an axe both work on the same idea as the plank?",
+      "previous_question": null,
+      "chapter": "Simple Machines",
+      "asks_for": 2,
+      "gold_evidence": [
+        {
+          "pdf_page": 85,
+          "quote": "If a slanting plank is used to lift a weight, we have to bear less of the weight and lifting it becomes easier. Such a plank is called an 'inclined plane'. The more gradual the slope, the lesser is the weight we bear."
+        },
+        {
+          "pdf_page": 85,
+          "quote": "In other words, a screw is like a rolled up inclined plane made of an iron strip."
+        },
+        {
+          "pdf_page": 86,
+          "quote": "A sharp tool is formed on joining two inclined planes. Such a tool is called a wedge."
+        }
+      ],
+      "reference_answer": "If a slanting plank is used to lift a weight, we have to bear less of the weight and lifting it becomes easier, and such a plank is called an inclined plane. The more gradual the slope, the lesser is the weight we bear, though such an inclined plane is longer. Yes, both of the others are the same idea. A screw is like a rolled up inclined plane made of an iron strip, which is why less force is required to fit a screw than to hammer a nail. A sharp tool is formed on joining two inclined planes, and such a tool is called a wedge; an axe, a knife or a chisel are examples of it. Look at the winding ghat road up a hill and see whether you can spot the same inclined plane wrapped around the mountain.",
+      "required_facts": [
+        {
+          "fact": "a slanting plank is an inclined plane",
+          "any_of": ["inclined plane"]
+        },
+        {
+          "fact": "using it means bearing less of the weight, so it is easier",
+          "any_of": ["less of the weight", "less weight", "becomes easier", "easier", "less force", "lesser force"]
+        },
+        {
+          "fact": "a screw is a rolled up inclined plane",
+          "any_of": ["rolled up inclined plane", "rolled-up inclined plane", "rolled up", "wrapped around", "wound around"]
+        },
+        {
+          "fact": "an axe is a wedge, two inclined planes joined",
+          "any_of": ["wedge"]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "(steeper|steep) (the )?slope[^.]{0,40}(lesser|less) (the )?(weight|force)",
+          "why": "p.85: the more gradual the slope, the lesser the weight borne"
+        }
+      ]
+    },
+    {
+      "id": "L10-bicycle-wheel",
+      "set": "A",
+      "query": "When I ride my bicycle to school the wheels keep going round and round in the same place on the axle, but at the same time the whole bicycle keeps moving forward along the straight road. Are those two different kinds of motion, and what is each one of them called?",
+      "previous_question": null,
+      "chapter": "Motion and Types of Motion",
+      "asks_for": 2,
+      "gold_evidence": [
+        {
+          "pdf_page": 65,
+          "quote": "A train or a moving vehicle on a road may travel in a straight line or in the same direction. This motion of an object is called linear motion. An object in linear motion shows displacement along a straight line."
+        },
+        {
+          "pdf_page": 67,
+          "quote": "The motion of an object along a circular path is called circular motion."
+        }
+      ],
+      "reference_answer": "Yes, those are two different kinds of motion happening together. A train or a moving vehicle on a road may travel in a straight line or in the same direction, and this motion of an object is called linear motion; an object in linear motion shows displacement along a straight line, which is what your whole bicycle does along the road. The motion of an object along a circular path is called circular motion, and that is what the wheel does about its axle, the way the hands of a clock or a fan blade move. So one bicycle shows you both at once. Watch a giant wheel at a fair and see whether the seats and the wheel itself are doing the same thing.",
+      "required_facts": [
+        {
+          "fact": "the bicycle along the road is linear (rectilinear) motion",
+          "any_of": ["linear motion", "rectilinear motion", "straight line", "straight-line motion"]
+        },
+        {
+          "fact": "the wheel going round is circular motion",
+          "any_of": ["circular motion", "circular path", "rotational motion", "rotatory motion"]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "circular motion[^.]{0,40}(straight line|straight path)",
+          "why": "p.67: circular motion is motion along a circular path"
+        }
+      ]
+    },
+    {
+      "id": "L11-off-syllabus-metro",
+      "set": "C",
+      "query": "Yesterday my uncle was telling us all about the new metro railway line that is being built in our city, and he said that the ticket prices are decided by the state government and that the coaches for it come from a big factory near Chennai. Can you explain to me how the ticket price of a metro train is actually decided, and which company makes those coaches?",
+      "previous_question": null,
+      "chapter": null,
+      "gold_evidence": [],
+      "reference_answer": null,
+      "must_abstain": true,
+      "required_facts": [],
+      "forbidden_claims": [],
+      "note": "The abstention check at long length. C1 in evalset.json is 36 characters of plainly off-syllabus text; this is 350 characters that name a railway, a government and a factory, and it sits next to real chapters on transport and on materials. If a long off-topic query averages out below rag_max_distance where a short one would not, this is where it shows."
+    },
+    {
+      "id": "L12-concrete-colony",
+      "set": "B",
+      "query": "In my colony almost the whole ground is covered with concrete roads and cement, so where does all that rainwater even go from there, and what are the two techniques that a school building like mine could actually use to collect it?",
+      "previous_question": "What is rainwater harvesting?",
+      "chapter": "Water",
+      "asks_for": 2,
+      "gold_evidence": [
+        {
+          "pdf_page": 141,
+          "quote": "This reduces the seepage of rainwater into the ground which ultimately affects the availability of ground water."
+        },
+        {
+          "pdf_page": 144,
+          "quote": "1. Rooftop rainwater harvesting: In this system the rainwater is collected from the rooftop to a storage tank, through pipes."
+        },
+        {
+          "pdf_page": 144,
+          "quote": "2. Another option is to allow water to go into the ground directly from the roadside drains that collect rainwater."
+        }
+      ],
+      "reference_answer": "Where the land is covered with concrete the rainwater cannot soak in: this reduces the seepage of rainwater into the ground which ultimately affects the availability of ground water, and the water flows into the drains and away to rivers or lakes that could be far away. Two techniques are given for harvesting it. In rooftop rainwater harvesting the rainwater is collected from the rooftop to a storage tank, through pipes; that water may contain soil from the roof and need filtering before it is used, and instead of a tank the pipes can go directly into a pit in the ground so it seeps in and recharges the ground water. Another option is to allow water to go into the ground directly from the roadside drains that collect rainwater. Go and look at where your school's downpipes end, and see which of the two your building is closest to.",
+      "required_facts": [
+        {
+          "fact": "concrete reduces the seepage of rainwater into the ground",
+          "any_of": ["seepage", "seep into the ground", "seeps into the ground", "soak into the ground", "soaks into the ground", "absorbed by the ground", "cannot soak in", "does not soak"]
+        },
+        {
+          "fact": "rooftop rainwater harvesting pipes the roof water to a storage tank",
+          "any_of": ["rooftop", "roof top", "from the roof"]
+        },
+        {
+          "fact": "the other option lets water enter the ground from the roadside drains",
+          "any_of": ["roadside drain", "road side drain", "roadside drains", "drains that collect", "from the drains"]
+        }
+      ],
+      "forbidden_claims": [],
+      "note": "A long follow-up. 'it' in the last clause binds to the previous question, so rag.followup.is_context_dependent should carry 'What is rainwater harvesting?' into the search -- with 230 characters of the student's own scene now diluting that carried question in the embedding."
+    }
+  ],
+  "judge_calibration": {
+    "purpose": "Statements whose verdict is already known, run against the same judge before any tutor answer is scored. Same design as evalset.json, keyed to this set's evidence.",
+    "cases": [
+      {
+        "id": "calL-01",
+        "evidence_from": "L1-clean-rice",
+        "statement": "When water is added to a mixture and the heavier part settles at the bottom, that settling is called sedimentation.",
+        "expect": "supported",
+        "kind": "paraphrase"
+      },
+      {
+        "id": "calL-02",
+        "evidence_from": "L1-clean-rice",
+        "statement": "Decantation is the name for the heavier part of the mixture settling at the bottom of the vessel.",
+        "expect": "contradicted",
+        "kind": "polarity"
+      },
+      {
+        "id": "calL-03",
+        "evidence_from": "L2-tea-pan-lid",
+        "statement": "Condensation is the conversion of liquid water into its vapour.",
+        "expect": "contradicted",
+        "kind": "polarity"
+      },
+      {
+        "id": "calL-04",
+        "evidence_from": "L2-tea-pan-lid",
+        "statement": "Steam touching a cold surface turns back into liquid water.",
+        "expect": "supported",
+        "kind": "paraphrase"
+      },
+      {
+        "id": "calL-05",
+        "evidence_from": "L3-fish-and-camel",
+        "statement": "A habitat provides an organism with food, water, air and shelter.",
+        "expect": "supported",
+        "kind": "restatement"
+      },
+      {
+        "id": "calL-06",
+        "evidence_from": "L3-fish-and-camel",
+        "statement": "A fish can survive out of water for several hours by using its swim bladder.",
+        "expect": "unsupported",
+        "kind": "plausible-but-absent"
+      },
+      {
+        "id": "calL-07",
+        "evidence_from": "L4-two-bar-magnets",
+        "statement": "Two north poles brought close to each other pull towards each other.",
+        "expect": "contradicted",
+        "kind": "polarity"
+      },
+      {
+        "id": "calL-08",
+        "evidence_from": "L4-two-bar-magnets",
+        "statement": "The end of a bar magnet that points north is called its north pole.",
+        "expect": "supported",
+        "kind": "restatement"
+      },
+      {
+        "id": "calL-09",
+        "evidence_from": "L5-bulb-did-not-glow",
+        "statement": "In an electric circuit the current is taken to flow from the negative terminal to the positive terminal of the cell.",
+        "expect": "contradicted",
+        "kind": "polarity"
+      },
+      {
+        "id": "calL-10",
+        "evidence_from": "L5-bulb-did-not-glow",
+        "statement": "An electric cell of this kind supplies about 1.5 volts.",
+        "expect": "unsupported",
+        "kind": "plausible-but-absent"
+      },
+      {
+        "id": "calL-11",
+        "evidence_from": "L8-crowbar-three-parts",
+        "statement": "A lever has three parts: the effort, the load and the fulcrum.",
+        "expect": "supported",
+        "kind": "restatement"
+      },
+      {
+        "id": "calL-12",
+        "evidence_from": "L8-crowbar-three-parts",
+        "statement": "The fulcrum of a lever is the weight that the lever lifts.",
+        "expect": "contradicted",
+        "kind": "polarity"
+      },
+      {
+        "id": "calL-13",
+        "evidence_from": "L9-drum-up-the-plank",
+        "statement": "The steeper the inclined plane, the less weight we have to bear.",
+        "expect": "contradicted",
+        "kind": "polarity"
+      },
+      {
+        "id": "calL-14",
+        "evidence_from": "L6-where-rain-comes-from",
+        "statement": "Water vapour high in the air condenses into tiny droplets that we see as clouds.",
+        "expect": "supported",
+        "kind": "paraphrase"
+      }
+    ]
+  }
+}
