@@ -196,7 +196,7 @@ def step_frontend(payload: Path, skip_build: bool) -> None:
 def step_python(payload: Path) -> None:
     cache = ROOT / "build" / ".cache"
     pin = PINS["python"]
-    tgz = fetch(pin["url"], cache / "cpython-win64.tar.gz", pin["approx_mb"], pin["sha256"])
+    tgz = fetch(pin["url"], cache / f"cpython-win64-{pin['version']}.tar.gz", pin["approx_mb"], pin["sha256"])
 
     pydir = payload / "runtime" / "python"
     if pydir.exists():
@@ -213,13 +213,59 @@ def step_python(payload: Path) -> None:
 
     uv = find_uv()
     site = pydir / "Lib" / "site-packages"
+    reqs_path = ROOT / "apps" / "backend" / "requirements.txt"
+
+    # Local path requirements (`-e ../../libs/textbook-ingest[pdf]`) need two
+    # things the pinned wheel resolve cannot give them:
+    #   * the path is relative to the requirements FILE, but uv resolves it
+    #     against the CWD -- from the repo root `../../libs` lands outside the
+    #     checkout entirely, and the build dies with "Distribution not found";
+    #   * `-e` writes an editable .pth pointing at this build machine's source
+    #     tree, which does not exist on a device.
+    # So they are split out, resolved absolutely, and installed non-editable.
+    pinned, local = [], []
+    for line in reqs_path.read_text().splitlines():
+        s = line.strip()
+        if s.startswith("-e ") or s.startswith("--editable "):
+            local.append(s.split(None, 1)[1])
+        elif s.startswith((".", "..", "/")) and not s.startswith("#"):
+            local.append(s)
+        else:
+            pinned.append(line)
+
+    tmp_reqs = payload / "runtime" / "_requirements-pinned.txt"
+    tmp_reqs.write_text("\n".join(pinned) + "\n")
     print("    resolving Windows cp312 wheels")
     subprocess.run(
         [uv, "pip", "install", "--target", str(site),
          "--python-platform", "windows", "--python-version", "3.12",
-         "--only-binary=:all:", "-r", str(ROOT / "apps" / "backend" / "requirements.txt")],
+         "--only-binary=:all:", "-r", str(tmp_reqs)],
         check=True,
     )
+    tmp_reqs.unlink()
+
+    for spec in local:
+        # Split a trailing extras marker off the path: "../x[pdf]" -> "../x", "[pdf]".
+        base, _, extras = spec.partition("[")
+        target = (reqs_path.parent / base.strip()).resolve()
+        if not target.is_dir():
+            raise SystemExit(f"local requirement not found: {spec} -> {target}")
+        wanted = f"{target}{'[' + extras if extras else ''}"
+        print(f"    building local package {target.name} (non-editable, --no-deps)")
+        # --no-deps: these libraries declare no runtime dependencies of their
+        # own, and anything their extras pull in is already pinned above. It
+        # also keeps a source build from dragging in an unpinned sdist.
+        subprocess.run(
+            [uv, "pip", "install", "--target", str(site),
+             "--python-platform", "windows", "--python-version", "3.12",
+             "--no-deps", wanted],
+            check=True,
+        )
+        mod = target.name.replace("-", "_")
+        if not (site / mod).is_dir():
+            raise SystemExit(f"{mod} did not land in site-packages -- ingest code would be missing.")
+        if list(site.glob("__editable__*")) or list(site.glob("*.pth")):
+            raise SystemExit(f"{mod} installed as editable -- it would point at this build machine.")
     # Sanity: the two native packages the whole product depends on.
     if not (site / "sqlite_vec" / "vec0.dll").is_file():
         raise SystemExit("sqlite_vec/vec0.dll missing -- vector search would be dead on every device.")
@@ -240,20 +286,32 @@ def step_python(payload: Path) -> None:
 def step_ollama(payload: Path) -> None:
     cache = ROOT / "build" / ".cache"
     pin = PINS["ollama"]
-    zpath = fetch(pin["url"], cache / "ollama-win.zip", pin["approx_mb"], pin["sha256"])
+    # The pinned version goes in the cache filename. Without it, bumping the pin
+    # silently reuses the previously downloaded zip -- a new pin has no digest to
+    # check against, so fetch() trusts whatever is cached -- and the payload ships
+    # the OLD runtime. That happened on the v0.12.3 -> v0.32.15 bump, where the
+    # stale binary cannot even load the model the build is for.
+    zpath = fetch(pin["url"], cache / f"ollama-win-{pin['version']}.zip",
+                  pin["approx_mb"], pin["sha256"])
 
     odir = payload / "runtime" / "ollama"
     if odir.exists():
         shutil.rmtree(odir)
     odir.mkdir(parents=True)
 
-    keep, kept, stripped = tuple(pin["keep_prefixes"]), 0, 0
+    # drop wins over keep: keep_prefixes takes the whole of lib/ollama/ and the
+    # GPU runners are excluded by subdirectory. Prefix-only inclusion is what
+    # broke the v0.32.15 build -- see the pin note.
+    keep, drop = tuple(pin["keep_prefixes"]), tuple(pin.get("drop_prefixes") or ())
+    kept, stripped = 0, 0
     with zipfile.ZipFile(zpath) as zf:
         for info in zf.infolist():
             if info.is_dir():
                 continue
             name = info.filename.replace("\\", "/")
-            if name.startswith(keep):
+            if drop and name.startswith(drop):
+                stripped += info.file_size
+            elif name.startswith(keep):
                 out = odir / name
                 out.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(info) as src, out.open("wb") as dst:
@@ -267,8 +325,16 @@ def step_ollama(payload: Path) -> None:
                     shutil.copyfileobj(src, dst)
             else:
                 stripped += info.file_size
-    if not (odir / "ollama.exe").is_file():
-        raise SystemExit("ollama.exe not extracted -- release layout changed, check keep_prefixes.")
+    # Assert the ENGINE, not just the CLI. ollama.exe alone starts, serves /api/tags
+    # and then fails the first generate with a 500 -- a failure that only shows up on a
+    # device, after a 2.4 GB copy.
+    required = ("ollama.exe", "lib/ollama/llama-server.exe", "lib/ollama/libllama.dll")
+    missing = [r for r in required if not (odir / r).is_file()]
+    if missing:
+        raise SystemExit(
+            "Ollama runtime incomplete -- release layout changed, check keep_prefixes:\n"
+            + "".join(f"      missing {m}\n" for m in missing)
+        )
     print(f"    kept {kept / 1048576:.0f} MB, stripped {stripped / 1048576:.0f} MB of GPU runners")
 
 
