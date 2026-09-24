@@ -153,7 +153,7 @@ if (Test-Url "http://127.0.0.1:$OllamaPort/api/version") {
         Log "OLLAMA_NUM_THREAD=$Threads (override)"
     }
     $env:OLLAMA_KEEP_ALIVE        = "-1"      # never unload; a reload costs a student ~2s every pause
-    $env:OLLAMA_MAX_LOADED_MODELS = "2"       # qwen2.5:1.5b and nomic-embed-text both resident
+    $env:OLLAMA_MAX_LOADED_MODELS = "2"       # qwen3.5:2b-q4_K_M and nomic-embed-text both resident
     $env:OLLAMA_NUM_PARALLEL      = "1"
     $env:OLLAMA_NOPRUNE           = "1"       # our model dir is read-only; do not try to prune it
     $env:OLLAMA_ORIGINS           = ""        # nothing browser-side talks to Ollama
@@ -190,7 +190,7 @@ $env:TURN_LOG_ENABLED       = "true"
 # bind, while the backend's ollama_host setting wants a URL to call. Ollama
 # already captured its value when it was spawned, so overwriting is safe.
 $env:OLLAMA_HOST            = "http://127.0.0.1:$OllamaPort"
-$env:OLLAMA_MODEL           = "qwen2.5:1.5b"
+$env:OLLAMA_MODEL           = "qwen3.5:2b-q4_K_M"
 $env:NUM_CTX                = "4096"
 
 # No STT_MODEL_DIR / TTS_MODEL_DIR: this is the English-only build, where
@@ -219,7 +219,7 @@ $backend = Start-Process $python -ArgumentList "-m","app.serve" -WorkingDirector
 $script:children += $backend
 
 try {
-    # 90s: no acoustic model to load here, only qwen2.5:1.5b warming in the
+    # 90s: no acoustic model to load here, only qwen3.5:2b-q4_K_M warming in the
     # background, and /health answers before that finishes.
     $ready = $false
     for ($i = 0; $i -lt 90; $i++) {

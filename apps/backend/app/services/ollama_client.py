@@ -161,6 +161,11 @@ class OllamaClient:
             "model": model or settings.ollama_model,
             "messages": messages,
             "stream": stream,
+            # Qwen3.5 thinks by default and would spend the whole num_predict
+            # budget on a reasoning block that Ollama strips from
+            # message.content, returning an empty answer. Models without a
+            # thinking mode accept and ignore this field.
+            "think": False,
             # Without this Ollama unloads the model after 5 idle minutes and the
             # next question pays a ~2s reload.
             "keep_alive": _keep_alive(),

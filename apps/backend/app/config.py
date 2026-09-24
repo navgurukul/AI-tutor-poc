@@ -21,9 +21,10 @@ class Settings(BaseSettings):
 
     # --- Ollama -----------------------------------------------------------
     ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:1.5b"
-    # A 1.5B model on CPU is quick, but a long answer plus a cold model load
-    # can still take a while, so the read timeout is generous.
+    ollama_model: str = "qwen3.5:2b-q4_K_M"
+    # A 2B model on CPU is slower than the 1.5B it replaced, and a long answer
+    # plus a cold model load can still take a while, so the read timeout is
+    # generous.
     ollama_timeout_seconds: float = 180.0
     ollama_connect_timeout_seconds: float = 5.0
 

@@ -93,7 +93,7 @@ To remove: `uninstall.ps1` (add `-Purge` to delete the corpus and logs too).
 C:\Program Files\AITutor\        IMMUTABLE   Administrators=F, Users=RX
 ├── runtime\python\              vendored CPython 3.12 + Windows wheels
 ├── runtime\ollama\              ollama.exe + CPU ggml runners only
-├── runtime\models\              Ollama blobs (qwen2.5:1.5b, nomic-embed-text)
+├── runtime\models\              Ollama blobs (qwen3.5:2b-q4_K_M, nomic-embed-text)
 ├── bin\                         launch.ps1, AITutor.cmd, uninstall.ps1, icon
 └── config\device.json           site_id, hub_url, channel
 
@@ -230,7 +230,7 @@ front and drop the system prompt on Devanagari multi-passage prompts.
 ## Before a fleet rollout
 
 **This variant carries no model licence obligations, which is a real advantage
-over the multilingual build.** `qwen2.5:1.5b` and `nomic-embed-text` are both
+over the multilingual build.** `qwen3.5:2b-q4_K_M` and `nomic-embed-text` are both
 Apache-2.0, and Ollama is MIT. There is no Gemma Terms of Use to pass on to
 each school, no GPL-3.0 espeak-ng (that ships inside the Piper *backend* voice,
 which this build does not have), and no unverified third-party re-export of the

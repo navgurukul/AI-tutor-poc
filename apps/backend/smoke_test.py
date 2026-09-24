@@ -44,7 +44,7 @@ check("GET /health returns 200", status == 200, str(status))
 check("Ollama reachable", body.get("ollama", {}).get("reachable") is True, json.dumps(body.get("ollama")))
 check("model available", body.get("model", {}).get("available") is True, json.dumps(body.get("model")))
 if not body.get("model", {}).get("available"):
-    print("\nModel is unavailable -- run `ollama pull qwen2.5:1.5b` and retry.")
+    print("\nModel is unavailable -- run `ollama pull qwen3.5:2b-q4_K_M` and retry.")
     sys.exit(1)
 
 status, body = call("GET", "/api/models", timeout=30)

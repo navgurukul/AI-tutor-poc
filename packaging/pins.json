@@ -1,6 +1,6 @@
 {
   "_comment": "Every third-party artifact the device payload contains, pinned by exact URL and verified by size on download. Replace `sha256: null` with the real digest after the first successful build (build_payload.py prints them), then the build becomes tamper-evident. Bumping ANY pin here is a runtime-layer version bump and requires re-running the retrieval evaluation, because a re-quantised model changes every distance the relevance cut-off in app/config.py was measured against.",
-  "payload_version": "1.0.0-en",
+  "payload_version": "1.1.0-qwen35",
   "python": {
     "version": "3.12.11",
     "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
@@ -9,25 +9,29 @@
     "_note": "python-build-standalone, NOT PyInstaller. Keeps an app update at ~140 KB instead of ~250 MB, and avoids the sys._MEIPASS temp-dir extraction that school AV watches. MUST pass the sqlite-vec extension-loading gate in install.ps1 -- see README."
   },
   "ollama": {
-    "version": "v0.12.3",
-    "url": "https://github.com/ollama/ollama/releases/download/v0.12.3/ollama-windows-amd64.zip",
-    "approx_mb": 1826,
-    "sha256": "c440fcda7fb1f4677f16c159192aa9ad05aae6b010ee652b82ecc184d08e5549",
+    "version": "v0.32.15",
+    "url": "https://github.com/ollama/ollama/releases/download/v0.32.15/ollama-windows-amd64.zip",
+    "approx_mb": 1393,
+    "sha256": "a1d11d46a944f9c7521f5e9a3a5db51cd3365401da627d96c204698fc6914ff9",
     "keep_prefixes": [
       "ollama.exe",
-      "lib/ollama/ggml-base.dll",
-      "lib/ollama/ggml-cpu-"
+      "lib/ollama/"
     ],
-    "vc_redist": "vc_redist.x64.exe",
-    "_note": "Vendored, never installed. The official installer is per-user, adds a tray app, and SELF-UPDATES -- which across a fleet means inference behaviour changing under you between site visits. Measured: the zip is 3322 MB unpacked; keeping only ollama.exe + the CPU ggml runners is 63 MB. The 3259 MB stripped is cuda_v12/cuda_v13/hip, all dead weight on integrated-graphics laptops."
+    "vc_redist": null,
+    "_note": "Bumped from v0.12.3 because qwen3.5 CANNOT RUN on it: the `qwen35` architecture is absent from the 0.12.3 binary (verified by string search, EXP-small-model-shortlist step 2). Ollama v0.17.5 (2026-03-02) is the first release shipping the small Qwen3.5 series (0.8B/2B/4B/9B); v0.32.15 is pinned instead because that is the version the model was actually loaded and probed on. Still VENDORED, never installed -- the official installer is per-user, adds a tray app, and self-updates. WARNING: this is a 20-minor-version jump over the runtime every latency number in docs/ was measured on. Re-measure prefill, decode and cache reuse on the target before trusting any figure in the experiment docs. Newer Ollama enables Vulkan by default where a runner is present, and Vulkan on Intel Iris Xe has open gibberish-output and detection bugs (ollama#13086, #13023) -- keep_prefixes ships only ollama.exe and the CPU ggml runners, so no Vulkan runner reaches the device and it cannot be selected. LAYOUT CHANGED vs v0.12.3, and the old keep_prefixes silently produced a broken install: 0.12.3 ran the llama.cpp engine in-process, while this release spawns lib/ollama/llama-server.exe, which needs libllama*.dll, ggml.dll, libc++.dll, libomp.dll, libunwind.dll and libwinpthread-1.dll beside it. Keeping only ollama.exe + ggml-cpu-* installs cleanly and then 500s on the first question with 'llama-server binary not found'. So the whole of lib/ollama/ is kept and the GPU runners are dropped by subdirectory instead: cuda_v12 (1100 MB) and cuda_v13 (629 MB) are dead weight on integrated graphics, and vulkan (52 MB) is dropped DELIBERATELY -- Vulkan on Intel Iris Xe has open gibberish-output bugs (ollama#13086), and not shipping the runner is the only way to be sure it is never selected. vc_redist is null because this release does not ship one and does not need one: the CPU runners import only api-ms-win-crt-* (the in-box Universal CRT on Windows 10+), not msvcp140/vcruntime140 -- verified from the PE import tables. install.ps1 skips it when absent.",
+    "drop_prefixes": [
+      "lib/ollama/cuda_v12/",
+      "lib/ollama/cuda_v13/",
+      "lib/ollama/vulkan/"
+    ]
   },
   "llm": {
     "models": [
-      "qwen2.5:1.5b",
+      "qwen3.5:2b-q4_K_M",
       "nomic-embed-text"
     ],
-    "approx_mb": 1260,
-    "_note": "Matches app/config.py on this branch: ollama_model=qwen2.5:1.5b, rag_embedding_model=nomic-embed-text at 768 dims. Both Apache-2.0, so unlike the multilang build (gemma2:2b under the Gemma Terms of Use) there is no model licence to pass on to each school. The corpus must be embedded with nomic-embed-text: the store refuses to mix vectors from two models, and a bge-m3 library.db will not open here."
+    "approx_mb": 2220,
+    "_note": "Matches app/config.py: ollama_model=qwen3.5:2b-q4_K_M, rag_embedding_model=nomic-embed-text at 768 dims. Both Apache-2.0, so like the qwen2.5 build and unlike the multilang build (gemma2:2b under the Gemma Terms of Use) there is no model licence to pass on to each school. TAG IS EXACT AND DELIBERATE: the bare `qwen3.5:2b` tag is q8_0 at 2.55 GiB, which does not fit the target. q4_K_M is 1.81 GiB; with nomic-embed-text (0.35 GiB resident) that is ~2.5 GiB against the 2.9 GiB this device has free at launch (measured, Target HP data/logs/ollama.err.log). bge-m3 would NOT fit. THE BACKEND MUST SEND think:false -- Qwen3.5 thinks by default and otherwise returns an empty answer; see ollama_client._payload. RETRIEVAL IS STILL ENGLISH-ONLY: nomic-embed-text does not embed Devanagari queries usefully, so Hindi/Marathi questions will retrieve poorly even though the model can write both. Fixing that means a multilingual embedder, new dims, task prefixes in rag/embeddings.py, and a full corpus re-ingest."
   },
   "_variant": "ENGLISH ONLY. Speech is entirely browser-side on this branch -- the backend has no stt.py and no tts.py -- so no IndicConformer and no Piper voice ship. That removes 548 MB from the payload and, more importantly, removes both licensing blockers: the GPL-3.0 espeak-ng bundled with the Piper voice, and the unverified third-party re-export of the IndicConformer weights. Do not re-add the speech section without resolving those first."
 }
