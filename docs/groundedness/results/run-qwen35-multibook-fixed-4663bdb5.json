@@ -1,0 +1,600 @@
+{
+  "meta": {
+    "run_id": "4663bdb5",
+    "ts": "2026-09-28T09:36:50+00:00",
+    "label": "qwen35-multibook-fixed",
+    "base": "http://127.0.0.1:8756",
+    "model": "qwen3.5:2b-q4_K_M",
+    "budget": null,
+    "evalset": "docs/groundedness/evalset-multibook.json",
+    "judge": "gemma3:4b (local, via Ollama)"
+  },
+  "turns": [
+    {
+      "reply": "Ants use a special sense called smell to find their way home or follow others. When an ant moves, it leaves a scent on the ground that other ants can detect. This allows them to follow the trail left behind by another ant. Sometimes, ants also mark their own area with urine so they know where they belong.\n\nImagine you are walking along a path and someone follows your footsteps with their nose. You would think they are trying to find something or stay safe from danger. In fact, dogs often do this too, marking the road with their scent to show their territory. This same way works for ants, helping them navigate through dark holes without getting lost.\n\nThe book does not explain how ants know exactly which smell belongs to their specific path, but it clearly shows that they rely on following other ants and marking areas to stay safe.",
+      "sources": [
+        {
+          "title": "NCERT Class 5 EVS (Looking Around)",
+          "heading": "",
+          "page_start": 3,
+          "page_end": 4,
+          "grade": 5,
+          "subject": "EVS",
+          "distance": 0.2073,
+          "excerpt": "… He found out that as the ants move, they leave a smell on the ground. The other ants follow the smell to find the way. Now carefully, without harming the ants, block their path for a while with a pencil. /rhombus4Now observe, how do the ants move? /rhombus4Have you seen a dog snif fing here and there? What do you think it is trying to smell? Dogs mark out their own area on the road. They can make out if another dog has come into their area by the smell of its urine or potty (latrine). /rhombus4Do you and your friends have similar answers? …"
+        },
+        {
+          "title": "NCERT Class 5 EVS (Looking Around)",
+          "heading": "",
+          "page_start": 2,
+          "page_end": 2,
+          "grade": 5,
+          "subject": "EVS",
+          "distance": 0.2277,
+          "excerpt": "An ant was going along on the ground. It saw a group of ants coming from the other side. The first ant quickly came back to its hole. The ant guarding the hole recognised it and let it in. …"
+        }
+      ],
+      "context": "[1] NCERT Class 5 EVS (Looking Around) - pp. 3-4\n… He found out that as the ants move, they leave a smell on the ground. The other ants follow the smell to find the way. Now carefully, without harming the ants, block their path for a while with a pencil. /rhombus4Now observe, how do the ants move? /rhombus4Have you seen a dog snif fing here and there? What do you think it is trying to smell? Dogs mark out their own area on the road. They can make out if another dog has come into their area by the smell of its urine or potty (latrine). /rhombus4Do you and your friends have similar answers? …\n\n[2] NCERT Class 5 EVS (Looking Around) - p. 2\nAn ant was going along on the ground. It saw a group of ants coming from the other side. The first ant quickly came back to its hole. The ant guarding the hole recognised it and let it in. …",
+      "usage": {
+        "prompt_tokens": 404,
+        "completion_tokens": 171,
+        "total_duration_ms": 16951,
+        "load_duration_ms": 4,
+        "prompt_eval_ms": 5101,
+        "eval_ms": 11612,
+        "tokens_per_second": 14.73
+      },
+      "session_id": "5df734b667924acca3654df56db268af",
+      "turn_id": "765ff4c86bb2",
+      "previous_turn": null,
+      "id": "M1-ant-smell"
+    },
+    {
+      "reply": "Herbivores are animals that eat only plants or plant products, while carnivores are animals that eat only other animals. You can find these groups listed in the textbook by looking at Table 1.5 to see which creatures belong together. For example, cows are herbivores because they feed on grass, and lions are carnivores because they hunt down prey like zebras. Some animals eat both plants and meat, so you might need to look for a separate table that lists them in three different columns.\n\nThink about why an animal eats only one type of food versus another, as the book suggests this information is important to understand how our food sources work.",
+      "sources": [
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "PRODUCTS AS FOOD",
+          "page_start": 5,
+          "page_end": 5,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2237,
+          "excerpt": "… For some of them, the type of food they eat is also given. Fill in the blanks in the table. Have a look again at Table 1.5 and group the animals entered here as follows. Place animals which eat only plants or plant products in Group 1. These are called herbivores . There are some animals which eat other animals. Place these in Group 2. These animals are called carnivores . Do you find some animals which eat both plants and animals? Place them in Group 3. These are called omnivores. Prepare a table as in Table 1.6 and enter these separately in the three columns, as shown."
+        },
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "Hs Cs",
+          "page_start": 6,
+          "page_end": 6,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2539,
+          "excerpt": "… /square6The main sources of our food are plants and animals. /square6Animals which eat only plants are called herbivores. /square6Animals which eat only animals are called carnivores. …"
+        }
+      ],
+      "context": "[1] NCERT Class 6 Science - PRODUCTS AS FOOD - p. 5\n… For some of them, the type of food they eat is also given. Fill in the blanks in the table. Have a look again at Table 1.5 and group the animals entered here as follows. Place animals which eat only plants or plant products in Group 1. These are called herbivores . There are some animals which eat other animals. Place these in Group 2. These animals are called carnivores . Do you find some animals which eat both plants and animals? Place them in Group 3. These are called omnivores. Prepare a table as in Table 1.6 and enter these separately in the three columns, as shown.\n\n[2] NCERT Class 6 Science - Hs Cs - p. 6\n… /square6The main sources of our food are plants and animals. /square6Animals which eat only plants are called herbivores. /square6Animals which eat only animals are called carnivores. …",
+      "usage": {
+        "prompt_tokens": 399,
+        "completion_tokens": 135,
+        "total_duration_ms": 11918,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 3238,
+        "eval_ms": 8549,
+        "tokens_per_second": 15.79
+      },
+      "session_id": "86c4a3c613ba4747b51a45d5f2612cd4",
+      "turn_id": "93b85501d2c7",
+      "previous_turn": null,
+      "id": "M2-herbivores"
+    },
+    {
+      "reply": "Nutrients are the essential building blocks found in food that help keep your body healthy and strong. According to the textbook, these important components include carbohydrates, proteins, fats, vitamins, minerals, dietary fibres, and water. These ingredients provide energy for your daily activities or support growth and maintenance of your body. Vitamins specifically play a special role by helping protect you from getting sick. Without these nutrients, your body cannot function properly.\n\nThink about how you need milk to grow taller when you are young; that is because proteins and minerals in the milk help build your bones. If you eat only bread without any other food, you might feel weak or tired because your body lacks the necessary building materials. The book explains that if your diet does not contain enough of these specific components, it can lead to a condition called a deficiency disease.",
+      "sources": [
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "DEFICIENCY DISEASES",
+          "page_start": 16,
+          "page_end": 16,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2299,
+          "excerpt": "1 Vy , Vs , , /square6 /square6/square6 /square6/square6The major nutrients in our food are carbohydrates, proteins, fats, vitamins and minerals. In addition, food also contains dietary fibres and water. /square6 /square6/square6/square6/square6Carbohydrates and fats mainly provide energy to our body. /square6 /square6/square6 /square6/square6Proteins and minerals are needed for the growth and the maintenance of our body. /square6 /square6/square6 /square6/square6Vitamins help in protecting our body against diseases. …"
+        },
+        {
+          "title": "NCERT Class 6 Science",
+          "heading": "Hs Cs",
+          "page_start": 8,
+          "page_end": 9,
+          "grade": 6,
+          "subject": "Science",
+          "distance": 0.2511,
+          "excerpt": "… It may also include items like ingredients contain some components that are needed by our body. These components are called nutrients. The major nutrients in our food are named carbohydrates, proteins, fats, vitamins and minerals. …"
+        }
+      ],
+      "context": "[1] NCERT Class 6 Science - DEFICIENCY DISEASES - p. 16\n1 Vy , Vs , , /square6 /square6/square6 /square6/square6The major nutrients in our food are carbohydrates, proteins, fats, vitamins and minerals. In addition, food also contains dietary fibres and water. /square6 /square6/square6/square6/square6Carbohydrates and fats mainly provide energy to our body. /square6 /square6/square6 /square6/square6Proteins and minerals are needed for the growth and the maintenance of our body. /square6 /square6/square6 /square6/square6Vitamins help in protecting our body against diseases. …\n\n[2] NCERT Class 6 Science - Hs Cs - pp. 8-9\n… It may also include items like ingredients contain some components that are needed by our body. These components are called nutrients. The major nutrients in our food are named carbohydrates, proteins, fats, vitamins and minerals. …",
+      "usage": {
+        "prompt_tokens": 398,
+        "completion_tokens": 168,
+        "total_duration_ms": 14601,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 3005,
+        "eval_ms": 11562,
+        "tokens_per_second": 14.53
+      },
+      "session_id": "a615b81fb2e84555bbb353b7a20d5e9a",
+      "turn_id": "32c8ba384cea",
+      "previous_turn": null,
+      "id": "M3-nutrients"
+    },
+    {
+      "reply": "A crop is simply the name given to all plants grown at one place on a large scale for farming purposes. You already know that there are many different types of crops, such as cereals like wheat or vegetables, and fruits. These plants can be easily classified based on when they grow because their seasons change depending on where you live in India. Since the climate varies from region to region, farmers must choose specific crops that match the local temperature, humidity, and rainfall conditions. All living organisms need food to survive, and since plants are able to make their own food using sunlight, water, and soil nutrients, they become essential for feeding people and animals.\n\n**Example:** If you plant wheat seeds in a field during the rainy season, those specific plants will grow into crops of wheat because the local conditions support them. However, if you try to grow vegetables in a hot desert region where there is no rain, those vegetables will likely fail to grow because the environment does not provide the necessary water for their survival.\n\nThink further: How would you decide which type of food crop to plant next year based on the weather forecast?",
+      "sources": [
+        {
+          "title": "NCERT Class 8 Science",
+          "heading": "Agricultural Practices",
+          "page_start": 1,
+          "page_end": 1,
+          "grade": 8,
+          "subject": "Science",
+          "distance": 0.2197,
+          "excerpt": "When plants of the same kind are cultivated at one place on a large scale, it is called a crop. For example, crop of wheat means that all the plants grown in a field are that of wheat. You already know that crops are of different types like cereals, vegetables and fruits. These can be classified on the basis of the season in which they grow. India is a vast country. The climatic conditions like temperature, humidity and rainfall vary from one region to another. Accordingly, there is a rich You have learnt that all living organisms require food. Plants can make their food themselves. …"
+        },
+        {
+          "title": "NCERT Class 8 Science",
+          "heading": "Preparation of Soil",
+          "page_start": 2,
+          "page_end": 2,
+          "grade": 8,
+          "subject": "Science",
+          "distance": 0.2299,
+          "excerpt": "Cultivation of crops involves several activities undertaken by farmers over a period of time. …"
+        }
+      ],
+      "context": "[1] NCERT Class 8 Science - Agricultural Practices - p. 1\nWhen plants of the same kind are cultivated at one place on a large scale, it is called a crop. For example, crop of wheat means that all the plants grown in a field are that of wheat. You already know that crops are of different types like cereals, vegetables and fruits. These can be classified on the basis of the season in which they grow. India is a vast country. The climatic conditions like temperature, humidity and rainfall vary from one region to another. Accordingly, there is a rich You have learnt that all living organisms require food. Plants can make their food themselves. …\n\n[2] NCERT Class 8 Science - Preparation of Soil - p. 2\nCultivation of crops involves several activities undertaken by farmers over a period of time. …",
+      "usage": {
+        "prompt_tokens": 353,
+        "completion_tokens": 227,
+        "total_duration_ms": 18289,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 2563,
+        "eval_ms": 15595,
+        "tokens_per_second": 14.56
+      },
+      "session_id": "007deac546f74b97ba4b4bece5271855",
+      "turn_id": "656ed599f3a1",
+      "previous_turn": null,
+      "id": "M4-crop"
+    },
+    {
+      "reply": "Kharif crops are those grown during the rainy season, which usually occurs from June to September in India. This includes important plants like paddy, maize, soyabean, groundnut, and cotton. On the other hand, Rabi crops are specifically cultivated during the winter months between October and March. Common examples of these winter crops include wheat, gram, pea, mustard, and linseed. The main difference lies in the time of year when each type is planted: kharif crops follow the monsoon rains while rabi crops take advantage of cooler winter conditions.\n\nThink about how your school schedule changes depending on whether it is raining outside or if the weather is cold enough to keep you indoors, just as farmers choose different crops based on seasonal weather patterns.",
+      "sources": [
+        {
+          "title": "NCERT Class 8 Science",
+          "heading": "Agricultural Practices",
+          "page_start": 2,
+          "page_end": 2,
+          "grade": 8,
+          "subject": "Science",
+          "distance": 0.2361,
+          "excerpt": "(i) Kharif Crops : The crops which are sown in the rainy season are called kharif crops. The rainy season in India is generally from June to September .\n\nPaddy, maize, soyabean, groundnut and cotton are kharif crops.\n\n(ii) Rabi Crops : The crops grown in the winter season (October to March) are called rabi crops. Examples of rabi crops are wheat, gram, pea, mustard and linseed.\n\nBesides these, pulses and vegetables are grown during summer at many places."
+        },
+        {
+          "title": "NCERT Class 8 Science",
+          "heading": "WINNOWING",
+          "page_start": 15,
+          "page_end": 15,
+          "grade": 8,
+          "subject": "Science",
+          "distance": 0.3532,
+          "excerpt": "… 4. A rabi crop that is also one of the pulses. 6. A process of separating the grain from chaff. 1. Sow some seeds in the soil and arrange to water them by drip irrigation. Observe daily. 2. Collect different types of seeds and put them in small bags. 3. Collect pictures of some other agricultural machines and paste them in a file. …"
+        }
+      ],
+      "context": "[1] NCERT Class 8 Science - Agricultural Practices - p. 2\n(i) Kharif Crops : The crops which are sown in the rainy season are called kharif crops. The rainy season in India is generally from June to September .\n\nPaddy, maize, soyabean, groundnut and cotton are kharif crops.\n\n(ii) Rabi Crops : The crops grown in the winter season (October to March) are called rabi crops. Examples of rabi crops are wheat, gram, pea, mustard and linseed.\n\nBesides these, pulses and vegetables are grown during summer at many places.\n\n[2] NCERT Class 8 Science - WINNOWING - p. 15\n… 4. A rabi crop that is also one of the pulses. 6. A process of separating the grain from chaff. 1. Sow some seeds in the soil and arrange to water them by drip irrigation. Observe daily. 2. Collect different types of seeds and put them in small bags. 3. Collect pictures of some other agricultural machines and paste them in a file. …",
+      "usage": {
+        "prompt_tokens": 422,
+        "completion_tokens": 156,
+        "total_duration_ms": 12715,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 3132,
+        "eval_ms": 9548,
+        "tokens_per_second": 16.34
+      },
+      "session_id": "a09729c7c86c4de980c1b843e78686b3",
+      "turn_id": "02ba9f0f9ab6",
+      "previous_turn": null,
+      "id": "M5-kharif-rabi"
+    },
+    {
+      "reply": "Tilling is the process of loosening and turning over the soil using a plough or hoe. This action breaks up large clumps of dirt called crumbs so that crops can grow better. It also helps to mix manure into the ground before planting. Levelling the field afterward ensures that water and seeds spread evenly across the land. Without this preparation, many crops would not survive due to poor soil structure.",
+      "sources": [
+        {
+          "title": "NCERT Class 8 Science",
+          "heading": "Preparation of Soil",
+          "page_start": 3,
+          "page_end": 3,
+          "grade": 8,
+          "subject": "Science",
+          "distance": 0.2656,
+          "excerpt": "turning and loosening of soil is very important for cultivation of crops. The process of loosening and turning of the soil is called tilling or ploughing. This is done by using a plough. Ploughs are made of wood or iron. If the soil is very dry, it may need watering before ploughing. The ploughed field may have big clumps of soil called crumbs. It is necessary to break these crumbs. Levelling the field is beneficial for sowing as well as for irrigation. Levelling of soil is done with the help of a leveller. Sometimes, manure is added to the soil before tilling. …"
+        },
+        {
+          "title": "NCERT Class 8 Science",
+          "heading": "Agricultural Implements",
+          "page_start": 3,
+          "page_end": 3,
+          "grade": 8,
+          "subject": "Science",
+          "distance": 0.3489,
+          "excerpt": "… The main tools used for this purpose are the plough, hoe and cultivator. Plough : This is being used since ancient times for tilling the soil, adding fertilisers to the crop, removing the weeds and turning the soil. …"
+        }
+      ],
+      "context": "[1] NCERT Class 8 Science - Preparation of Soil - p. 3\nturning and loosening of soil is very important for cultivation of crops. The process of loosening and turning of the soil is called tilling or ploughing. This is done by using a plough. Ploughs are made of wood or iron. If the soil is very dry, it may need watering before ploughing. The ploughed field may have big clumps of soil called crumbs. It is necessary to break these crumbs. Levelling the field is beneficial for sowing as well as for irrigation. Levelling of soil is done with the help of a leveller. Sometimes, manure is added to the soil before tilling. …\n\n[2] NCERT Class 8 Science - Agricultural Implements - p. 3\n… The main tools used for this purpose are the plough, hoe and cultivator. Plough : This is being used since ancient times for tilling the soil, adding fertilisers to the crop, removing the weeds and turning the soil. …",
+      "usage": {
+        "prompt_tokens": 399,
+        "completion_tokens": 83,
+        "total_duration_ms": 8059,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 3056,
+        "eval_ms": 4962,
+        "tokens_per_second": 16.73
+      },
+      "session_id": "10d4f6152ecf4cfaae37ee43e9df0f2d",
+      "turn_id": "c63c390ecfd7",
+      "previous_turn": null,
+      "id": "M6-tilling"
+    },
+    {
+      "reply": "Density is defined as the mass of a specific amount of space or unit volume, which is a fundamental characteristic property of every material found in nature. This means that if you take any sample of a substance and measure its mass while keeping the volume constant, the density will always stay the same for that exact type of material under those conditions. Because different materials have different amounts of matter packed into the same space, their densities are also completely different from one another. For instance, gold has a very high density of 19300 kilograms per cubic meter, while water has a much lower density of only 1000 kilograms per cubic meter. This difference in density allows scientists to determine if an object is pure or mixed with other materials by comparing its actual density to known values for specific substances.",
+      "sources": [
+        {
+          "title": "NCERT Class 9 Science",
+          "heading": "2BUOYANCY",
+          "page_start": 142,
+          "page_end": 142,
+          "grade": 9,
+          "subject": "Science",
+          "distance": 0.1967,
+          "excerpt": "As you know, the density of a substance is defined as mass of a unit volume. The unit of density is kilogram per metre cube (kg m-3). The density of a given substance, under specified conditions, remains the same. Therefore the density of a substance is one of its characteristic properties. It is different for different substances. For example, the density of gold is 19300 kg m-3 while that of water is 1000 kg m-3. The density of a given sample of a substance can help us to determine its purity."
+        },
+        {
+          "title": "NCERT Class 9 Science",
+          "heading": "2BUOYANCY",
+          "page_start": 142,
+          "page_end": 142,
+          "grade": 9,
+          "subject": "Science",
+          "distance": 0.264,
+          "excerpt": "It is often convenient to express density of a substance in comparison with that of water. …"
+        }
+      ],
+      "context": "[1] NCERT Class 9 Science - 2BUOYANCY - p. 142\nAs you know, the density of a substance is defined as mass of a unit volume. The unit of density is kilogram per metre cube (kg m-3). The density of a given substance, under specified conditions, remains the same. Therefore the density of a substance is one of its characteristic properties. It is different for different substances. For example, the density of gold is 19300 kg m-3 while that of water is 1000 kg m-3. The density of a given sample of a substance can help us to determine its purity.\n\n[2] NCERT Class 9 Science - 2BUOYANCY - p. 142\nIt is often convenient to express density of a substance in comparison with that of water. …",
+      "usage": {
+        "prompt_tokens": 362,
+        "completion_tokens": 162,
+        "total_duration_ms": 12893,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 2788,
+        "eval_ms": 9983,
+        "tokens_per_second": 16.23
+      },
+      "session_id": "47c61e4392c4487da0842e164c752a21",
+      "turn_id": "e1116e68ce16",
+      "previous_turn": null,
+      "id": "M7-density"
+    },
+    {
+      "reply": "A melting point is the specific temperature at which a solid turns completely into a liquid under normal conditions. This happens when enough heat energy breaks the strong forces holding the particles together in the solid state. The book explains that this temperature indicates how tightly the particles are attracted to each other, so higher melting points mean stronger attractions. For example, ice melts at 273.15 K because its particles need just enough heat to overcome these bonds. When a solid melts, its temperature stays constant while it changes state, which is why you can see the heat energy being used to break bonds rather than raise the temperature.",
+      "sources": [
+        {
+          "title": "NCERT Class 9 Science",
+          "heading": "EFFECT OF CHANGE OF TEMPERATURE",
+          "page_start": 7,
+          "page_end": 7,
+          "grade": 9,
+          "subject": "Science",
+          "distance": 0.1617,
+          "excerpt": "… A stage is reached when the solid melts and is converted to a liquid. The minimum temperature at which a solid melts to become a liquid at the atmospheric pressure is called its melting point. The melting point of a solid is an indication of the strength of the force of attraction between its particles. The melting point of ice is 273.15 K*. The process of melting, that is, change of solid state into liquid state is also known as fusion. When a solid melts, its temperature remains the same, so where does the heat energy go?"
+        }
+      ],
+      "context": "[1] NCERT Class 9 Science - EFFECT OF CHANGE OF TEMPERATURE - p. 7\n… A stage is reached when the solid melts and is converted to a liquid. The minimum temperature at which a solid melts to become a liquid at the atmospheric pressure is called its melting point. The melting point of a solid is an indication of the strength of the force of attraction between its particles. The melting point of ice is 273.15 K*. The process of melting, that is, change of solid state into liquid state is also known as fusion. When a solid melts, its temperature remains the same, so where does the heat energy go?",
+      "usage": {
+        "prompt_tokens": 316,
+        "completion_tokens": 125,
+        "total_duration_ms": 9920,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 2355,
+        "eval_ms": 7535,
+        "tokens_per_second": 16.59
+      },
+      "session_id": "d7b47485bc604630a437342a651d1c0c",
+      "turn_id": "0adfb6080c25",
+      "previous_turn": null,
+      "id": "M8-melting-point"
+    },
+    {
+      "reply": "A combination reaction occurs when two or more separate substances join together to create a single new product. This type of chemical process follows the rule that reactants combine directly without breaking down into smaller parts, resulting in one final substance. For instance, when quick lime reacts with water, calcium oxide combines with water molecules to form slaked lime, which is a classic example of this reaction. You can picture this like mixing two different ingredients in a bowl until they merge completely into one uniform mixture. However, if you look at the specific textbook excerpt provided for this topic, it does not explain how or why this particular chemical change happens, so we must rely on the general definition given here instead.",
+      "sources": [
+        {
+          "title": "NCERT Class 10 Science",
+          "heading": "CTIONSCTIONS",
+          "page_start": 6,
+          "page_end": 7,
+          "grade": 10,
+          "subject": "Science",
+          "distance": 0.21,
+          "excerpt": "Formation of slaked lime by the reaction of calcium oxide with water\n\n(Quick lime) (Slaked lime)\n\nIn this reaction, calcium oxide and water combine to form a single product, calcium hydroxide. Such a reaction in which a single product is formed from two or more reactants is known as a combination reaction.\n\nLet us discuss some more examples of combination reactions.\n\n(i) Burning of coal\n\nIn simple language we can say that when two or more substances (elements or compounds) combine to form a single product, the reactions are called combination reactions."
+        },
+        {
+          "title": "NCERT Class 10 Science",
+          "heading": "Rancidity",
+          "page_start": 14,
+          "page_end": 14,
+          "grade": 10,
+          "subject": "Science",
+          "distance": 0.2542,
+          "excerpt": "… Equations must always be balanced. /square6In a combination reaction two or more substances combine to form a new single substance. /square6Decomposition reactions are opposite to combination reactions. …"
+        }
+      ],
+      "context": "[1] NCERT Class 10 Science - CTIONSCTIONS - pp. 6-7\nFormation of slaked lime by the reaction of calcium oxide with water\n\n(Quick lime) (Slaked lime)\n\nIn this reaction, calcium oxide and water combine to form a single product, calcium hydroxide. Such a reaction in which a single product is formed from two or more reactants is known as a combination reaction.\n\nLet us discuss some more examples of combination reactions.\n\n(i) Burning of coal\n\nIn simple language we can say that when two or more substances (elements or compounds) combine to form a single product, the reactions are called combination reactions.\n\n[2] NCERT Class 10 Science - Rancidity - p. 14\n… Equations must always be balanced. /square6In a combination reaction two or more substances combine to form a new single substance. /square6Decomposition reactions are opposite to combination reactions. …",
+      "usage": {
+        "prompt_tokens": 379,
+        "completion_tokens": 138,
+        "total_duration_ms": 11418,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 2796,
+        "eval_ms": 8489,
+        "tokens_per_second": 16.26
+      },
+      "session_id": "ed799fa6085244b4a2c7caf7951a10b0",
+      "turn_id": "99093f1ec3eb",
+      "previous_turn": null,
+      "id": "M9-combination"
+    },
+    {
+      "reply": "An exothermic reaction is a chemical process where energy, usually in the form of heat, is released into the surroundings during the formation of products. This happens because the bonds formed between new atoms release more energy than was required to break the initial bonds, causing the system to warm up. According to the textbook excerpt provided, this specific type of reaction is defined by the fact that it evolves a large amount of heat along with the creation of new substances. A common everyday example given in the text is the burning of natural gas, which warms the room as it burns completely. Students should remember that if you cannot find an explanation or example in your book, you must simply state that the material does not cover that specific detail instead of guessing facts yourself.",
+      "sources": [
+        {
+          "title": "NCERT Class 10 Science",
+          "heading": "CTIONSCTIONS",
+          "page_start": 7,
+          "page_end": 7,
+          "grade": 10,
+          "subject": "Science",
+          "distance": 0.1741,
+          "excerpt": "In Activity 1.4, we also observed that a large amount of heat is evolved. This makes the reaction mixture warm. Reactions in which heat is released along with the formation of products are called exothermic chemical reactions.\n\nOther examples of exothermic reactions are -\n\n(i) Burning of natural gas"
+        },
+        {
+          "title": "NCERT Class 10 Science",
+          "heading": "Rancidity",
+          "page_start": 14,
+          "page_end": 14,
+          "grade": 10,
+          "subject": "Science",
+          "distance": 0.2634,
+          "excerpt": "/square6Reactions in which energy is absorbed are known as endothermic reactions. /square6When an element displaces another element from its compound, a displacement reaction occurs. /square6Two different atoms or groups of atoms (ions) are exchanged in double displacement reactions. /square6Precipitation reactions produce insoluble salts. /square6Reactions also involve the gain or loss of oxygen or hydrogen by substances. Oxidation is the gain of oxygen or loss of hydrogen. …"
+        }
+      ],
+      "context": "[1] NCERT Class 10 Science - CTIONSCTIONS - p. 7\nIn Activity 1.4, we also observed that a large amount of heat is evolved. This makes the reaction mixture warm. Reactions in which heat is released along with the formation of products are called exothermic chemical reactions.\n\nOther examples of exothermic reactions are -\n\n(i) Burning of natural gas\n\n[2] NCERT Class 10 Science - Rancidity - p. 14\n/square6Reactions in which energy is absorbed are known as endothermic reactions. /square6When an element displaces another element from its compound, a displacement reaction occurs. /square6Two different atoms or groups of atoms (ions) are exchanged in double displacement reactions. /square6Precipitation reactions produce insoluble salts. /square6Reactions also involve the gain or loss of oxygen or hydrogen by substances. Oxidation is the gain of oxygen or loss of hydrogen. …",
+      "usage": {
+        "prompt_tokens": 387,
+        "completion_tokens": 152,
+        "total_duration_ms": 12068,
+        "load_duration_ms": 3,
+        "prompt_eval_ms": 2841,
+        "eval_ms": 9194,
+        "tokens_per_second": 16.53
+      },
+      "session_id": "e4f55bca5d114ca9a118691bec475194",
+      "turn_id": "ee175b1b4869",
+      "previous_turn": null,
+      "id": "M10-exothermic"
+    },
+    {
+      "reply": "A displacement reaction occurs when one element replaces another element within a compound, causing them to swap places. This happens because the new element is either more or less reactive than the original one present in the mixture. For instance, if you mix iron filings with copper sulphate solution, the iron will take over and remove copper from the liquid, leaving behind reddish-brown iron oxide powder while the blue colour fades away.\n\nThis specific process is often written as a chemical equation where two different atoms or groups of atoms exchange their positions to form new substances. The book provides a clear example showing how iron displaces copper from its compound, resulting in the formation of aluminium oxide and iron metal. You can picture this as a tug-of-war game where one stronger player forces the weaker player out of their position on the ground.\n\nIt is important to note that not every reaction involving swapping elements counts as a displacement; only those driven by specific reactivity rules apply. If you are unsure whether a particular reaction fits this pattern, please check your textbook for the exact conditions required for such a swap to occur.",
+      "sources": [
+        {
+          "title": "NCERT Class 10 Science",
+          "heading": "Rancidity",
+          "page_start": 14,
+          "page_end": 14,
+          "grade": 10,
+          "subject": "Science",
+          "distance": 0.246,
+          "excerpt": "/square6Reactions in which energy is absorbed are known as endothermic reactions. /square6When an element displaces another element from its compound, a displacement reaction occurs.\n\n/square6Two different atoms or groups of atoms (ions) are exchanged in double displacement reactions.\n\n/square6Precipitation reactions produce insoluble salts.\n\n/square6Reactions also involve the gain or loss of oxygen or hydrogen by substances. Oxidation is the gain of oxygen or loss of hydrogen. Reduction is the loss of oxygen or gain of hydrogen.\n\n2. Fe2O3 + 2Al → Al2O3 + 2Fe"
+        },
+        {
+          "title": "NCERT Class 10 Science",
+          "heading": "Decomposition Reaction",
+          "page_start": 11,
+          "page_end": 12,
+          "grade": 10,
+          "subject": "Science",
+          "distance": 0.2482,
+          "excerpt": "In this reaction, iron has displaced or removed another element, copper, from copper sulphate solution. This reaction is known as displacement reaction. Zinc and lead are more reactive elements than copper. …"
+        }
+      ],
+      "context": "[1] NCERT Class 10 Science - Rancidity - p. 14\n/square6Reactions in which energy is absorbed are known as endothermic reactions. /square6When an element displaces another element from its compound, a displacement reaction occurs.\n\n/square6Two different atoms or groups of atoms (ions) are exchanged in double displacement reactions.\n\n/square6Precipitation reactions produce insoluble salts.\n\n/square6Reactions also involve the gain or loss of oxygen or hydrogen by substances. Oxidation is the gain of oxygen or loss of hydrogen. Reduction is the loss of oxygen or gain of hydrogen.\n\n2. Fe2O3 + 2Al → Al2O3 + 2Fe\n\n[2] NCERT Class 10 Science - Decomposition Reaction - pp. 11-12\nIn this reaction, iron has displaced or removed another element, copper, from copper sulphate solution. This reaction is known as displacement reaction. Zinc and lead are more reactive elements than copper. …",
+      "usage": {
+        "prompt_tokens": 397,
+        "completion_tokens": 220,
+        "total_duration_ms": 16529,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 2955,
+        "eval_ms": 13536,
+        "tokens_per_second": 16.25
+      },
+      "session_id": "8944ac34279d469e98af926456dfc328",
+      "turn_id": "caaed169691e",
+      "previous_turn": null,
+      "id": "M11-displacement"
+    },
+    {
+      "reply": "A participial phrase is a group of words that begins with an -ing verb and describes something happening while another part of the sentence is taking place. These phrases add extra meaning to the main idea by showing how one action affects another person or thing. For instance, if you say \"The boy was chased by the dog,\" the phrase \"chased by the dog\" explains that the chase happened simultaneously with the state of being chased. This structure helps writers show relationships between actions without needing to name every single actor involved in the story. Students should remember that these phrases are often used to focus attention on what is happening rather than who is doing it, making sentences more vivid and interesting.",
+      "sources": [
+        {
+          "title": "NCERT Class 9 English (Beehive)",
+          "heading": "/ Beehive",
+          "page_start": 52,
+          "page_end": 52,
+          "grade": 9,
+          "subject": "English",
+          "distance": 0.1863,
+          "excerpt": "• Letters survive in which they put their affection into words, mixing science with tenderness.\n\nThe parts in italics in the above sentences begin with -ing verbs, and are called participial phrases. Participial phrases say something more about the person or thing talked about or the idea expressed by the sentence as a whole. For example:\n\n- Einstein became a gifted amateur violinist. He maintained this skill throughout his life."
+        },
+        {
+          "title": "NCERT Class 9 English (Beehive)",
+          "heading": "/ Beehive",
+          "page_start": 77,
+          "page_end": 77,
+          "grade": 9,
+          "subject": "English",
+          "distance": 0.3546,
+          "excerpt": "The italicised verbs in these sentences are made up of a form of the verb be and a past participle. (For example: were + regarded, was + asked, be + confronted) These sentences focus on what happens , rather than who does what . Notice that the doer of the action is not included in the sentences. …"
+        }
+      ],
+      "context": "[1] NCERT Class 9 English (Beehive) - / Beehive - p. 52\n• Letters survive in which they put their affection into words, mixing science with tenderness.\n\nThe parts in italics in the above sentences begin with -ing verbs, and are called participial phrases. Participial phrases say something more about the person or thing talked about or the idea expressed by the sentence as a whole. For example:\n\n- Einstein became a gifted amateur violinist. He maintained this skill throughout his life.\n\n[2] NCERT Class 9 English (Beehive) - / Beehive - p. 77\nThe italicised verbs in these sentences are made up of a form of the verb be and a past participle. (For example: were + regarded, was + asked, be + confronted) These sentences focus on what happens , rather than who does what . Notice that the doer of the action is not included in the sentences. …",
+      "usage": {
+        "prompt_tokens": 383,
+        "completion_tokens": 138,
+        "total_duration_ms": 12523,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 2823,
+        "eval_ms": 9555,
+        "tokens_per_second": 14.44
+      },
+      "session_id": "1f572bb0d593414d88bf66d3d6611119",
+      "turn_id": "772988e00379",
+      "previous_turn": null,
+      "id": "M12-participial"
+    },
+    {
+      "reply": "A crop refers to plants of the same kind grown on a large scale at one place. You already know that crops can be classified based on the season in which they grow. For instance, you have learned that all living organisms require food and that plants can make their own food using sunlight. This means wheat is just one type of crop that grows during specific seasons like summer or winter. The book explains that these different types are grouped together according to whether they bloom in spring or autumn. You might picture a farmer planting rice in the rainy season while another farmer grows corn in the dry season to show this difference clearly.",
+      "sources": [
+        {
+          "title": "NCERT Class 8 Science",
+          "heading": "Agricultural Practices",
+          "page_start": 1,
+          "page_end": 1,
+          "grade": 8,
+          "subject": "Science",
+          "distance": 0.1854,
+          "excerpt": "When plants of the same kind are cultivated at one place on a large scale, it is called a crop. For example, crop of wheat means that all the plants grown in a field are that of wheat. You already know that crops are of different types like cereals, vegetables and fruits. These can be classified on the basis of the season in which they grow. India is a vast country. The climatic conditions like temperature, humidity and rainfall vary from one region to another. Accordingly, there is a rich You have learnt that all living organisms require food. Plants can make their food themselves. …"
+        },
+        {
+          "title": "NCERT Class 8 Science",
+          "heading": "WINNOWING",
+          "page_start": 15,
+          "page_end": 15,
+          "grade": 8,
+          "subject": "Science",
+          "distance": 0.2346,
+          "excerpt": "1. Providing water to the crops. 2. Keeping crop grains for a long time under proper conditions. 5. Certain plants of the same kind grown on a large scale. 3. A machine used for cutting the matured crop. …"
+        }
+      ],
+      "context": "[1] NCERT Class 8 Science - Agricultural Practices - p. 1\nWhen plants of the same kind are cultivated at one place on a large scale, it is called a crop. For example, crop of wheat means that all the plants grown in a field are that of wheat. You already know that crops are of different types like cereals, vegetables and fruits. These can be classified on the basis of the season in which they grow. India is a vast country. The climatic conditions like temperature, humidity and rainfall vary from one region to another. Accordingly, there is a rich You have learnt that all living organisms require food. Plants can make their food themselves. …\n\n[2] NCERT Class 8 Science - WINNOWING - p. 15\n1. Providing water to the crops. 2. Keeping crop grains for a long time under proper conditions. 5. Certain plants of the same kind grown on a large scale. 3. A machine used for cutting the matured crop. …",
+      "usage": {
+        "prompt_tokens": 433,
+        "completion_tokens": 124,
+        "total_duration_ms": 10995,
+        "load_duration_ms": 2,
+        "prompt_eval_ms": 3733,
+        "eval_ms": 7220,
+        "tokens_per_second": 17.17
+      },
+      "session_id": "0ad9d79b2d1f47aca2cc5670170bb8ca",
+      "turn_id": "864a7505714b",
+      "previous_turn": {
+        "question": "What is a crop?",
+        "reply": "A crop is simply the name given to all plants that are grown on a large scale at the same place for one season. For instance, if you see wheat growing in a field, every single plant there belongs to that specific type of crop called wheat. You already know from your studies that crops can be divided into different groups based on what they produce, such as cereals like wheat, vegetables, or fruits. These plants are classified according to the season during which they grow and the climate conditions found in their area. India is a very large country where temperature, humidity, and rainfall change from one region to another, so farmers must choose crops that match the local weather patterns. All living organisms need food to survive, and since plants can make their own food using sunlight, water, and soil nutrients, they are considered self-sufficient producers of nutrition.\n\nWhen you think about a farmer planting wheat in a field, every single plant there belongs to that specific type of crop called wheat. You already know from your studies that crops can be divided into different groups based on what they produce, such as cereals like wheat, vegetables, or fruits. These plants are classified according to the season during which they grow and the climate conditions found in their area. India is a very large country where temperature, humidity, and rainfall change from one region to another, so farmers must choose crops that match the local weather patterns. All living organisms need food to survive, and since plants can make their own food using sunlight, water, and soil nutrients, they are considered self-sufficient producers of nutrition.",
+        "sources": [
+          {
+            "title": "NCERT Class 8 Science",
+            "heading": "Agricultural Practices",
+            "page_start": 1,
+            "page_end": 1,
+            "grade": 8,
+            "subject": "Science",
+            "distance": 0.2197,
+            "excerpt": "When plants of the same kind are cultivated at one place on a large scale, it is called a crop. For example, crop of wheat means that all the plants grown in a field are that of wheat. You already know that crops are of different types like cereals, vegetables and fruits. These can be classified on the basis of the season in which they grow. India is a vast country. The climatic conditions like temperature, humidity and rainfall vary from one region to another. Accordingly, there is a rich You have learnt that all living organisms require food. Plants can make their food themselves. …"
+          },
+          {
+            "title": "NCERT Class 8 Science",
+            "heading": "Preparation of Soil",
+            "page_start": 2,
+            "page_end": 2,
+            "grade": 8,
+            "subject": "Science",
+            "distance": 0.2299,
+            "excerpt": "Cultivation of crops involves several activities undertaken by farmers over a period of time. …"
+          }
+        ]
+      },
+      "id": "M13-crop-classified"
+    },
+    {
+      "reply": "An exothermic reaction is a chemical process where heat energy is released and given out as a byproduct along with the formation of new products. This happens because the bonds formed in the final product are stronger than the initial bonds broken during the reaction, causing the excess energy to leave the system. A common everyday example of this is burning natural gas, which produces warmth while creating carbon dioxide and water vapor.",
+      "sources": [
+        {
+          "title": "NCERT Class 10 Science",
+          "heading": "CTIONSCTIONS",
+          "page_start": 7,
+          "page_end": 7,
+          "grade": 10,
+          "subject": "Science",
+          "distance": 0.1284,
+          "excerpt": "In Activity 1.4, we also observed that a large amount of heat is evolved. This makes the reaction mixture warm. Reactions in which heat is released along with the formation of products are called exothermic chemical reactions.\n\nOther examples of exothermic reactions are -\n\n(i) Burning of natural gas"
+        },
+        {
+          "title": "NCERT Class 10 Science",
+          "heading": "CTIONSCTIONS",
+          "page_start": 7,
+          "page_end": 7,
+          "grade": 10,
+          "subject": "Science",
+          "distance": 0.2377,
+          "excerpt": "… These carbohydrates are broken down to form glucose. This glucose combines with oxygen in the cells of our body and provides energy. The special name of this reaction is respiration, the process of which you will study in Chapter 6. (iii) The decomposition of vegetable matter into compost is also an example of an exothermic reaction. Identify the type of the reaction taking place in Activity 1.1, where heat is given out along with the formation of a single product."
+        }
+      ],
+      "context": "[1] NCERT Class 10 Science - CTIONSCTIONS - p. 7\nIn Activity 1.4, we also observed that a large amount of heat is evolved. This makes the reaction mixture warm. Reactions in which heat is released along with the formation of products are called exothermic chemical reactions.\n\nOther examples of exothermic reactions are -\n\n(i) Burning of natural gas\n\n[2] NCERT Class 10 Science - CTIONSCTIONS - p. 7\n… These carbohydrates are broken down to form glucose. This glucose combines with oxygen in the cells of our body and provides energy. The special name of this reaction is respiration, the process of which you will study in Chapter 6. (iii) The decomposition of vegetable matter into compost is also an example of an exothermic reaction. Identify the type of the reaction taking place in Activity 1.1, where heat is given out along with the formation of a single product.",
+      "usage": {
+        "prompt_tokens": 432,
+        "completion_tokens": 82,
+        "total_duration_ms": 8918,
+        "load_duration_ms": 4,
+        "prompt_eval_ms": 3989,
+        "eval_ms": 4918,
+        "tokens_per_second": 16.67
+      },
+      "session_id": "856b3c42a71f4018ba1116f46309f4b5",
+      "turn_id": "a82315e0ee6e",
+      "previous_turn": {
+        "question": "What is an exothermic reaction?",
+        "reply": "An exothermic reaction is a chemical process where heat energy is released as products form, causing the surrounding environment to feel warmer. This happens because the new bonds formed between atoms release more energy than was needed to break the original bonds. For instance, when you light a candle, the burning of natural gas, or simply mixing baking soda and vinegar, all involve exothermic reactions that produce warmth.",
+        "sources": [
+          {
+            "title": "NCERT Class 10 Science",
+            "heading": "CTIONSCTIONS",
+            "page_start": 7,
+            "page_end": 7,
+            "grade": 10,
+            "subject": "Science",
+            "distance": 0.1741,
+            "excerpt": "In Activity 1.4, we also observed that a large amount of heat is evolved. This makes the reaction mixture warm. Reactions in which heat is released along with the formation of products are called exothermic chemical reactions.\n\nOther examples of exothermic reactions are -\n\n(i) Burning of natural gas"
+          },
+          {
+            "title": "NCERT Class 10 Science",
+            "heading": "Rancidity",
+            "page_start": 14,
+            "page_end": 14,
+            "grade": 10,
+            "subject": "Science",
+            "distance": 0.2634,
+            "excerpt": "/square6Reactions in which energy is absorbed are known as endothermic reactions. /square6When an element displaces another element from its compound, a displacement reaction occurs. /square6Two different atoms or groups of atoms (ions) are exchanged in double displacement reactions. /square6Precipitation reactions produce insoluble salts. /square6Reactions also involve the gain or loss of oxygen or hydrogen by substances. Oxidation is the gain of oxygen or loss of hydrogen. …"
+          }
+        ]
+      },
+      "id": "M14-exothermic-example"
+    }
+  ]
+}
