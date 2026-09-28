@@ -402,6 +402,24 @@ def print_report(rows, summary, cal, judge, meta):
     w("\n")
 
 
+def corpus_label(evalset):
+    """Name the book, or the books, the gold set was drawn from.
+
+    A single-book set carries corpus.document; a set spanning several carries
+    corpus.documents. Both are named here so a multi-book run reports what it
+    actually covered instead of crashing on the missing singular key.
+    """
+    corpus = evalset.get("corpus") or {}
+    if corpus.get("document"):
+        return corpus["document"]
+    docs = corpus.get("documents") or []
+    if not docs:
+        return "an unnamed corpus"
+    if len(docs) == 1:
+        return docs[0]
+    return "{} and {}".format(", ".join(docs[:-1]), docs[-1])
+
+
 def write_markdown(path, rows, summary, cal, judge, meta, evalset):
     """The readable artifact: every claim under the excerpt it was judged
     against, so a verdict can be overruled by a person with the book open."""
@@ -412,7 +430,7 @@ def write_markdown(path, rows, summary, cal, judge, meta, evalset):
               meta["budget"] or "backend default", judge),
           "", "Gold set `{}` over *{}*. Each answer is graded against the excerpt "
           "block that turn actually read, not against the pages it cited.".format(
-              meta["evalset"], evalset["corpus"]["document"]), ""]
+              meta["evalset"], corpus_label(evalset)), ""]
 
     L += ["## Headline", "",
           "| | |", "|---|---|",
@@ -696,7 +714,14 @@ def main(argv=None):
         raw = []
         for n, item in enumerate(items, 1):
             print("  [{}/{}] {:<20} {}".format(n, len(items), item["id"], item["query"]))
-            turn = run_turn(args.base, item, evalset["profile"], args.model,
+            # Per-item profile, falling back to the set's. Retrieval
+            # partitions on the grade parsed out of profile.level, so a
+            # multi-book set MUST send each item its own grade -- asking a
+            # Class 10 question under a Class 6 profile searches the wrong
+            # books and scores the model for a retrieval miss the harness
+            # caused itself.
+            profile = dict(evalset["profile"], **(item.get("profile") or {}))
+            turn = run_turn(args.base, item, profile, args.model,
                             args.budget, args.temperature)
             turn["id"] = item["id"]
             raw.append(turn)

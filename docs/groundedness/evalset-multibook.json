@@ -1,0 +1,682 @@
+{
+  "name": "multibook-english-groundedness-v1",
+  "corpus": {
+    "documents": [
+      "NCERT Class 5 EVS (Looking Around)",
+      "NCERT Class 6 Science",
+      "NCERT Class 8 Science",
+      "NCERT Class 9 Science",
+      "NCERT Class 9 English (Beehive)",
+      "NCERT Class 10 Science"
+    ],
+    "note": "Spans five grades and two subjects. Retrieval partitions on the grade parsed out of profile.level, so every item carries its own profile and the harness sends that instead of one set-wide grade. Grade 6 holds TWO books (the Maharashtra General Science and the NCERT), so a grade 6 item can legitimately retrieve from either; the two grade 6 items here are on topics the Maharashtra book does not define, to keep the gold unambiguous.",
+    "quotes_taken_from": "apps/backend/data/library.db, byte-for-byte as stored, so a quote here is what retrieval can actually return rather than what a human reads off the page. pdf_page is page_start of the chunk it came from."
+  },
+  "profile": {
+    "level": "Class 6",
+    "subject": "Science",
+    "language": "English",
+    "style": "socratic"
+  },
+  "items": [
+    {
+      "id": "M1-ant-smell",
+      "set": "A",
+      "profile": {
+        "level": "Class 5",
+        "subject": "EVS"
+      },
+      "book": "NCERT Class 5 EVS (Looking Around)",
+      "chapter": "Super Senses",
+      "query": "How do ants find their way?",
+      "previous_question": null,
+      "gold_evidence": [
+        {
+          "pdf_page": 3,
+          "quote": "as the ants move, they leave a smell on the ground. The other ants follow the smell to find the way."
+        }
+      ],
+      "reference_answer": "Ants leave a smell on the ground as they move. The other ants then follow that smell to find the way. A scientist found this out by doing many experiments. You can see it for yourself: if you gently block an ant trail with a pencil for a while, the ants lose the path they were following. What do you think the ants do next to find their way again?",
+      "required_facts": [
+        {
+          "fact": "ants leave a smell on the ground",
+          "any_of": [
+            "leave a smell",
+            "leaves a smell",
+            "leaving a smell",
+            "leave a scent",
+            "leaves a scent"
+          ]
+        },
+        {
+          "fact": "other ants follow that smell",
+          "any_of": [
+            "follow the smell",
+            "follow that smell",
+            "following the smell",
+            "follow the scent",
+            "follow that scent"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "ants (use|follow) (their )?(eyes|sight|vision) to find",
+          "why": "p.3 says smell, not sight"
+        }
+      ]
+    },
+    {
+      "id": "M2-herbivores",
+      "set": "A",
+      "profile": {
+        "level": "Class 6",
+        "subject": "Science"
+      },
+      "book": "NCERT Class 6 Science",
+      "chapter": "Components of Food",
+      "query": "What are herbivores and carnivores?",
+      "previous_question": null,
+      "gold_evidence": [
+        {
+          "pdf_page": 6,
+          "quote": "Animals which eat only plants are called herbivores."
+        },
+        {
+          "pdf_page": 6,
+          "quote": "Animals which eat only animals are called carnivores."
+        },
+        {
+          "pdf_page": 6,
+          "quote": "Animals which eat both plants as well as other animals are called omnivores."
+        }
+      ],
+      "reference_answer": "Animals which eat only plants are called herbivores. Animals which eat only animals are called carnivores. There is a third group too: animals which eat both plants and other animals are called omnivores. Think about the animals you see near your home and try to place each one in a group. Which group do you think a crow belongs to?",
+      "required_facts": [
+        {
+          "fact": "herbivores eat only plants",
+          "any_of": [
+            "eat only plants",
+            "eats only plants",
+            "only plants",
+            "eat plants only"
+          ]
+        },
+        {
+          "fact": "carnivores eat only animals",
+          "any_of": [
+            "eat only animals",
+            "eats only animals",
+            "only animals",
+            "eat other animals",
+            "eat animals only"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "herbivores (eat|are) (only )?(meat|animals)",
+          "why": "p.6 says herbivores eat only plants"
+        },
+        {
+          "pattern": "carnivores eat only plants",
+          "why": "p.6 says carnivores eat only animals"
+        }
+      ]
+    },
+    {
+      "id": "M3-nutrients",
+      "set": "A",
+      "profile": {
+        "level": "Class 6",
+        "subject": "Science"
+      },
+      "book": "NCERT Class 6 Science",
+      "chapter": "Components of Food",
+      "query": "What are nutrients?",
+      "previous_question": null,
+      "gold_evidence": [
+        {
+          "pdf_page": 8,
+          "quote": "These components are called nutrients. The major nutrients in our food are named carbohydrates, proteins, fats, vitamins and minerals. In addition, food contains dietary fibres and water which are also needed by our body."
+        }
+      ],
+      "reference_answer": "Nutrients are the components in our food that our body needs. The major nutrients in our food are carbohydrates, proteins, fats, vitamins and minerals. Besides these, food also contains dietary fibres and water, which our body needs as well. Look at what you ate today and try to name one food that gave you carbohydrates. Which nutrient do you think milk gives you?",
+      "required_facts": [
+        {
+          "fact": "the major nutrients are carbohydrates, proteins, fats, vitamins and minerals",
+          "all_of": [
+            "carbohydrate",
+            "protein",
+            "fat",
+            "vitamin",
+            "mineral"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "nutrients are (not )?needed",
+          "why": "placeholder guard, must not fire on the key"
+        }
+      ]
+    },
+    {
+      "id": "M4-crop",
+      "set": "A",
+      "profile": {
+        "level": "Class 8",
+        "subject": "Science"
+      },
+      "book": "NCERT Class 8 Science",
+      "chapter": "Crop Production and Management",
+      "query": "What is a crop?",
+      "previous_question": null,
+      "gold_evidence": [
+        {
+          "pdf_page": 1,
+          "quote": "When plants of the same kind are cultivated at one place on a large scale, it is called a crop."
+        }
+      ],
+      "reference_answer": "When plants of the same kind are cultivated at one place on a large scale, it is called a crop. For example, a crop of wheat means that all the plants grown in that field are wheat. Crops are of different types, like cereals, vegetables and fruits, and they can be classified on the basis of the season in which they grow. Look at a field near where you live and try to name the one plant growing across it.",
+      "required_facts": [
+        {
+          "fact": "a crop is plants of the same kind grown at one place on a large scale",
+          "any_of": [
+            "same kind",
+            "same type"
+          ]
+        },
+        {
+          "fact": "grown on a large scale",
+          "any_of": [
+            "large scale",
+            "large-scale"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "a crop is (a )?(single|one) plant\\b",
+          "why": "p.1 defines a crop as many plants of the same kind"
+        }
+      ]
+    },
+    {
+      "id": "M5-kharif-rabi",
+      "set": "A",
+      "profile": {
+        "level": "Class 8",
+        "subject": "Science"
+      },
+      "book": "NCERT Class 8 Science",
+      "chapter": "Crop Production and Management",
+      "query": "What is the difference between kharif and rabi crops?",
+      "previous_question": null,
+      "gold_evidence": [
+        {
+          "pdf_page": 2,
+          "quote": "The crops which are sown in the rainy season are called kharif crops."
+        },
+        {
+          "pdf_page": 2,
+          "quote": "The crops grown in the winter season (October to March) are called rabi crops."
+        }
+      ],
+      "reference_answer": "Kharif crops are the crops which are sown in the rainy season, which in India is generally from June to September. Paddy, maize, soyabean, groundnut and cotton are kharif crops. Rabi crops are the crops grown in the winter season, from October to March, and examples are wheat, gram, pea, mustard and linseed. So the difference is the season each one is grown in. Which season is it where you are right now?",
+      "required_facts": [
+        {
+          "fact": "kharif crops are sown in the rainy season",
+          "any_of": [
+            "rainy season",
+            "monsoon season"
+          ]
+        },
+        {
+          "fact": "rabi crops are grown in the winter season",
+          "any_of": [
+            "winter season",
+            "winter"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "kharif crops are (sown|grown) in the winter",
+          "why": "p.2 puts kharif in the rainy season"
+        },
+        {
+          "pattern": "rabi crops are (sown|grown) in the rainy season",
+          "why": "p.2 puts rabi in winter"
+        }
+      ]
+    },
+    {
+      "id": "M6-tilling",
+      "set": "A",
+      "profile": {
+        "level": "Class 8",
+        "subject": "Science"
+      },
+      "book": "NCERT Class 8 Science",
+      "chapter": "Crop Production and Management",
+      "query": "What is tilling?",
+      "previous_question": null,
+      "gold_evidence": [
+        {
+          "pdf_page": 3,
+          "quote": "The process of loosening and turning of the soil is called tilling or ploughing."
+        }
+      ],
+      "reference_answer": "The process of loosening and turning of the soil is called tilling, which is also called ploughing. It is done using a plough, and ploughs are made of wood or iron. If the soil is very dry it may need watering before ploughing. The ploughed field may have big clumps of soil called crumbs, and it is necessary to break these. Why do you think loosening the soil helps a seed that has just been sown?",
+      "required_facts": [
+        {
+          "fact": "tilling is loosening and turning the soil",
+          "all_of": [
+            "loosening",
+            "turning"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "tilling is (the )?(sowing|harvesting|watering) of",
+          "why": "p.3 defines tilling as loosening and turning soil"
+        }
+      ]
+    },
+    {
+      "id": "M7-density",
+      "set": "A",
+      "profile": {
+        "level": "Class 9",
+        "subject": "Science"
+      },
+      "book": "NCERT Class 9 Science",
+      "chapter": "Matter in Our Surroundings",
+      "query": "What is density?",
+      "previous_question": null,
+      "gold_evidence": [
+        {
+          "pdf_page": 6,
+          "quote": "The mass per unit volume of a substance is called density."
+        }
+      ],
+      "reference_answer": "The mass per unit volume of a substance is called density. Liquids generally have a lower density compared to solids. You may have noticed something that seems to go against this, though: ice floats on water, even though ice is a solid. What does floating tell you about how the density of ice compares with the density of water?",
+      "required_facts": [
+        {
+          "fact": "density is mass per unit volume",
+          "all_of": [
+            "mass",
+            "volume"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "density is (the )?volume per unit mass",
+          "why": "p.6 says mass per unit volume, not the inverse"
+        }
+      ]
+    },
+    {
+      "id": "M8-melting-point",
+      "set": "A",
+      "profile": {
+        "level": "Class 9",
+        "subject": "Science"
+      },
+      "book": "NCERT Class 9 Science",
+      "chapter": "Matter in Our Surroundings",
+      "query": "What is the melting point of a solid?",
+      "previous_question": null,
+      "gold_evidence": [
+        {
+          "pdf_page": 7,
+          "quote": "The minimum temperature at which a solid melts to become a liquid at the atmospheric pressure is called its melting point."
+        },
+        {
+          "pdf_page": 7,
+          "quote": "The process of melting, that is, change of solid state into liquid state is also known as fusion."
+        }
+      ],
+      "reference_answer": "The melting point of a solid is the minimum temperature at which that solid melts to become a liquid at atmospheric pressure. The melting point of a solid tells us about the strength of the force of attraction between its particles. The melting point of ice is 273.15 K. The process of melting, that is the change of the solid state into the liquid state, is also known as fusion. While a solid is melting its temperature stays the same, even though heat is still being supplied. Where do you think that heat energy is going?",
+      "required_facts": [
+        {
+          "fact": "the melting point is the minimum temperature at which a solid becomes a liquid",
+          "any_of": [
+            "minimum temperature",
+            "temperature at which"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "melting point .{0,30}\\bmaximum temperature",
+          "why": "p.7 says minimum temperature"
+        }
+      ]
+    },
+    {
+      "id": "M9-combination",
+      "set": "A",
+      "profile": {
+        "level": "Class 10",
+        "subject": "Science"
+      },
+      "book": "NCERT Class 10 Science",
+      "chapter": "Chemical Reactions and Equations",
+      "query": "What is a combination reaction?",
+      "previous_question": null,
+      "gold_evidence": [
+        {
+          "pdf_page": 6,
+          "quote": "Such a reaction in which a single product is formed from two or more reactants is known as a combination reaction."
+        },
+        {
+          "pdf_page": 6,
+          "quote": "when two or more substances (elements or compounds) combine to form a single product, the reactions are called combination reactions."
+        }
+      ],
+      "reference_answer": "A combination reaction is a reaction in which a single product is formed from two or more reactants. Put simply, when two or more substances, which may be elements or compounds, combine to form a single product, the reaction is called a combination reaction. The reaction of calcium oxide with water to form calcium hydroxide, which is slaked lime, is an example. How many products would you expect to find at the end of such a reaction?",
+      "required_facts": [
+        {
+          "fact": "two or more reactants form a single product",
+          "all_of": [
+            "single product"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "combination reaction .{0,40}(two or more products|breaks (down )?into)",
+          "why": "p.6 says a single product is formed"
+        }
+      ]
+    },
+    {
+      "id": "M10-exothermic",
+      "set": "A",
+      "profile": {
+        "level": "Class 10",
+        "subject": "Science"
+      },
+      "book": "NCERT Class 10 Science",
+      "chapter": "Chemical Reactions and Equations",
+      "query": "What is an exothermic reaction?",
+      "previous_question": null,
+      "gold_evidence": [
+        {
+          "pdf_page": 7,
+          "quote": "Reactions in which heat is released along with the formation of products are called exothermic chemical reactions."
+        }
+      ],
+      "reference_answer": "Reactions in which heat is released along with the formation of the products are called exothermic chemical reactions. Because heat is given out, the reaction mixture becomes warm. The burning of natural gas is an example of an exothermic reaction. If you held the container of such a reaction, what do you think you would feel?",
+      "required_facts": [
+        {
+          "fact": "heat is released",
+          "any_of": [
+            "heat is released",
+            "releases heat",
+            "heat is given out",
+            "gives out heat",
+            "heat is evolved",
+            "releasing heat"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "exothermic .{0,40}heat is absorbed",
+          "why": "p.7 says heat is released, not absorbed"
+        }
+      ]
+    },
+    {
+      "id": "M11-displacement",
+      "set": "A",
+      "profile": {
+        "level": "Class 10",
+        "subject": "Science"
+      },
+      "book": "NCERT Class 10 Science",
+      "chapter": "Chemical Reactions and Equations",
+      "query": "What is a displacement reaction?",
+      "previous_question": null,
+      "gold_evidence": [
+        {
+          "pdf_page": 11,
+          "quote": "In this reaction, iron has displaced or removed another element, copper, from copper sulphate solution. This reaction is known as displacement reaction."
+        }
+      ],
+      "reference_answer": "A displacement reaction is one in which an element displaces, or removes, another element from its compound. In the example, iron has displaced copper from copper sulphate solution. Zinc and lead are more reactive elements than copper, so they too displace copper from its compounds. Which of the two metals in such a pair do you think has to be the more reactive one?",
+      "required_facts": [
+        {
+          "fact": "one element displaces another from its compound",
+          "any_of": [
+            "displaced",
+            "displaces",
+            "displacing",
+            "removed another element",
+            "removes another element"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "displacement reaction .{0,40}(two compounds exchange|exchange their ions)",
+          "why": "that is double displacement, p.11 keeps them separate"
+        }
+      ]
+    },
+    {
+      "id": "M12-participial",
+      "set": "A",
+      "profile": {
+        "level": "Class 9",
+        "subject": "English"
+      },
+      "book": "NCERT Class 9 English (Beehive)",
+      "chapter": "Beehive",
+      "query": "What is a participial phrase?",
+      "previous_question": null,
+      "gold_evidence": [
+        {
+          "pdf_page": 52,
+          "quote": "The parts in italics in the above sentences begin with -ing verbs, and are called participial phrases. Participial phrases say something more about the person or thing talked about or the idea expressed by the sentence as a whole."
+        }
+      ],
+      "reference_answer": "A participial phrase is a part of a sentence that begins with an -ing verb. A participial phrase says something more about the person or thing being talked about, or about the idea the sentence as a whole expresses. Look back at a sentence you wrote today and see whether any part of it begins with an -ing verb. What extra thing does that part tell you?",
+      "required_facts": [
+        {
+          "fact": "a participial phrase begins with an -ing verb",
+          "any_of": [
+            "-ing verb",
+            "ing verb",
+            "-ing form",
+            "ing form"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "participial phrase.{0,40}(begins with a noun|is a complete sentence)",
+          "why": "p.52 says it begins with an -ing verb"
+        }
+      ]
+    },
+    {
+      "id": "M13-crop-classified",
+      "set": "B",
+      "profile": {
+        "level": "Class 8",
+        "subject": "Science"
+      },
+      "book": "NCERT Class 8 Science",
+      "chapter": "Crop Production and Management",
+      "query": "How are they classified?",
+      "previous_question": "What is a crop?",
+      "gold_evidence": [
+        {
+          "pdf_page": 1,
+          "quote": "These can be classified on the basis of the season in which they grow."
+        },
+        {
+          "pdf_page": 2,
+          "quote": "The crops which are sown in the rainy season are called kharif crops."
+        }
+      ],
+      "reference_answer": "Crops can be classified on the basis of the season in which they grow. The crops sown in the rainy season, generally June to September in India, are called kharif crops, and paddy, maize, soyabean, groundnut and cotton are examples. The crops grown in the winter season, October to March, are called rabi crops, and wheat, gram, pea, mustard and linseed are examples. Which of those two groups would a crop sown in July belong to?",
+      "required_facts": [
+        {
+          "fact": "crops are classified by the season in which they grow",
+          "any_of": [
+            "season"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "classified (on the basis of|by) (their )?(colour|price|height)",
+          "why": "p.1 classifies by season"
+        }
+      ]
+    },
+    {
+      "id": "M14-exothermic-example",
+      "set": "B",
+      "profile": {
+        "level": "Class 10",
+        "subject": "Science"
+      },
+      "book": "NCERT Class 10 Science",
+      "chapter": "Chemical Reactions and Equations",
+      "query": "Can you give me an example of one?",
+      "previous_question": "What is an exothermic reaction?",
+      "gold_evidence": [
+        {
+          "pdf_page": 7,
+          "quote": "Other examples of exothermic reactions are -  (i) Burning of natural gas"
+        }
+      ],
+      "reference_answer": "Yes. The burning of natural gas is an example of an exothermic reaction. It is exothermic because heat is released along with the formation of the products, which is what makes the reaction mixture warm. Think about a gas stove in a kitchen. What do you notice about the air around it while it is burning?",
+      "required_facts": [
+        {
+          "fact": "burning of natural gas is an example",
+          "any_of": [
+            "natural gas"
+          ]
+        }
+      ],
+      "forbidden_claims": [
+        {
+          "pattern": "melting of ice is an example of an exothermic",
+          "why": "melting absorbs heat"
+        }
+      ]
+    }
+  ],
+  "judge_calibration": {
+    "purpose": "Statements whose verdict is already known, run against the same judge before any tutor answer is scored. Each item contributes a known-true paraphrase, a polarity flip that the evidence makes false, and a plausible fact the evidence simply does not contain -- the three ways a judge goes wrong.",
+    "cases": [
+      {
+        "id": "cal-01",
+        "evidence_from": "M2-herbivores",
+        "kind": "paraphrase",
+        "expect": "supported",
+        "statement": "Animals that feed only on plants are known as herbivores."
+      },
+      {
+        "id": "cal-02",
+        "evidence_from": "M2-herbivores",
+        "kind": "polarity-flip",
+        "expect": "contradicted",
+        "statement": "Herbivores are animals which eat only other animals."
+      },
+      {
+        "id": "cal-03",
+        "evidence_from": "M2-herbivores",
+        "kind": "plausible-but-absent",
+        "expect": "unsupported",
+        "statement": "Most herbivores have flat teeth for grinding leaves."
+      },
+      {
+        "id": "cal-04",
+        "evidence_from": "M7-density",
+        "kind": "paraphrase",
+        "expect": "supported",
+        "statement": "Density is how much mass a substance has in each unit of volume."
+      },
+      {
+        "id": "cal-05",
+        "evidence_from": "M7-density",
+        "kind": "polarity-flip",
+        "expect": "contradicted",
+        "statement": "Density is the volume of a substance divided by its mass."
+      },
+      {
+        "id": "cal-06",
+        "evidence_from": "M7-density",
+        "kind": "plausible-but-absent",
+        "expect": "unsupported",
+        "statement": "The density of pure water is one gram per cubic centimetre."
+      },
+      {
+        "id": "cal-07",
+        "evidence_from": "M10-exothermic",
+        "kind": "paraphrase",
+        "expect": "supported",
+        "statement": "A reaction that gives out heat as its products form is called exothermic."
+      },
+      {
+        "id": "cal-08",
+        "evidence_from": "M10-exothermic",
+        "kind": "polarity-flip",
+        "expect": "contradicted",
+        "statement": "In an exothermic reaction heat is absorbed from the surroundings."
+      },
+      {
+        "id": "cal-09",
+        "evidence_from": "M10-exothermic",
+        "kind": "plausible-but-absent",
+        "expect": "unsupported",
+        "statement": "Exothermic reactions always happen faster than endothermic ones."
+      },
+      {
+        "id": "cal-10",
+        "evidence_from": "M5-kharif-rabi",
+        "kind": "paraphrase",
+        "expect": "supported",
+        "statement": "Crops sown during the rainy season are known as kharif crops."
+      },
+      {
+        "id": "cal-11",
+        "evidence_from": "M5-kharif-rabi",
+        "kind": "polarity-flip",
+        "expect": "contradicted",
+        "statement": "Kharif crops are the ones grown in the winter months."
+      },
+      {
+        "id": "cal-12",
+        "evidence_from": "M5-kharif-rabi",
+        "kind": "plausible-but-absent",
+        "expect": "unsupported",
+        "statement": "Kharif crops need less water than rabi crops."
+      },
+      {
+        "id": "cal-13",
+        "evidence_from": "M8-melting-point",
+        "kind": "paraphrase",
+        "expect": "supported",
+        "statement": "The melting point is the lowest temperature at which a solid turns into a liquid at atmospheric pressure."
+      },
+      {
+        "id": "cal-14",
+        "evidence_from": "M8-melting-point",
+        "kind": "polarity-flip",
+        "expect": "contradicted",
+        "statement": "Melting is the change of a liquid into a solid."
+      }
+    ]
+  }
+}
