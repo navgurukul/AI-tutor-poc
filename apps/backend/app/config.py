@@ -137,16 +137,30 @@ class Settings(BaseSettings):
     # token in 3.3s; 1,178 characters of excerpt takes 10.7s; 3,376 takes
     # 28.6s. Roughly 20-27ms per token of prefill, linear.
     #
-    # Now 800, from 1200 (exp006, 30 questions at 1200/1000/800 on the
+    # Was 1200, then 800 (exp006, 30 questions at 1200/1000/800 on the
     # target). A budget only changes a turn when the top passage is short
     # enough for a second one to fit -- 6 of the 30 at 800 -- and those turns
     # got 1.3-6.3s faster: mean first token 4.72s -> 4.06s. The book's answer
     # reached the model on 19 of 30 at every budget; none of the passages 800
-    # dropped held it, and two had caused wrong answers at 1200. The catch is
-    # that most turns now carry one passage, so which passage ranks first
-    # matters more than it did. RAG_CONTEXT_MAX_CHARS overrides; every 100
-    # characters is roughly half a second.
-    rag_context_max_chars: int = 800
+    # dropped held it, and two had caused wrong answers at 1200.
+    #
+    # Now 1000. Two things changed under the 800 figure. The corpus went from
+    # one book to seven, whose passages are longer: over the 14-turn multi-book
+    # run the two retrieved passages needed a median 1,137 characters together,
+    # so 800 was starving nearly every turn of its second passage. And
+    # retrieval.within_budget no longer drops a passage that does not fit whole
+    # -- it cuts it to the room left -- which means extra budget now buys
+    # sentences rather than all-or-nothing passages. See
+    # docs/groundedness/causes-and-improvements-2026-09-28.md.
+    #
+    # The latency note above is stale and overstates the cost: "every 100
+    # characters is roughly half a second" came from the 25-30ms/token anchor,
+    # and the target now measures ~10.2ms per prompt token on both qwen2.5 and
+    # qwen3.5 (EXP-008). At ~4 characters a token, 200 more characters is ~50
+    # tokens, so this costs roughly +0.5s to first token, not +1s. Re-measure on
+    # the device before treating either number as settled.
+    # RAG_CONTEXT_MAX_CHARS overrides.
+    rag_context_max_chars: int = 1000
     # Longest a single passage may be in the prompt. The budget above never
     # trims the top passage, so it cannot bound a turn by itself: every turn
     # still over 6s at 800 in exp006 was one passage of 950-1,200 characters,

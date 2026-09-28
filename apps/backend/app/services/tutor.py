@@ -71,6 +71,28 @@ STYLE_RULES = {
 # passages are for before it reads the passages. Deliberately permissive: a
 # 1.5B model told to answer *only* from context refuses far too often, which
 # reads to a student as the tutor being broken.
+# TRIED AND REVERTED, 28 Sep 2026: a second sentence licensing the model to say
+# the book does not explain something. The motive was sound -- the socratic rule
+# REQUIRES a "how or why" sentence and an everyday example, a definition-only
+# excerpt contains neither, so the model's only compliant move is to invent one,
+# and that is where most ungrounded claims came from (a displacement answer that
+# made "iron oxide" from copper sulphate and had aluminium displacing oxygen).
+#
+# Two wordings were measured over the 14-item multi-book set and both failed the
+# same way: the sentence reads as a rule the model restates at the student.
+# "Students should remember that the book does not explain how or why this energy
+# transfer occurs" survived BOTH wordings, alongside "According to the textbook
+# excerpt ..." and two replies that deflected -- "please check your textbook for
+# additional details". It also crowded the definition out of the ~100-word
+# budget: the exothermic answer stopped saying heat is released and the
+# displacement answer stopped saying one element displaces another.
+#
+# One legitimate use appeared ("the book does not explain how an ant knows which
+# smell belongs to its own path"), which is why the idea is worth keeping on the
+# shelf rather than throwing away. If it is tried again: the pressure it relieves
+# is real, but it must land in the answer's own voice, and it cannot be judged on
+# a 14-item unseeded run -- see section 8 of
+# docs/groundedness/causes-and-improvements-2026-09-28.md.
 EXCERPT_PREAMBLE = (
     "Use the student's textbook excerpts when relevant, prioritizing their "
     "wording and examples over your own knowledge."
