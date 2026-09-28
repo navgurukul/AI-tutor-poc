@@ -73,10 +73,17 @@ async def _retrieve_context(
         hits, retrieval_query(message, previous_question), budget, reuse
     )
     sent = {hit.chunk_id: hit.text for hit in shown}
-    cited = citations(hits)
-    for citation, hit in zip(cited, hits):
-        # What the model read of this passage; None when the budget cut it.
-        citation["excerpt"] = sent.get(hit.chunk_id)
+    # Cite only what the model actually read. Citations used to be built from
+    # the untrimmed hits, so a passage the budget dropped was still shown to the
+    # student as a source with no excerpt behind it -- 13 of 28 citations in the
+    # multi-book run (docs/groundedness/causes-and-improvements-2026-09-28.md).
+    # That told the student the tutor had read a page it never saw, and made
+    # every manual audit of a turn misleading. `sources` in the turn log now
+    # counts passages read rather than passages retrieved; the library preview
+    # endpoint still reports every hit, which is where retrieval is inspected.
+    cited = citations(shown)
+    for citation, hit in zip(cited, shown):
+        citation["excerpt"] = hit.text
     return format_excerpts(shown), cited, sent
 
 

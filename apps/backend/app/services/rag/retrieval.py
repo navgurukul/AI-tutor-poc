@@ -255,37 +255,101 @@ def prompt_hits(
         replace(hit, text=reuse.get(hit.chunk_id) or shorten_passage(hit.text, query))
         for hit in hits
     ]
-    return within_budget(shortened, budget)
+    return within_budget(shortened, budget, query=query, reuse=reuse)
+
+
+# A partial passage below this is noise rather than evidence -- roughly one
+# sentence of this corpus. Under it the passage is dropped instead of cut.
+_MIN_PARTIAL_CHARS = 120
+
+# Only sentences at least this long are used to detect overlap between
+# passages. Short ones ("Observe.", "For example,", a stray "2.") repeat all
+# over a textbook, and deduplicating on them would delete real text from the
+# second passage because the first happened to contain the same fragment.
+_DEDUPE_MIN_CHARS = 40
+
+
+def _sentences(text: str) -> List[str]:
+    """The passage as sentences, whitespace collapsed."""
+    return [s for s in _SENTENCE_END.split(" ".join(text.split())) if s.strip()]
+
+
+def _overlap_key(sentence: str) -> str:
+    """Comparison form for overlap: case, spacing, bullet glyphs and cut marks
+    all differ between two copies of the same sentence in this corpus."""
+    key = sentence.replace(_ELLIPSIS, " ").replace("/square6", " ")
+    key = key.replace("/rhombus4", " ")
+    return " ".join(key.split()).lower()
+
+
+def _without_seen(text: str, seen: Set[str]) -> str:
+    """The passage minus the sentences an earlier passage already sent.
+
+    Retrieved passages overlap in practice: neighbouring chunks share text, and
+    a chapter-end summary repeats the definition the teaching page states. Every
+    repeated sentence is budget spent twice, and it also over-weights whatever
+    is repeated.
+    """
+    kept = [s for s in _sentences(text) if _overlap_key(s) not in seen]
+    return " ".join(kept)
 
 
 def within_budget(
-    hits: List[Retrieved], budget: Optional[int] = None
+    hits: List[Retrieved],
+    budget: Optional[int] = None,
+    query: str = "",
+    reuse: Optional[Dict[int, str]] = None,
 ) -> List[Retrieved]:
-    """The leading hits that fit rag_context_max_chars -- what the model reads.
+    """The hits that fit rag_context_max_chars -- what the model reads.
 
-    Trimmed from the end until the budget is met. Hits arrive best-first, so a
-    question whose top passage alone exceeds the budget still gets that
-    passage -- an over-long excerpt is better than none, and the cap exists
-    to stop the tail, not the head.
+    Hits arrive best-first and the top one is always kept whole: an over-long
+    excerpt is better than none, and the cap exists to stop the tail, not the
+    head. prompt_hits runs this on passages already shortened to
+    rag_passage_max_chars, so that "always kept" passage is bounded too.
 
-    This regularly drops the second of two retrieved passages: in exp004, 9 of
-    the 20 turns that retrieved anything lost their #2 here, including the
-    magnet-pole definition, behind a 1,193-character exercise page. The
-    citations are built from the untrimmed hits, so a cut passage is still
-    listed as a source. prompt_hits runs this on passages already shortened
-    to rag_passage_max_chars, so the "always kept" top passage is bounded too.
+    Later passages are then DEDUPLICATED against what is already in, and cut to
+    the room that is left rather than dropped whole. Dropping whole is what this
+    used to do, and it was the single largest source of ungrounded answers
+    measured: over the 14 turns of the multi-book run (see
+    docs/groundedness/causes-and-improvements-2026-09-28.md) it discarded 13 of
+    28 retrieved passages while leaving a median 203 characters of the 800-char
+    budget unused, because a 500-character passage will not fit in 451
+    characters and so contributed nothing at all. Three of the four turns whose
+    gold passage never reached the prompt lost it here, with the passage ranked
+    2 of 2 -- retrieved, cited, and thrown away. The worst of them read only a
+    chapter-end summary bullet and invented the chemistry it was asked about.
+
+    A passage is still dropped rather than cut when it is wholly redundant, when
+    what survives would be under _MIN_PARTIAL_CHARS, or when it came from
+    `reuse`: re-cutting a cached passage would change the string and cost the
+    turn its whole prompt cache, which is the thing `reuse` exists to protect.
 
     `budget` overrides the setting for one turn -- benchmark.py sweeps it per
     request so every arm shares one warm model and one prompt cache.
     """
     budget = budget or settings.rag_context_max_chars
+    reuse = reuse or {}
     kept: List[Retrieved] = []
     used = 0
+    seen: Set[str] = set()
     for hit in hits:
-        if kept and used + len(hit.text) > budget:
-            break
-        kept.append(hit)
-        used += len(hit.text)
+        text = hit.text
+        if kept:
+            text = _without_seen(text, seen)
+            if len(text) < _MIN_PARTIAL_CHARS:
+                continue                      # nothing left that is not already in
+            room = budget - used
+            if len(text) > room:
+                if hit.chunk_id in reuse:
+                    continue                  # never re-cut a cached passage
+                if room < _MIN_PARTIAL_CHARS:
+                    break                     # and no later passage can fit either
+                text = shorten_passage(text, query, limit=room)
+        kept.append(replace(hit, text=text))
+        used += len(text)
+        seen.update(
+            k for k in map(_overlap_key, _sentences(text)) if len(k) >= _DEDUPE_MIN_CHARS
+        )
     return kept
 
 

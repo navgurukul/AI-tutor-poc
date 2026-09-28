@@ -138,12 +138,56 @@ def test_a_long_top_passage_no_longer_sets_the_wait(monkeypatch):
 
 def test_shortening_the_top_passage_can_make_room_for_the_second(monkeypatch):
     """exp004's magnet poles: a 1,193-character exercise page left the
-    233-character definition no room. Shortened, it fits at 1200 -- though
-    not at 800, where 600 + 233 is still over."""
+    233-character definition no room. Shortened, it fits at 1200."""
     monkeypatch.setattr(settings, "rag_passage_max_chars", 600)
     hits = [_hit("x" * 1193, 121), _hit("y" * 233, 117)]
     assert [h.page_start for h in prompt_hits(hits, "poles", 1200)] == [121, 117]
-    assert [h.page_start for h in prompt_hits(hits, "poles", 800)] == [121]
+
+
+def test_the_second_passage_is_cut_to_the_room_left_not_dropped(monkeypatch):
+    """This asserted the opposite until 28 Sep 2026: at 800 the definition was
+    dropped whole, because 600 + 233 is over and the packer was all-or-nothing.
+    That left 200 characters of the budget unused and lost the answer -- the
+    single largest source of ungrounded replies measured in the multi-book run.
+    It is now cut to the 200 characters that were going spare."""
+    monkeypatch.setattr(settings, "rag_passage_max_chars", 600)
+    hits = [_hit("x" * 1193, 121), _hit("y" * 233, 117)]
+    shown = prompt_hits(hits, "poles", 800)
+    assert [h.page_start for h in shown] == [121, 117]
+    assert sum(len(h.text) for h in shown) <= 800
+    assert len(shown[1].text) < 233          # cut, not sent whole
+
+
+def test_a_passage_too_small_to_be_evidence_is_dropped_rather_than_cut(monkeypatch):
+    """Under _MIN_PARTIAL_CHARS there is no useful sentence left, so the
+    passage contributes nothing and is left out instead of shaved to a stub."""
+    monkeypatch.setattr(settings, "rag_passage_max_chars", 600)
+    hits = [_hit("x" * 600, 121), _hit("y" * 400, 117)]
+    assert [h.page_start for h in prompt_hits(hits, "poles", 650)] == [121]
+
+
+def test_a_sentence_the_first_passage_already_sent_is_not_sent_twice(monkeypatch):
+    """Neighbouring chunks share text and a chapter summary repeats the
+    definition the teaching page states; a repeat is budget spent twice."""
+    monkeypatch.setattr(settings, "rag_passage_max_chars", 600)
+    shared = ("The mass per unit volume of a substance is called density, which "
+              "is why a stone sinks and a cork floats on the very same water. ")
+    unique = ("Liquids generally have a lower density than solids do, and ice "
+              "floating on water is the exception worth asking about here. ")
+    hits = [_hit(shared + unique, 6), _hit(shared, 142)]
+    shown = prompt_hits(hits, "What is density?", 1600)
+    # The second passage was nothing but the shared sentence, so it is gone.
+    assert [h.page_start for h in shown] == [6]
+
+
+def test_a_cached_passage_is_dropped_rather_than_re_cut(monkeypatch):
+    """Re-cutting a reused passage would change the string and cost the turn
+    its whole prompt cache, which is what `reuse` exists to protect."""
+    monkeypatch.setattr(settings, "rag_passage_max_chars", 600)
+    sent_before = "z" * 400
+    hits = [_hit("x" * 600, 121), _hit("y" * 400, 117)]
+    shown = prompt_hits(hits, "poles", 800, {117: sent_before})
+    assert [h.page_start for h in shown] == [121]
 
 
 # -- the same passage twice in a conversation --------------------------------
