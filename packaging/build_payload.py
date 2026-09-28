@@ -21,6 +21,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -393,11 +394,44 @@ def step_llm(payload: Path) -> None:
         for model in PINS["llm"]["models"]:
             print(f"    pulling {model} into the payload")
             subprocess.run([ollama, "pull", model], env=env, check=True)
+        # Derived tags are built here, not pulled: a base model whose published
+        # GGUF carries the wrong chat template has to be corrected before it is
+        # staged, or every device inherits the bad template. `ollama create`
+        # reuses the base weights blob already staged above, so a derived tag
+        # costs a few KB of template layer, not another copy of the model.
+        for d in PINS["llm"].get("derived", []):
+            mf = Path(__file__).resolve().parent / d["modelfile"]
+            if not mf.is_file():
+                raise SystemExit(f"missing Modelfile for {d['name']}: {mf}")
+            print(f"    creating {d['name']} from {mf.name}")
+            subprocess.run([ollama, "create", d["name"], "-f", str(mf)],
+                           env=env, check=True)
     finally:
         proc.terminate()
         proc.wait(timeout=30)
     if not (dest / "blobs").is_dir() or not (dest / "manifests").is_dir():
         raise SystemExit("blobs/ or manifests/ missing -- staging failed.")
+    # The launcher points OLLAMA_MODEL at chat_model; if that exact tag is not
+    # in the staged manifests the device 404s on the first question, which is
+    # how the qwen3.5 build shipped a runtime that could not load its model.
+    chat = PINS["llm"]["chat_model"]
+    name, _, tag = chat.partition(":")
+    # Compared case-insensitively and by path suffix on purpose. Ollama does not
+    # always store a tag with the case it was created with -- `ollama create
+    # sarvam1-tutor:q4_K_M` wrote a manifest at .../sarvam1-tutor/Q4_K_M -- and
+    # the payload is built on a case-insensitive Mac volume for a
+    # case-insensitive Windows one. Prefer an all-lowercase tag in pins to keep
+    # this a non-question.
+    want = "{}/{}".format(name.split("/")[-1], tag or "latest").lower()
+    staged = sorted(
+        str(m.relative_to(dest / "manifests")).replace(os.sep, "/")
+        for m in (dest / "manifests").rglob("*") if m.is_file()
+    )
+    if not any(s.lower().endswith(want) for s in staged):
+        raise SystemExit(
+            f"chat_model {chat!r} is not among the staged manifests.\n"
+            f"  Staged: {staged}"
+        )
 
 
 def step_app_and_content(payload: Path) -> None:
@@ -422,9 +456,33 @@ def step_app_and_content(payload: Path) -> None:
         f = Path(__file__).resolve().parent / "windows" / name
         if f.is_file():
             shutil.copy2(f, payload / name)
+    stamp_launcher_model(payload / "launch.ps1")
     ico = ROOT / "apps" / "desktop" / "assets" / "AI-Tutor.ico"
     if ico.is_file():
         shutil.copy2(ico, payload / "AI-Tutor.ico")
+
+
+def stamp_launcher_model(launcher: Path) -> None:
+    """Rewrite the launcher's OLLAMA_MODEL to the chat model this build staged.
+
+    The launcher used to hardcode the tag, which meant a variant build (a
+    different pins file) shipped the right blobs behind a launcher still naming
+    the old model -- an install that succeeds and then 404s on the first
+    question. Pins are the single source of truth; the copy in the payload is
+    stamped, and the checked-in launch.ps1 is left alone.
+    """
+    if not launcher.is_file():
+        return
+    chat = PINS["llm"]["chat_model"]
+    text = launcher.read_text(encoding="utf-8-sig")
+    pattern = re.compile(r'^(\$env:OLLAMA_MODEL\s*=\s*)"[^"]*"', re.MULTILINE)
+    text, n = pattern.subn(lambda m: f'{m.group(1)}"{chat}"', text)
+    if n != 1:
+        raise SystemExit(
+            f"expected exactly one $env:OLLAMA_MODEL line in launch.ps1, found {n}"
+        )
+    launcher.write_text(text, encoding="utf-8")
+    print(f"    launcher OLLAMA_MODEL -> {chat}")
 
 
 def copy_corpus(db: Path, target: Path) -> None:
@@ -599,6 +657,7 @@ def prune_junk(payload: Path) -> int:
             continue
         junk = (f.name in JUNK_NAMES
                 or f.name.startswith(JUNK_PREFIXES)
+                or f.name.startswith("._")          # macOS AppleDouble sidecars
                 or f.name.endswith(("-wal", "-shm", "-journal")))
         if junk:
             f.unlink(missing_ok=True)
@@ -641,6 +700,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default="build/payload")
+    ap.add_argument("--pins", default="pins.json",
+                    help="pins file to build from, relative to packaging/. Variants "
+                         "(pins.sarvam.json) keep the default build reproducible "
+                         "instead of editing pins.json back and forth.")
     ap.add_argument("--skip-frontend-build", action="store_true",
                     help="reuse apps/frontend/dist instead of running npm")
     ap.add_argument("--skip-llm", action="store_true",
@@ -650,6 +713,14 @@ def main() -> int:
     ap.add_argument("--only", nargs="*", metavar="STEP",
                     help="run only these: frontend python ollama speech llm app manifest")
     args = ap.parse_args()
+
+    if args.pins != "pins.json":
+        global PINS
+        pins_path = Path(__file__).resolve().parent / args.pins
+        if not pins_path.is_file():
+            raise SystemExit(f"no such pins file: {pins_path}")
+        PINS = json.loads(pins_path.read_text())
+        print(f"pins    -> {pins_path.name}")
 
     payload = (ROOT / args.out).resolve() if not Path(args.out).is_absolute() else Path(args.out)
     payload.mkdir(parents=True, exist_ok=True)

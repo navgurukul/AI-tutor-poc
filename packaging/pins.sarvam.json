@@ -1,6 +1,6 @@
 {
-  "_comment": "Every third-party artifact the device payload contains, pinned by exact URL and verified by size on download. Replace `sha256: null` with the real digest after the first successful build (build_payload.py prints them), then the build becomes tamper-evident. Bumping ANY pin here is a runtime-layer version bump and requires re-running the retrieval evaluation, because a re-quantised model changes every distance the relevance cut-off in app/config.py was measured against.",
-  "payload_version": "1.1.0-qwen35",
+  "_comment": "VARIANT PINS -- Sarvam-1 (2B) instead of qwen3.5:2b-q4_K_M, built with `build_payload.py --pins pins.sarvam.json --out build/payload-sarvam`. Everything except the llm section is identical to pins.json on purpose: the point of this build is a same-runtime, same-corpus comparison against the qwen3.5 payload on the target HP EliteBook, so nothing else may vary. Every third-party artifact the device payload contains, pinned by exact URL and verified by size on download. Replace `sha256: null` with the real digest after the first successful build (build_payload.py prints them), then the build becomes tamper-evident. Bumping ANY pin here is a runtime-layer version bump and requires re-running the retrieval evaluation, because a re-quantised model changes every distance the relevance cut-off in app/config.py was measured against.",
+  "payload_version": "1.2.0-sarvam1",
   "python": {
     "version": "3.12.11",
     "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
@@ -27,12 +27,19 @@
   },
   "llm": {
     "models": [
-      "qwen3.5:2b-q4_K_M",
+      "hf.co/bartowski/sarvam-1-GGUF:Q4_K_M",
       "nomic-embed-text"
     ],
-    "chat_model": "qwen3.5:2b-q4_K_M",
-    "approx_mb": 2220,
-    "_note": "Matches app/config.py: ollama_model=qwen3.5:2b-q4_K_M, rag_embedding_model=nomic-embed-text at 768 dims. Both Apache-2.0, so like the qwen2.5 build and unlike the multilang build (gemma2:2b under the Gemma Terms of Use) there is no model licence to pass on to each school. TAG IS EXACT AND DELIBERATE: the bare `qwen3.5:2b` tag is q8_0 at 2.55 GiB, which does not fit the target. q4_K_M is 1.81 GiB; with nomic-embed-text (0.35 GiB resident) that is ~2.5 GiB against the 2.9 GiB this device has free at launch (measured, Target HP data/logs/ollama.err.log). bge-m3 would NOT fit. THE BACKEND MUST SEND think:false -- Qwen3.5 thinks by default and otherwise returns an empty answer; see ollama_client._payload. RETRIEVAL IS STILL ENGLISH-ONLY: nomic-embed-text does not embed Devanagari queries usefully, so Hindi/Marathi questions will retrieve poorly even though the model can write both. Fixing that means a multilingual embedder, new dims, task prefixes in rag/embeddings.py, and a full corpus re-ingest."
+    "chat_model": "sarvam1-tutor:2b",
+    "approx_mb": 1850,
+    "_note": "LICENCE BLOCKER, READ BEFORE ANY DEPLOYMENT: Sarvam-1 is released under the Sarvam non-commercial licence, unlike every other model this project has shipped (qwen2.5, qwen3.5 and nomic-embed-text are Apache-2.0). It must not reach a school build without that being resolved. This payload is for ON-TARGET MEASUREMENT ONLY -- the qwen3.5-vs-Sarvam comparison run.\n\nSECOND CAVEAT: Sarvam-1 is a TEXT-COMPLETION BASE MODEL. Its own model card states it 'cannot be used directly as a chat or an instruction-following model'. The corrected template makes it behave in a single-turn RAG prompt -- measured on Ollama 0.32.15, it answered the shadow question correctly in English and Marathi -- but it got the Hindi answer wrong (said light is REFLECTED onto the screen), and nothing about it is instruction-tuned, so expect style rules and length limits to be obeyed loosely at best.\n\nWHY IT IS WORTH MEASURING ANYWAY: the best Marathi tokenizer measured on this project -- 233.1 tok/1k chars vs Gemma 3's 250.0 and gemma2's 425.7 -- and it fits, at ~1.96 GiB resident against the target's 2.9 GiB ceiling, which is roughly 0.5 GiB more headroom than qwen3.5:2b-q4_K_M. It is a tokenizer-and-fluency calibration point for the Gemma comparison, not a product candidate.\n\nRETRIEVAL IS STILL ENGLISH-ONLY: nomic-embed-text does not embed Devanagari usefully, unchanged from the qwen3.5 build. think:false is sent by the backend and is accepted and ignored by this model -- verified on 0.32.15, no backend change needed.",
+    "derived": [
+      {
+        "name": "sarvam1-tutor:2b",
+        "modelfile": "ollama/sarvam1-tutor.Modelfile",
+        "_why": "The published GGUF carries a ChatML template this base model's vocab does not contain; see the Modelfile header for the token measurements. Built with `ollama create` off the staged base, so it adds a template layer, not a second copy of the weights."
+      }
+    ]
   },
   "_variant": "ENGLISH ONLY. Speech is entirely browser-side on this branch -- the backend has no stt.py and no tts.py -- so no IndicConformer and no Piper voice ship. That removes 548 MB from the payload and, more importantly, removes both licensing blockers: the GPL-3.0 espeak-ng bundled with the Piper voice, and the unverified third-party re-export of the IndicConformer weights. Do not re-add the speech section without resolving those first."
 }

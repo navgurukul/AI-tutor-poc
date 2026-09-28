@@ -1,0 +1,46 @@
+# Sarvam-1 (2B) corrected for chat use.
+#
+# WHY THIS FILE EXISTS: bartowski's published GGUF ships a ChatML template
+# (<|im_start|> / <|im_end|>) and stop parameters to match. Sarvam-1 is a
+# Llama-architecture BASE model with a 68,096-token Indic vocabulary that has
+# never seen those markers, and they are NOT in its vocab -- measured against
+# Ollama 0.32.15 with raw:true prompts, each one splits into 5 literal
+# angle-bracket pieces:
+#
+#   '<|im_start|>'  -> 5 tokens      '</s>' -> 1 token (real, in vocab)
+#   '<|im_end|>'    -> 5 tokens      '<s>'  -> 1 token (real, in vocab)
+#
+# So the stock tag spends ~10 junk tokens per turn on markers the model cannot
+# read, and its two `stop` strings can never fire -- generation ends only on
+# the model's own EOS, which leaks into the answer as a visible " </s>".
+# Measured: the stock tag returns "...सावली तयार होते. </s>" where this file
+# returns the same answer clean.
+#
+# The template below is .Messages-aware so multi-turn history is formatted
+# here rather than collapsed by Ollama's legacy single-pair path, and the
+# markers are plain ASCII heading text of the kind a base model has seen in
+# pretraining rather than special tokens it has not.
+#
+# LICENCE: Sarvam non-commercial. This tag must not ship to schools without
+# resolving that -- see pins.sarvam.json.
+
+FROM hf.co/bartowski/sarvam-1-GGUF:Q4_K_M
+
+TEMPLATE """{{- range .Messages }}
+{{- if eq .Role "system" }}{{ .Content }}
+
+{{ else if eq .Role "user" }}### Question:
+{{ .Content }}
+
+### Answer:
+{{ else if eq .Role "assistant" }}{{ .Content }}
+
+{{ end }}
+{{- end }}"""
+
+# </s> is the real EOS and is stopped as a string too, so it can never reach
+# the user as text. The heading markers stop the base model from rolling on
+# into a question of its own invention once the answer is done.
+PARAMETER stop "</s>"
+PARAMETER stop "### Question:"
+PARAMETER stop "###"
