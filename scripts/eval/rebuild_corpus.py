@@ -29,7 +29,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "apps" / "backend"))
-sys.path.insert(0, str(REPO / "libs" / "textbook-ingest" / "src"))
+# textbook_ingest is NOT added to sys.path: it comes from the installed
+# distribution (pdf-textbook-extract, editable during development). A path
+# insert here would sit AHEAD of that install and silently shadow it, so a
+# library change under test would be measured against the wrong copy.
 
 import textbook_ingest as ti                                     # noqa: E402
 from app.config import settings                                  # noqa: E402
@@ -149,6 +152,12 @@ async def _rebuild(args):
     print("breadcrumb: {} | chunk {} | overlap {}".format(
         settings.rag_embed_breadcrumb, settings.rag_chunk_chars,
         settings.rag_chunk_overlap_chars))
+    # Which copy of the cleaner produced this corpus. Printed because the library
+    # is developed in a sibling checkout: two working copies can exist at once,
+    # and a run measured against the wrong one is indistinguishable from a result.
+    print("cleaner: textbook_ingest {} from {}".format(
+        getattr(ti, "__version__", "?"),
+        Path(ti.__file__).resolve().parent.parent.parent))
 
     if db_path.exists() and not args.dry_run:
         saved = backup(db_path)

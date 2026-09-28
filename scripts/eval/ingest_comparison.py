@@ -31,7 +31,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "apps" / "backend"))
-sys.path.insert(0, str(REPO / "libs" / "textbook-ingest" / "src"))
+# textbook_ingest is NOT added to sys.path: it comes from the installed
+# distribution (pdf-textbook-extract, editable during development). A path
+# insert here would sit AHEAD of that install and silently shadow it, so a
+# library change under test would be measured against the wrong copy.
 
 import textbook_ingest as ti                                    # noqa: E402
 from textbook_ingest import fidelity as ti_fidelity             # noqa: E402
