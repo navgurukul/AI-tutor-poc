@@ -117,13 +117,20 @@ STYLE_RULES = {
     # measuring has cost real time this same day already.
     #
     # This costs decode time but NOT time-to-first-audio, for the reason above.
+    # Raised from a 4-5 sentence cap to a ~300-word target 2026-09-29 at the
+    # user's request -- see max_tokens / max_tokens_non_english in config.py,
+    # which had to rise alongside this or the longer answer this asks for
+    # would just get cut off mid-sentence instead of produced.
     "teach": (
-        "Answer in 4-5 sentences: say what the concept is in plain words, then "
-        "explain how or why it works, then give one concrete everyday example a "
-        "school student would recognise, and finish with the one thing worth "
-        "remembering. Use simple language. Do not add a question at the end "
-        "unless it genuinely helps. Never reply with only a vague one-line "
-        "definition."
+        "Give a thorough, detailed answer of at least 300 words, in several "
+        "short paragraphs: say what the concept is in plain words, then explain "
+        "how or why it works, covering the different parts or aspects of the "
+        "topic rather than just one, then give one or two concrete everyday "
+        "examples a school student would recognise, and finish with the one "
+        "thing worth remembering. Use simple language, but be thorough and "
+        "complete rather than brief. Do not add a question at the end unless it "
+        "genuinely helps. Never reply with only a vague one-line definition or a "
+        "short summary when a full explanation was asked for."
     ),
     # Abstract phrasing like "guide with questions" is ignored by small models;
     # a hard length limit plus a worked example is what actually lands.
@@ -134,9 +141,7 @@ STYLE_RULES = {
         "menu of options ('do you want A or B?'); ask one focused question. "
         "Do not pad with encouragement or emoji."
     ),
-    "direct": (
-        "Answer clearly and immediately, then add one short worked example."
-    ),
+    "direct": ("Answer clearly and immediately, then add one short worked example."),
     "exam_prep": (
         "Be concise and exam-focused. Give the answer, the marking points, and "
         "one common mistake to avoid."
@@ -149,7 +154,7 @@ def build_system_prompt(
 ) -> str:
     profile = profile or TutorProfile()
     lines: List[str] = [
-        "You are a patient tutor for a school student who is learning a topic "
+        "You are a tutor for a school student who is learning a topic "
         "and preparing for exams. Explain every concept clearly enough that the "
         "student can understand it and use it, and include a concrete example. "
         "Never answer with just a vague one-line definition. Always answer the "
@@ -197,13 +202,20 @@ def build_system_prompt(
     # so the same word count is a much bigger decode bill -- and the token caps
     # (max_tokens_non_english) were raised alongside so the cap still never
     # binds before the model finishes its own sentence.
-    word_budget = 85 if script == "Devanagari" else 110
+    #
+    # Raised 85/110 -> 320/300 2026-09-29 at the user's request for answers of
+    # 300+ words instead of a tight 2-3 sentence reply. max_tokens and
+    # max_tokens_non_english in config.py were raised alongside this -- a
+    # bigger word budget alone does nothing if the token cap still cuts the
+    # reply off before it gets there.
+    word_budget = 320 if script == "Devanagari" else 300
     lines.extend(
         [
-            "Keep answers under {} words unless asked for more.".format(word_budget),
+            "Give a thorough, detailed answer of at least {} words unless the "
+            "question is genuinely too simple to need that much.".format(word_budget),
             "Use simple language and a concrete example. Never invent facts; if "
             "you are unsure, say so plainly.",
-            "Write plain prose only: full sentences in one short paragraph. No "
+            "Write plain prose only: full sentences in a few short paragraphs. No "
             "markdown, no bullet points, no numbered or lettered lists, no "
             "headings, no bold text or asterisks, and never use emojis, "
             "emoticons, or decorative symbols.",
@@ -216,7 +228,9 @@ def build_system_prompt(
     )
     # Trailing position is deliberate: a small model follows the last
     # instruction most closely, and mid-prompt style rules got ignored.
-    lines.append("Most important rule: " + STYLE_RULES.get(profile.style, STYLE_RULES["teach"]))
+    lines.append(
+        "Most important rule: " + STYLE_RULES.get(profile.style, STYLE_RULES["teach"])
+    )
 
     # ...but "reply in <language>" then loses to that last line, so for a
     # non-English language repeat it *after* it, as hard as possible — small
@@ -289,9 +303,10 @@ def build_system_prompt(
             # against a 45-word budget. At 4.55 tok/s those extra ~90 tokens
             # cost roughly 20 SECONDS. Repeating one short sentence here is ~15
             # tokens of prefill at ~2.4ms each to save that.
-            "Write plain sentences in one short paragraph — no bullet points, "
+            "Write plain sentences in a few short paragraphs — no bullet points, "
             "no asterisks, no bold, no headings.",
-            "Keep it under {} words.".format(word_budget),
+            "Give a thorough answer of at least {} words unless the question is "
+            "too simple to need that much.".format(word_budget),
         ]
         if language.strip().lower() != "english":
             closing.append(
@@ -317,21 +332,32 @@ def _reply_rules(profile: Optional[TutorProfile]) -> List[str]:
     """
     profile = profile or TutorProfile()
     language = profile.language or "English"
-    script = {"hindi": "Devanagari", "marathi": "Devanagari"}.get(language.strip().lower())
-    word_budget = 85 if script == "Devanagari" else 110
+    script = {"hindi": "Devanagari", "marathi": "Devanagari"}.get(
+        language.strip().lower()
+    )
+    # Kept in step with build_turn_message's word_budget -- see that one's
+    # comment. Raised 85/110 -> 320/300 2026-09-29 alongside it.
+    word_budget = 320 if script == "Devanagari" else 300
     rules = [
-        "Plain sentences, one paragraph, no bullets or bold.",
-        "Under {} words.".format(word_budget),
+        "Plain sentences, a few short paragraphs, no bullets or bold.",
+        "At least {} words.".format(word_budget),
         "Do not end with a question.",
     ]
     if language.strip().lower() != "english":
-        rules.append("Reply only in {}{}.".format(language, " ({})".format(script) if script else ""))
+        rules.append(
+            "Reply only in {}{}.".format(
+                language, " ({})".format(script) if script else ""
+            )
+        )
     return rules
 
 
 def _persona_reply_rules(profile: Optional[TutorProfile]) -> str:
     return (
-        "Rules for every reply: " + " ".join(_reply_rules(profile)) + " " + GROUNDED_RULE_STANDING
+        "Rules for every reply: "
+        + " ".join(_reply_rules(profile))
+        + " "
+        + GROUNDED_RULE_STANDING
     )
 
 
@@ -383,8 +409,6 @@ def grade_from_profile(profile: Optional[TutorProfile]) -> Optional[int]:
     return grade if 1 <= grade <= 12 else None
 
 
-
-
 def build_turn_message(
     question: str,
     profile: Optional[TutorProfile],
@@ -430,7 +454,9 @@ def build_turn_message(
     script = {"hindi": "Devanagari", "marathi": "Devanagari"}.get(
         language.strip().lower()
     )
-    word_budget = 85 if script == "Devanagari" else 110
+    # Kept in sync with build_system_prompt's word_budget -- see that one's
+    # comment. Raised 85/110 -> 320/300 2026-09-29 alongside it.
+    word_budget = 320 if script == "Devanagari" else 300
     grounded = (context is not None) if grounded is None else grounded
 
     parts: List[str] = []
@@ -443,20 +469,22 @@ def build_turn_message(
     # measured 2026-09-10. The long-form versions live in the persona, which is
     # cached; this is only the nudge that has to be last, where this model
     # weights instructions hardest.
-    rules = ["Plain sentences, one paragraph, no bullets or bold."]
+    rules = ["Plain sentences, a few short paragraphs, no bullets or bold."]
     if grounded:
         # See GROUNDED_ANSWER_RULE's own comment for why this wording, not
         # "in your own words" -- it was right for an inline passage but let
         # the model drift once the passage moved a turn back.
         rules.insert(0, GROUNDED_ANSWER_RULE)
-    rules.append("Under {} words.".format(word_budget))
+    rules.append("At least {} words.".format(word_budget))
     # The persona already says not to add a question unless it helps, but the
     # persona is ~500 tokens back and this model weights the end of the prompt.
     rules.append("Do not end with a question.")
     if language.strip().lower() != "english":
-        rules.append("Reply only in {}{}.".format(
-            language, " ({})".format(script) if script else ""
-        ))
+        rules.append(
+            "Reply only in {}{}.".format(
+                language, " ({})".format(script) if script else ""
+            )
+        )
     if settings.tutor_rules_in_persona:
         # The full rules are in the persona now; the turn keeps only the one this
         # model drops first without a reminder -- the reply language (or, in
@@ -479,8 +507,15 @@ def build_turn_message(
         # was no longer the end of the prompt, which is what this model
         # weights hardest (the same reason the script clause and the
         # grounding rule already live at the end, not mid-persona).
-        tail = rules[-1] if language.strip().lower() != "english" else "Under {} words.".format(word_budget)
-        parts.append("Write 4-5 full sentences, not one line. " + tail)
+        tail = (
+            rules[-1]
+            if language.strip().lower() != "english"
+            else "At least {} words.".format(word_budget)
+        )
+        parts.append(
+            "Give a thorough, detailed answer of at least {} words in a few short "
+            "paragraphs, not one or two lines. ".format(word_budget) + tail
+        )
     else:
         parts.append(" ".join(rules))
     return "\n\n".join(parts)
@@ -646,7 +681,10 @@ def evaluate_messages(
         "Never agree with a false statement."
     ).format(level)
 
-    parts = ["Question: {}".format(question), "Student answer: {}".format(student_answer)]
+    parts = [
+        "Question: {}".format(question),
+        "Student answer: {}".format(student_answer),
+    ]
     if expected_answer:
         parts.append("Reference answer: {}".format(expected_answer))
     # Reverted to a bare instruction: adding a second-person rule here cost
@@ -694,7 +732,7 @@ def parse_json_content(content: str) -> Dict[str, Any]:
 # examples and few-shot turns were all measured). Rather than trust the prompt,
 # the reply is checked and re-asked once. One extra short generation costs ~1s.
 SOCRATIC_CORRECTION = (
-    "That reply explained too much. My question was: \"{question}\". Rewrite "
+    'That reply explained too much. My question was: "{question}". Rewrite '
     "your reply in at most 2 sentences, strictly about that question: one small "
     "hint, then ONE question back to me. Your whole reply must end with a "
     "question mark. Do not give the answer. Do not change the subject."

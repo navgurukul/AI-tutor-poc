@@ -23,6 +23,7 @@ from app.schemas import (
 )
 from app.services.ollama_client import OllamaError, build_usage, client
 from app.services.sessions import PreparedPassage, Session, store
+from app.services import turnlog
 from app.services.rag import service as library
 from app.services.rag.metrics import elapsed_ms, format_turn, groundedness
 from app.services.rag.query import estimate_tokens
@@ -426,6 +427,103 @@ def _turn_metrics(
     )
 
 
+def _log_retrieval(
+    session: Session,
+    message: str,
+    rc: RetrievedContext,
+    pinned: bool,
+    retrieval_ms: float,
+    *,
+    warming_up: bool = False,
+) -> None:
+    """One line per turn in logs/retrieval.jsonl: what was retrieved, and --
+    separately -- what actually got PASTED into this turn's prompt, since
+    those two differ on purpose (see RetrievedContext's own docstring): a
+    follow-up pastes nothing new (`context=""`, the passage is already a few
+    lines up in history), a claimed early-prime pastes nothing THIS turn
+    either (`context=None`, it was pasted a turn early instead), a pinned
+    corpus pastes the same block every turn, and a fresh search pastes
+    whatever survived dedup and the token budget. `sources` is the fuller
+    picture regardless of what got pasted: every chunk judged relevant this
+    turn, which is what citations and groundedness are judged against.
+
+    format_turn (metrics.py), logged separately, already reports the
+    *numbers* for a turn (timings, distances, counts); this reports the
+    *content* behind them. Skipped for a warm-up call -- there is no real
+    question or context behind it, just a throwaway page-load ping.
+    """
+    if warming_up:
+        return
+    turnlog.log_event(
+        "retrieval",
+        session_id=session.session_id,
+        message=message,
+        pinned=pinned,
+        followup=_is_followup(message),
+        primed=rc.primed is not None,
+        context=rc.context,
+        sources=rc.sources,
+        retrieval_ms=retrieval_ms,
+        trace=rc.trace.model_dump() if rc.trace is not None else None,
+    )
+
+
+def _log_llm(
+    session: Session,
+    messages: List[Dict[str, str]],
+    *,
+    model: Optional[str],
+    temperature: Optional[float],
+    max_tokens: Optional[int],
+    reply: str,
+    usage: Dict[str, Any],
+    llm_ms: float,
+    retry: bool = False,
+) -> None:
+    """One line per real LLM call (the primary answer, and the socratic
+    re-ask as its OWN line when it fires) in logs/llm.jsonl: the exact
+    `messages` array sent to Ollama -- system prompt and every turn of
+    history, byte for byte -- alongside the reply and usage it produced.
+
+    `persona_cached` is the one thing this has to compute rather than just
+    record: whether `messages[0]` (the system prompt) is IDENTICAL to the
+    last one this session sent. build_system_prompt is meant to be a pure
+    function of `profile` and the pinned block, both fixed for a session, so
+    this should read True on every turn after the first -- that stability is
+    the entire reason Ollama's KV cache prefix holds (see build_turn_message's
+    own docstring for the 27.7 vs 5.3 ms/token measurement this protects).
+    Comparing rather than assuming catches it if that ever silently stops
+    being true (e.g. get_or_create overwriting `profile` on a live session).
+
+    Not called for a warm-up (max_tokens<=2) or from the background
+    reprime/prepare tasks -- those already get their own "reprime"/"prepare"
+    lines, which is where their prime() call belongs, not here.
+    """
+    system_prompt = None
+    if messages and messages[0].get("role") == "system":
+        system_prompt = messages[0]["content"]
+    persona_cached = system_prompt is not None and system_prompt == session.last_system_prompt
+    if system_prompt is not None:
+        session.last_system_prompt = system_prompt
+    turnlog.log_event(
+        "llm",
+        session_id=session.session_id,
+        model=model or settings.ollama_model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        retry=retry,
+        messages=messages,
+        system_prompt=system_prompt,
+        persona_cached=persona_cached,
+        message_count=len(messages),
+        reply=reply,
+        prompt_tokens=usage.get("prompt_tokens"),
+        completion_tokens=usage.get("completion_tokens"),
+        tokens_per_second=usage.get("tokens_per_second"),
+        llm_ms=llm_ms,
+    )
+
+
 # In-flight primes. asyncio holds only a weak reference to a task, so one that
 # nothing else points at can be collected before it runs.
 _PRIME_TASKS: set = set()
@@ -482,16 +580,50 @@ def _reprime_after_reply(session, model: Optional[str], pinned_block: Optional[s
         # re-prime is racing to finish within anyway.
         await asyncio.sleep(settings.ollama_reprime_delay_seconds)
         started = time.perf_counter()
+        log_fields = dict(
+            session_id=session.session_id,
+            model=model or settings.ollama_model,
+            delay_s=settings.ollama_reprime_delay_seconds,
+        )
         try:
             out = await client.prime(messages, model=model)
+            prefill_ms = (out.get("prompt_eval_duration") or 0) / 1e6
             logger.info(
                 "re-prime %.0fms | prefill %.0fms (%s tok) -- next turn resumes after the reply",
                 elapsed_ms(started),
-                (out.get("prompt_eval_duration") or 0) / 1e6,
+                prefill_ms,
                 out.get("prompt_eval_count"),
             )
+            turnlog.log_event(
+                "reprime",
+                **log_fields,
+                outcome="completed",
+                elapsed_ms=elapsed_ms(started),
+                prefill_ms=prefill_ms,
+                prompt_tokens=out.get("prompt_eval_count"),
+            )
+        except asyncio.CancelledError:
+            # The COMMON case, not a failure -- see the delay comment above:
+            # a real question arriving during the sleep, or a newer reprime
+            # superseding this one, cancels it before client.prime() costs
+            # anything. Logged rather than silently swallowed: CancelledError
+            # does not subclass Exception (since Python 3.8), so without this
+            # branch it would fall through the `except Exception` below and
+            # never be recorded at all -- "how often does reprime actually
+            # finish vs. get pre-empted by real traffic" would be invisible.
+            turnlog.log_event(
+                "reprime", **log_fields, outcome="cancelled", elapsed_ms=elapsed_ms(started)
+            )
+            raise
         except Exception as exc:  # noqa: BLE001 - an optimisation must never fail a turn
             logger.warning("Re-prime after reply failed; the next turn will re-read it: %s", exc)
+            turnlog.log_event(
+                "reprime",
+                **log_fields,
+                outcome="failed",
+                elapsed_ms=elapsed_ms(started),
+                error=str(exc),
+            )
 
     task = asyncio.create_task(run())
     _PRIME_TASKS.add(task)
@@ -602,6 +734,22 @@ async def _prepare_passage(session: Session, message: str) -> None:
         out.get("prompt_eval_count"),
         len(fresh),
     )
+    # Only the SUCCESSFUL case: this is what fills the gap a claimed prime
+    # leaves in the "retrieval" log, where context=None on the turn that
+    # actually used it (see _log_retrieval's docstring) -- the real content
+    # was pasted here, a turn early, not at Send. A miss (no hits, already
+    # seen, superseded) is a non-event and returns above without logging;
+    # a genuine failure already logs via the warning above.
+    turnlog.log_event(
+        "prepare",
+        session_id=session.session_id,
+        draft=message,
+        block=block,
+        chunk_ids=[h.chunk_id for h in fresh],
+        elapsed_ms=elapsed_ms(started),
+        prefill_ms=(out.get("prompt_eval_duration") or 0) / 1e6,
+        prompt_tokens=out.get("prompt_eval_count"),
+    )
 
 
 @router.post(
@@ -696,6 +844,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         rc = await _retrieve_context(request.message, session.profile, session)
     retrieval_ms = elapsed_ms(retrieval_started)
     pinned = _is_pinned(session.profile)
+    _log_retrieval(session, request.message, rc, pinned, retrieval_ms, warming_up=warming_up)
     # Counted so a failed generation below can undo exactly what was added: an
     # early-primed turn adds three messages (passage, ack, question) instead
     # of the usual one, and popping the wrong number would leave a dangling
@@ -719,6 +868,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
         llm_ms = elapsed_ms(llm_started)
 
         reply = (response.get("message") or {}).get("content", "").strip()
+        if not warming_up:
+            _log_llm(
+                session, messages,
+                model=request.model, temperature=temperature, max_tokens=max_tokens,
+                reply=reply, usage=build_usage(response), llm_ms=llm_ms,
+            )
 
         # Socratic mode drifts into lecturing on this model; re-ask once when it
         # does. Skip it for a warm-up call (max_tokens 1) -- the 1-token reply
@@ -726,8 +881,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
         if not warming_up and needs_socratic_retry(reply, session.profile):
             logger.info("Socratic reply drifted into an explanation; re-asking once.")
             retry_started = time.perf_counter()
+            retry_messages = socratic_retry_messages(messages, reply, request.message)
             retry = await client.chat(
-                socratic_retry_messages(messages, reply, request.message),
+                retry_messages,
                 model=request.model,
                 temperature=temperature,
                 max_tokens=max_tokens,
@@ -737,6 +893,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
             # free one.
             retry_ms = elapsed_ms(retry_started)
             retry_reply = (retry.get("message") or {}).get("content", "").strip()
+            _log_llm(
+                session, retry_messages,
+                model=request.model, temperature=temperature, max_tokens=max_tokens,
+                reply=retry_reply, usage=build_usage(retry), llm_ms=retry_ms, retry=True,
+            )
             if retry_reply.endswith("?"):
                 reply, response = retry_reply, retry
     except Exception:
@@ -822,6 +983,7 @@ async def _stream_events(
             # is grounded in while it is still being written.
             yield _sse({"type": "sources", "sources": rc.sources})
         pinned = _is_pinned(session.profile)
+        _log_retrieval(session, message, rc, pinned, retrieval_ms)
         _append_turn(session, rc, message, pinned)
         messages = build_chat_messages(
             session.history(settings.max_history_messages),
@@ -848,6 +1010,11 @@ async def _stream_events(
                 session.add("assistant", reply)
                 _reprime_after_reply(session, model, rc.context if pinned else None)
                 usage = build_usage(chunk)
+                _log_llm(
+                    session, messages,
+                    model=model, temperature=temperature, max_tokens=max_tokens,
+                    reply=reply, usage=usage, llm_ms=elapsed_ms(llm_started),
+                )
                 done: Dict[str, Any] = {
                     "type": "done",
                     "session_id": session.session_id,

@@ -121,10 +121,17 @@ class Settings(BaseSettings):
     # penalty makes the model swap them for rare junk tokens (word salad).
     repeat_penalty: float = 1.15
     repeat_last_n: int = 128
-    # A tutor answer is 2-3 short sentences plus an example. Low on purpose — it's
-    # the biggest CPU-latency lever, and Hindi costs 2-4x more tokens per word.
-    # Raise it if answers get cut off mid-sentence.
-    max_tokens: int = 200
+    # Raised 200 -> 550 2026-09-29 at the user's request: answers were landing
+    # far short of a 300+ word target because this cap guillotined generation
+    # long before the model reached that length, no matter what the prompt
+    # (see STYLE_RULES / word_budget in tutor.py) asked for. This is the
+    # biggest CPU-latency lever in the app -- a ~300-word English reply is
+    # roughly 400 tokens, and at the measured ~4.5-15 tok/s this box decodes
+    # at (see the per-turn log), that is tens of seconds of decode the
+    # student now waits through on every turn, not the few seconds a 200-token
+    # cap cost. Revert toward 200 if that latency turns out to be unacceptable
+    # for the voice-tutor use case this was originally tuned for.
+    max_tokens: int = 550
     # Devanagari costs 2-4x more tokens per word than English, so the same answer
     # needs a bigger token cap to land its final sentence instead of being cut
     # off mid-word. Kept as its own setting rather than a multiplier because the
@@ -135,7 +142,14 @@ class Settings(BaseSettings):
     # .env (and in the decision record) for weeks with no field behind it, so
     # pydantic's extra="ignore" silently dropped it and non-English turns used
     # `max_tokens` the whole time.
-    max_tokens_non_english: int = 240
+    #
+    # Raised 240 -> 950 alongside max_tokens above, same reason: a 300-word
+    # Devanagari reply costs roughly 600-900 tokens at this model's ~2-3
+    # tokens/word, so 240 was cutting a 300-word target off after barely
+    # 80-120 words. Checked against num_ctx below: worst-case prompt (~4,000
+    # tokens, see that field's own comment) + 950 here is ~4,950, still under
+    # 6,144 -- no num_ctx change needed for this alone.
+    max_tokens_non_english: int = 950
     # Sized for the worst Devanagari case, not the English one. Four 2,000-
     # character Hindi passages are ~5,800 tokens on their own; with the system
     # prompt, breadcrumbs and replayed history the window has to hold roughly
@@ -212,6 +226,39 @@ class Settings(BaseSettings):
     # panel while leaving the numbers on the wire, which is the other half of
     # the same control.)
     metrics_enabled: bool = True
+
+    # --- Pipeline event log --------------------------------------------------
+    # A separate, structured log -- one JSON line per event, one FILE per
+    # pipeline stage (logs/stt.jsonl, logs/retrieval.jsonl, logs/llm.jsonl,
+    # logs/tts.jsonl) -- of what each stage actually did, not just how long it
+    # took: for STT the audio shape and the transcribed text, for retrieval the
+    # chunks considered and pasted, for the LLM the final prompt and reply, for
+    # TTS the text spoken. Written through app/services/turnlog.py, apart from
+    # the console log in backend.out.log, so `tail -f logs/stt.jsonl` shows
+    # only that stage instead of everything interleaved.
+    turn_log_enabled: bool = True
+    # Relative to apps/backend/, like the model/data paths above. Each stage
+    # gets its own file inside it, named after the event (see turnlog.py).
+    turn_log_dir: str = "logs"
+    # Rotate rather than grow unbounded -- this runs for weeks at a time on an
+    # 8 GB box. 10 MB x 5 backups per FILE (so per stage), not shared across them.
+    turn_log_max_bytes: int = 10 * 1024 * 1024
+    turn_log_backup_count: int = 5
+    # Also maintain logs/{event}.pretty.json -- a real JSON array, indent=2,
+    # auto-rewritten on every event -- so it can be opened straight in an
+    # editor instead of piped through `jq`. Its own switch, separate from
+    # turn_log_enabled: this rewrites the WHOLE array on every single event
+    # (there is no cheap append for a JSON array), and an `llm` entry carries
+    # the whole growing conversation history, so this is real, inline,
+    # request-path I/O cost that grows with the session -- not the trivial
+    # single-line append the plain .jsonl pays. Turn this off (keeping
+    # turn_log_enabled on) if that ever shows up as latency, and rely on the
+    # .jsonl + `jq` instead.
+    turn_log_pretty: bool = True
+    # How many of the most recent events the pretty mirror keeps -- bounds
+    # both its file size and the cost of rewriting it every time, unlike the
+    # byte-based rotation the plain .jsonl gets.
+    turn_log_pretty_max_entries: int = 30
 
     # --- Retrieval (RAG) ---------------------------------------------------
     # Textbook retrieval is additive: if the store can't be opened the tutor

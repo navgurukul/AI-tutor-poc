@@ -28,6 +28,38 @@ const SILENCE_HANGOVER_MS = 1100;
 // own comment below for why it retries at all.
 const READINESS_RETRY_DELAYS_MS = [500, 1500, 3000];
 
+// IndicConformer's vocabulary has no punctuation tokens at all -- checked
+// directly against models/indicconformer/tokens.txt, which holds subword
+// pieces across several scripts and not one Devanagari danda (।) or ASCII
+// stop among them. The model was simply never trained to emit one, so a long
+// dictation comes back as one unbroken run of words no matter what settings
+// are used. A pause is the only signal left to guess where a sentence ends:
+// the final clip is split at internal pauses (see splitOnPauses) and each
+// piece decoded separately, then rejoined with a danda in between.
+const DANDA = "।";
+// An internal pause at least this long is treated as a likely sentence break.
+// MEASURED WRONG at 500ms 2026-09-29: someone dictating a passage carefully
+// -- reading it aloud rather than talking naturally -- pauses 500ms+ between
+// ordinary WORDS and phrases too, not just between sentences, so that value
+// caught nearly every word gap and produced a danda after almost every few
+// words. Raised close to the SILENCE_HANGOVER_MS ceiling (1100ms, which ends
+// the WHOLE recording) to leave only a narrow band of "long enough to be a
+// sentence break, not long enough to end the utterance" -- there may be no
+// threshold that cleanly separates the two for every speaker; a pause-timing
+// heuristic has a real ceiling here, not just a tuning problem.
+const SENTENCE_PAUSE_MS = 900;
+// RMS scan window used to find those pauses. Coarse on purpose: this only
+// has to find silence, not do speech recognition.
+const PAUSE_SCAN_FRAME_MS = 30;
+const PAUSE_SCAN_FRAME_SAMPLES = Math.round((PAUSE_SCAN_FRAME_MS / 1000) * TARGET_RATE);
+// Never split into a sliver shorter than this -- each segment is its own HTTP
+// + decode call, which has fixed overhead not worth paying for half a word.
+// Raised alongside SENTENCE_PAUSE_MS: a "sentence" should be more than a
+// couple of words, so a segment barely over a second is more likely a
+// spurious split than a real one.
+const MIN_SEGMENT_S = 1.2;
+const MIN_SEGMENT_SAMPLES = Math.round(MIN_SEGMENT_S * TARGET_RATE);
+
 /** Resample a mono Float32 buffer to 16 kHz, the rate IndicConformer expects.
  *
  * Two directions, because the capture rate is the device's, not ours. Asking
@@ -103,10 +135,20 @@ function encodeWav(samples: Float32Array): Blob {
   return new Blob([buffer], { type: "audio/wav" });
 }
 
-async function postWav(samples: Float32Array, language: string): Promise<string> {
+async function postWav(
+  samples: Float32Array,
+  language: string,
+  requestId?: string,
+): Promise<string> {
   const res = await fetch(`${STT_URL}?language=${encodeURIComponent(language)}`, {
     method: "POST",
-    headers: { "Content-Type": "audio/wav" },
+    // Only the final (non-partial) call passes a requestId -- it's what lets
+    // the backend's /client-timing call below be joined, in stt.jsonl, with
+    // the server-side line for this same clip. Partial/interim re-decodes
+    // don't bother: nothing calls client-timing for them.
+    headers: requestId
+      ? { "Content-Type": "audio/wav", "X-Request-Id": requestId }
+      : { "Content-Type": "audio/wav" },
     body: encodeWav(samples),
   });
   if (!res.ok) {
@@ -115,6 +157,91 @@ async function postWav(samples: Float32Array, language: string): Promise<string>
   }
   const data = (await res.json()) as { text?: string };
   return (data.text || "").trim();
+}
+
+/** Best-effort: tells the backend how long the student actually waited (mic
+ * stop -> text on screen), including upload/download and the React update --
+ * everything the server's own log can't see. Never awaited by the caller and
+ * never surfaced as an error; a lost timing ping must not affect the UI. */
+function reportClientTiming(payload: {
+  request_id: string;
+  client_total_ms: number;
+  clip_seconds: number;
+  chars: number;
+  truncated: boolean;
+  dropped_seconds?: number;
+}): void {
+  fetch(`${STT_URL}/client-timing`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => undefined);
+}
+
+/**
+ * Split a mono 16 kHz clip into [start, end) sample ranges at internal
+ * pauses, so each range can be decoded separately and rejoined with a danda
+ * (see the DANDA/SENTENCE_PAUSE_MS comment above for why this exists at all).
+ *
+ * Covers the WHOLE clip -- every sample belongs to exactly one segment,
+ * including the pause audio itself (harmless: the model decodes silence as
+ * nothing). The common case, a short question with no mid-utterance pause,
+ * returns a single segment covering the entire clip -- same one decode call
+ * as before this existed.
+ */
+function splitOnPauses(samples: Float32Array): Array<[number, number]> {
+  const boundaries: number[] = [];
+  let speechSeen = false;
+  let silenceStart = -1; // sample index the current silence run began at, or -1
+  let segmentStart = 0;
+
+  for (let i = 0; i < samples.length; i += PAUSE_SCAN_FRAME_SAMPLES) {
+    const end = Math.min(samples.length, i + PAUSE_SCAN_FRAME_SAMPLES);
+    let sum = 0;
+    for (let j = i; j < end; j++) sum += samples[j] * samples[j];
+    const isSpeech = Math.sqrt(sum / (end - i)) > SPEECH_RMS;
+
+    if (isSpeech) {
+      speechSeen = true;
+      silenceStart = -1;
+      continue;
+    }
+    if (!speechSeen) continue; // leading silence before any speech -- not a break
+    if (silenceStart === -1) silenceStart = i;
+    const silenceMs = ((end - silenceStart) / TARGET_RATE) * 1000;
+    if (
+      silenceMs >= SENTENCE_PAUSE_MS &&
+      silenceStart - segmentStart >= MIN_SEGMENT_SAMPLES
+    ) {
+      boundaries.push(silenceStart);
+      segmentStart = silenceStart;
+      silenceStart = -1; // one boundary per pause, not one per frame of it
+    }
+  }
+
+  const segments: Array<[number, number]> = [];
+  let start = 0;
+  for (const b of boundaries) {
+    segments.push([start, b]);
+    start = b;
+  }
+  segments.push([start, samples.length]);
+
+  // Drop segments that are pure silence before anything is sent for decoding
+  // -- most importantly the trailing one. `finish()` only runs once
+  // SILENCE_HANGOVER_MS (1.1s) of quiet has already been heard, so that
+  // trailing pause is baked into every single recording, not just a long
+  // dictation. Without this filter, a plain one-sentence question would
+  // ALSO come back as two segments (the answer, then ~1.1s of silence) and
+  // pay for a second, wasted decode call every time.
+  const withSpeech = segments.filter(([s, e]) => {
+    let sum = 0;
+    for (let i = s; i < e; i++) sum += samples[i] * samples[i];
+    return Math.sqrt(sum / (e - s)) > SPEECH_RMS;
+  });
+  // Still return something even if every window came back quiet -- a
+  // low-volume recording should get one decode attempt, not zero.
+  return withSpeech.length ? withSpeech : segments.filter(([s, e]) => e > s);
 }
 
 /**
@@ -247,10 +374,28 @@ export function useIndicSpeechToText({ active, language }: EngineHookArgs): Tuto
       teardownMic();
       setIsListening(false);
 
+      // Measured BEFORE collect() applies its cap and BEFORE chunksRef is
+      // cleared below -- collect() silently drops everything older than the
+      // last FINAL_MAX_SEC seconds, so this is the only point that can still
+      // see how much (if any) speech that cap is about to throw away.
+      const rawTotal = transcribe
+        ? chunksRef.current.reduce((n, p) => n + p.length, 0)
+        : 0;
       const samples = transcribe ? collect(FINAL_MAX_SEC) : new Float32Array(0);
       chunksRef.current = [];
       setInterimTranscript("");
       if (!transcribe || samples.length === 0) return;
+
+      const capSamples = Math.round(FINAL_MAX_SEC * TARGET_RATE);
+      const truncated = rawTotal > capSamples;
+      const droppedSeconds = truncated ? (rawTotal - capSamples) / TARGET_RATE : 0;
+      if (truncated) {
+        console.warn(
+          `[stt] utterance ran past the ${FINAL_MAX_SEC}s cap -- dropped ~` +
+            `${droppedSeconds.toFixed(1)}s of speech from the START of this turn ` +
+            `before it was ever sent for transcription`,
+        );
+      }
 
       setIsTranscribing(true);
       const clipSeconds = samples.length / TARGET_RATE;
@@ -263,15 +408,50 @@ export function useIndicSpeechToText({ active, language }: EngineHookArgs): Tuto
         if (Math.abs(samples[i]) > peak) peak = Math.abs(samples[i]);
       }
       const rms = samples.length ? Math.sqrt(sumSq / samples.length) : 0;
+      // Ties this turn's server-side stt.jsonl line(s) to the client-timing
+      // line reported below, once the round trip is known. One segment (the
+      // common case: a short question, no mid-utterance pause) sends this id
+      // as-is; more than one suffixes each so every decode call still gets
+      // its own line, joinable by the shared `turnId:` prefix.
+      const turnId = crypto.randomUUID();
+      const segments = splitOnPauses(samples);
       const startedAt = performance.now();
-      void postWav(samples, languageRef.current)
+
+      const decodeTurn = async (): Promise<string> => {
+        const parts: string[] = [];
+        for (let i = 0; i < segments.length; i++) {
+          const [s, e] = segments[i];
+          const segmentId = segments.length > 1 ? `${turnId}:seg${i}` : turnId;
+          const part = await postWav(samples.slice(s, e), languageRef.current, segmentId);
+          if (part) parts.push(part);
+        }
+        // The model itself never emits punctuation (see DANDA above) -- each
+        // detected pause stands in for a full stop, and the trailing one
+        // marks the end of the whole dictation.
+        return parts.length ? parts.join(`${DANDA} `) + DANDA : "";
+      };
+
+      void decodeTurn()
         .then((text) => {
+          const clientTotalMs = performance.now() - startedAt;
           console.log(
-            `[timing] STT round-trip: ${(performance.now() - startedAt).toFixed(0)}ms ` +
-              `(${clipSeconds.toFixed(1)}s clip, rms ${rms.toFixed(3)}, peak ${peak.toFixed(2)} ` +
-              `-> ${text.length} chars)`,
+            `[timing] STT round-trip: ${clientTotalMs.toFixed(0)}ms ` +
+              `(${clipSeconds.toFixed(1)}s clip, ${segments.length} segment(s), ` +
+              `rms ${rms.toFixed(3)}, peak ${peak.toFixed(2)} -> ${text.length} chars)`,
           );
           if (text) setTranscript((prev) => (prev ? `${prev} ${text}` : text));
+          // Fire-and-forget: this is the one number neither side alone can
+          // produce -- upload + decode + download + the setTranscript above,
+          // as the student actually experienced it, summed across every
+          // segment this turn was split into.
+          reportClientTiming({
+            request_id: turnId,
+            client_total_ms: Math.round(clientTotalMs),
+            clip_seconds: Math.round(clipSeconds * 10) / 10,
+            chars: text.length,
+            truncated,
+            dropped_seconds: truncated ? Math.round(droppedSeconds * 10) / 10 : undefined,
+          });
         })
         .catch((err) => {
           setError(

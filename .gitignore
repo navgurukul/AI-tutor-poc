@@ -30,6 +30,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Structured pipeline event log (stt/retrieval/llm/tts content) -- device
+# data, not source. See TURN_LOG_PATH / app/services/turnlog.py.
+apps/backend/logs/
+
 # Editors / OS
 .DS_Store
 Thumbs.db

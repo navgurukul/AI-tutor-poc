@@ -16,12 +16,15 @@ from __future__ import annotations
 import array
 import io
 import logging
+import time
 import wave
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from threading import Lock
 
 from app.config import settings
+from app.services import turnlog
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +54,9 @@ def _abs(path_str: str) -> Path:
 def _one(d: Path, pattern: str) -> Path:
     hits = sorted(d.glob(pattern))
     if not hits:
-        raise SttUnavailable("{} missing from {}. Run scripts/setup.ps1.".format(pattern, d))
+        raise SttUnavailable(
+            "{} missing from {}. Run scripts/setup.ps1.".format(pattern, d)
+        )
     return hits[0]
 
 
@@ -175,18 +180,74 @@ def warm(language: str) -> bool:
     return True
 
 
-def transcribe(wav_bytes: bytes, language: str) -> str:
-    """Blocking - call via run_in_threadpool. Expects a 16-bit mono PCM WAV."""
-    rec = _recognizer(_engine_for(language))
+def transcribe(
+    wav_bytes: bytes,
+    language: str,
+    *,
+    request_id: str | None = None,
+    request_started: float | None = None,
+) -> str:
+    """Blocking - call via run_in_threadpool. Expects a 16-bit mono PCM WAV.
+
+    `request_id` and `request_started` are passed down from the router purely
+    so the ONE log line written here can carry the whole request's shape, not
+    just the decode: `request_id` correlates it with the frontend's own
+    client-timing call (see routers/stt.py's /client-timing), and
+    `request_started` (a perf_counter mark taken before the request body was
+    even read) lets `request_ms` include body-read and threadpool-dispatch
+    overhead that `decode_ms` alone would miss. Logging lives here rather than
+    in the router because this function is the only place that already has
+    the audio's own shape (sample_rate, channels, decode result) in scope --
+    splitting the log write out to the router would mean passing all of that
+    back out again just to log it.
+    """
+    # Wall-clock start, not just a perf_counter mark: the log records when a
+    # clip arrived, not only how long it took, so a slow turn can be lined up
+    # against what else was happening on the box at that moment.
+    start_time = datetime.now(timezone.utc).isoformat()
+    started = time.perf_counter()
+    engine = _engine_for(language)
+    rec = _recognizer(engine)
 
     with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
         if wf.getsampwidth() != 2 or wf.getnchannels() != 1:
             raise ValueError("expected 16-bit mono PCM WAV")
         sample_rate = wf.getframerate()
+        channels = wf.getnchannels()
+        sample_width = wf.getsampwidth()
         pcm = array.array("h")
         pcm.frombytes(wf.readframes(wf.getnframes()))
 
+    def emit(*, empty: bool, text: str) -> None:
+        # One line per call, empty or not -- told apart by `empty` rather than
+        # by which fields are present, so every stt.jsonl row has the same shape.
+        now = time.perf_counter()
+        turnlog.log_event(
+            "stt",
+            phase="server",
+            request_id=request_id,
+            language=language,
+            engine=engine,
+            start_time=start_time,
+            end_time=datetime.now(timezone.utc).isoformat(),
+            bytes_in=len(wav_bytes),
+            sample_rate=sample_rate,
+            channels=channels,
+            sample_width=sample_width,
+            n_samples=len(pcm),
+            audio_duration_s=round(len(pcm) / sample_rate, 3) if sample_rate else 0.0,
+            empty=empty,
+            text=text,
+            decode_ms=round((now - started) * 1000, 1),
+            # None (not 0) when the router didn't pass a start mark, so it's
+            # visibly absent in the log rather than a misleadingly exact 0.0.
+            request_ms=round((now - request_started) * 1000, 1)
+            if request_started is not None
+            else None,
+        )
+
     if not pcm:
+        emit(empty=True, text="")
         return ""
     samples = [s / 32768.0 for s in pcm]
 
@@ -194,4 +255,7 @@ def transcribe(wav_bytes: bytes, language: str) -> str:
         stream = rec.create_stream()
         stream.accept_waveform(sample_rate, samples)
         rec.decode_stream(stream)
-        return (stream.result.text or "").strip()
+        text = (stream.result.text or "").strip()
+
+    emit(empty=False, text=text)
+    return text

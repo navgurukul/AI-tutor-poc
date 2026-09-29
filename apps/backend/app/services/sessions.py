@@ -101,6 +101,15 @@ class Session:
         # result is moot anyway -- the question is about to read that exact
         # prefix itself.
         self.repriming: Optional["asyncio.Task"] = None
+        # The system prompt (persona) sent on the MOST RECENT real LLM call,
+        # verbatim -- compared against the next turn's to log whether Ollama's
+        # KV cache prefix actually held (byte-identical -> cached) or forked
+        # (changed -> full re-prefill). It should never change within a
+        # session in the normal case (build_system_prompt is a pure function
+        # of `profile` and the pinned block, both fixed once a session
+        # starts) -- this exists to CATCH it when it does, e.g. get_or_create
+        # overwriting `profile` on an existing session, rather than assume.
+        self.last_system_prompt: Optional[str] = None
 
     def remember_chunks(self, chunk_ids: List[int]) -> List[int]:
         """Add newly retrieved chunk ids, preserving order and skipping repeats.

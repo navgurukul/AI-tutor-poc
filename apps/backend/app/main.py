@@ -19,6 +19,7 @@ from app.routers import chat, health, library, sessions, stt, tts, tutor
 
 from app.services import stt as stt_service
 from app.services import tts as tts_service
+from app.services import turnlog
 from app.services.ollama_client import OllamaError, client
 from app.services.rag import service as rag_service
 from app.services.rag import spell
@@ -28,6 +29,11 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s"
 )
 logger = logging.getLogger("ai-tutor")
+
+# The structured per-stage event log (stt/retrieval/llm/tts content, not just
+# timings) is a separate file from the console log above -- set up here, once,
+# before anything that might call turnlog.log_event() gets a chance to run.
+turnlog.configure()
 
 
 async def _warm_model() -> None:
