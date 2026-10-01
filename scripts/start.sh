@@ -7,7 +7,7 @@
 #   From anywhere:  ./scripts/start.sh
 #
 #   Requires Ollama running locally (`ollama serve`) with the model pulled
-#   (`ollama pull qwen2.5:1.5b`) - the backend starts without it, but /health
+#   (`ollama pull qwen3.5:2b-q4_K_M`) - the backend starts without it, but /health
 #   reports degraded and chat requests fail until it's reachable.
 #
 #   Closing the borderless window, or Ctrl+C here, stops the frontend; the
@@ -53,7 +53,7 @@ printf '\n%s==> Checking Ollama...%s\n' "$c_cyan" "$c_reset"
 if url_ok "${OLLAMA_HOST:-http://localhost:11434}/api/version"; then
   printf '%sOllama is up.%s\n' "$c_green" "$c_reset"
 else
-  printf "%sOllama isn't responding on http://localhost:11434 - start it with 'ollama serve' in another terminal (and 'ollama pull qwen2.5:1.5b' if you haven't). Continuing anyway; /health will report degraded until it's reachable.%s\n" "$c_yellow" "$c_reset"
+  printf "%sOllama isn't responding on http://localhost:11434 - start it with 'ollama serve' in another terminal (and 'ollama pull qwen3.5:2b-q4_K_M' if you haven't). Continuing anyway; /health will report degraded until it's reachable.%s\n" "$c_yellow" "$c_reset"
 fi
 
 printf '\n%s==> Starting backend on http://localhost:8000 ...%s\n' "$c_cyan" "$c_reset"

@@ -2,7 +2,7 @@
 
 Proof of concept for an AI tutor that runs **entirely offline**. Speak or type a question
 and get an answer back: inference happens locally through [Ollama](https://ollama.com) with
-`qwen2.5:1.5b` on the backend; the frontend does on-device speech-to-text and speaks the
+`qwen3.5:2b-q4_K_M` on the backend; the frontend does on-device speech-to-text and speaks the
 answer with the browser's built-in speech synthesis. No cloud API, no internet needed once
 the model is downloaded.
 

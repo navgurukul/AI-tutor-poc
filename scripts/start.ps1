@@ -10,7 +10,7 @@
   three apps and creates their .env files).
 
   Requires Ollama running locally (`ollama serve`) with the model pulled
-  (`ollama pull qwen2.5:1.5b`) - the backend starts without it, but /health
+    (`ollama pull qwen3.5:2b-q4_K_M`) - the backend starts without it, but /health
   will report degraded and chat requests will fail until it's reachable.
 
   Closing the borderless window, or Ctrl+C here, stops both the frontend and
@@ -57,7 +57,7 @@ Write-Host "==> Checking Ollama..." -ForegroundColor Cyan
 if (Test-UrlOk "http://localhost:11434/api/version") {
     Write-Host "Ollama is up." -ForegroundColor Green
 } else {
-    Write-Host "Ollama isn't responding on http://localhost:11434 - start it with 'ollama serve' in another terminal (and 'ollama pull qwen2.5:1.5b' if you haven't). Continuing anyway; /health will report degraded until it's reachable." -ForegroundColor Yellow
+    Write-Host "Ollama isn't responding on http://localhost:11434 - start it with 'ollama serve' in another terminal (and 'ollama pull qwen3.5:2b-q4_K_M' if you haven't). Continuing anyway; /health will report degraded until it's reachable." -ForegroundColor Yellow
 }
 
 Write-Host ""

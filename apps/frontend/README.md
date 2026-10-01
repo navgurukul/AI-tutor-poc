@@ -244,7 +244,7 @@ arrive. Nothing waits for the full answer. This is the single biggest win — a 
 The moment the tutor screen mounts, the frontend fires one throwaway
 `POST /api/chat` (`max_tokens: 1`, with the session profile) and discards the reply.
 That:
-- pulls `qwen2.5:1.5b` into Ollama's memory (~10 s cold-start, weights off disk) while
+- pulls `qwen3.5:2b-q4_K_M` into Ollama's memory (~10 s cold-start, weights off disk) while
   the student is still reading the screen, instead of on their first question;
 - makes Ollama cache the **system-prompt prefix**, so the first real question only has
   to process the question itself.

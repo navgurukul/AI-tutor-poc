@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import httpx
 
 from app.config import settings
+from app.services import promptlog
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +225,13 @@ class OllamaClient:
         try:
             response = await self.client.post("/api/chat", json=payload)
             self._raise_for_response(response, payload["model"])
-            return response.json()
+            body = response.json()
+            promptlog.log_prompt(
+                messages,
+                (body.get("message") or {}).get("content"),
+                payload["model"],
+            )
+            return body
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             raise self._unreachable(exc)
         except httpx.ReadTimeout:
@@ -247,6 +254,7 @@ class OllamaClient:
     ) -> AsyncIterator[Dict[str, Any]]:
         """Yield each decoded chunk from Ollama's newline-delimited JSON stream."""
         payload = self._payload(messages, model, temperature, max_tokens, True)
+        reply_parts: List[str] = []
         try:
             async with self.client.stream("POST", "/api/chat", json=payload) as response:
                 if response.status_code >= 400:
@@ -256,9 +264,17 @@ class OllamaClient:
                     if not line.strip():
                         continue
                     try:
-                        yield json.loads(line)
+                        chunk = json.loads(line)
                     except json.JSONDecodeError:
                         logger.warning("Skipping malformed stream line: %s", line[:200])
+                        continue
+                    reply_parts.append((chunk.get("message") or {}).get("content", ""))
+                    yield chunk
+            # Logged once the stream is exhausted so the file holds the whole
+            # reply the student saw, not one line per token.
+            promptlog.log_prompt(
+                messages, "".join(reply_parts), payload["model"]
+            )
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             raise self._unreachable(exc)
         except httpx.ReadTimeout:

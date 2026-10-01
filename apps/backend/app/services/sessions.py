@@ -70,11 +70,18 @@ class Session:
         reduce it?" -- by the same word test retrieval uses to decide whether
         to search with the previous question (rag.followup). A question that
         names its own topic carries nothing, which is most of them.
+
+        settings.force_follow_up_prompt (testing only) bypasses that word test
+        and treats every question as a follow-up, so the prompt always carries
+        the earlier question(s) -- see tutor.FOLLOW_UP_PROMPT.
         """
         if questions <= 0 or not self.messages:
             return []
         current = self.messages[-1]
-        if current.role != "user" or not is_context_dependent(current.content):
+        is_follow_up = settings.force_follow_up_prompt or is_context_dependent(
+            current.content
+        )
+        if current.role != "user" or not is_follow_up:
             return []
         earlier = [m.content for m in reversed(self.messages[:-1]) if m.role == "user"]
         return earlier[:questions][::-1]

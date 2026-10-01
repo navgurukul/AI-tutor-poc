@@ -92,6 +92,34 @@ def _new_turn_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+def _log_failed_turn(
+    turn_id: str,
+    session,
+    message: str,
+    retrieval_ms: int,
+    context: str,
+    sources: list,
+    ttft_ms: int,
+    turn_start: float,
+) -> None:
+    """A row for a turn that never reached `done`, so a failed test question
+    still shows up in the CSV instead of leaving a silent gap."""
+    turnlog.log_backend_turn(
+        {
+            "ts_utc": turnlog.now_utc(),
+            "turn_id": turn_id,
+            "session_id": session.session_id,
+            "question_chars": len(message),
+            "retrieval_ms": retrieval_ms,
+            "sources": len(sources),
+            "context_chars": len(context),
+            "ttft_ms": ttft_ms,
+            "total_ms": int((time.perf_counter() - turn_start) * 1000),
+            "answer_chars": 0,
+        }
+    )
+
+
 @router.post("/chat", response_model=ChatResponse, summary="Send a message (buffered)")
 async def chat(request: ChatRequest) -> ChatResponse:
     """Full reply in one response. Simple to integrate; use /chat/stream for
@@ -273,10 +301,12 @@ async def _stream_events(
     except OllamaError as exc:
         logger.warning("Stream failed: %s", exc.detail)
         session.pop_last()
+        _log_failed_turn(turn_id, session, message, retrieval_ms, context, sources, ttft_ms, turn_start)
         yield _sse({"type": "error", "detail": exc.detail, "hint": exc.hint})
     except Exception as exc:  # noqa: BLE001 - never leave the stream hanging
         logger.exception("Unexpected stream failure")
         session.pop_last()
+        _log_failed_turn(turn_id, session, message, retrieval_ms, context, sources, ttft_ms, turn_start)
         yield _sse({"type": "error", "detail": str(exc)})
     finally:
         yield "data: [DONE]\n\n"

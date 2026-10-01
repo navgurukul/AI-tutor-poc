@@ -102,7 +102,7 @@ function Open-TutorWindow {
     Start-Process $browser -ArgumentList @(
         "--app=http://127.0.0.1:$Port/",
         "--new-window", "--window-size=1280,800",
-        "--profile-directory=AI Tutor",
+        '--profile-directory="AI Tutor"',
         "--no-first-run", "--no-default-browser-check", "--disable-extensions"
     )
 }

@@ -142,8 +142,18 @@ if (-not (Test-Path $backendPython)) {
 
 Step "Installing backend Python packages..."
 & $backendPython -m pip install --quiet --upgrade pip
-& $backendPython -m pip install --quiet -r (Join-Path $backendDir "requirements.txt")
-if ($LASTEXITCODE -ne 0) { throw "pip install failed in apps/backend" }
+Push-Location $backendDir
+try {
+    # PyO3 0.22.x (used by pydantic-core) only declares support up to Python 3.13.
+    # On Python 3.14+ the build is rejected unless we opt into the stable ABI
+    # forward-compatibility mode, which lets maturin/PyO3 compile anyway.
+    $env:PYO3_USE_ABI3_FORWARD_COMPATIBILITY = "1"
+    & $backendPython -m pip install --quiet -r requirements.txt
+    if ($LASTEXITCODE -ne 0) { throw "pip install failed in apps/backend" }
+} finally {
+    Remove-Item Env:\PYO3_USE_ABI3_FORWARD_COMPATIBILITY -ErrorAction SilentlyContinue
+    Pop-Location
+}
 
 $backendEnvPath = Join-Path $backendDir ".env"
 $backendEnvExamplePath = Join-Path $backendDir ".env.example"

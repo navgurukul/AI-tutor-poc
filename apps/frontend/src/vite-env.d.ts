@@ -5,6 +5,8 @@ interface ImportMetaEnv {
   readonly VITE_USE_MOCK_API?: string;
   readonly VITE_VOICE_MODEL_URL?: string;
   readonly VITE_VOICE_CONFIG_URL?: string;
+  readonly VITE_DEFAULT_LEVEL?: string;
+  readonly VITE_DEFAULT_SUBJECT?: string;
 }
 
 interface ImportMeta {

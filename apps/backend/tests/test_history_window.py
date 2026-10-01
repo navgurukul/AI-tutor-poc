@@ -21,6 +21,7 @@ it ("How can we reduce it?", "Why?") goes with that question named as background
 and the style rule's length spelled out again, last.
 """
 
+from app.config import settings
 from app.schemas import TutorProfile
 from app.services.sessions import Session
 from app.services.tutor import (
@@ -184,3 +185,26 @@ def test_the_socratic_follow_up_rule_agrees_with_the_style_rule():
     """A follow-up must not be held to a different length than a first question."""
     assert "5 to 6 plain sentences" in STYLE_RULES["socratic"]
     assert FOLLOW_UP_RULES["socratic"].startswith("5 to 6 plain sentences")
+
+
+# --------------------------------------------------------------------------
+# settings.force_follow_up_prompt (testing-only override)
+# --------------------------------------------------------------------------
+def test_force_follow_up_prompt_treats_a_new_topic_as_a_follow_up(monkeypatch):
+    """With the override on, even a question that names its own topic is sent
+    in the follow-up shape, as long as there is an earlier question to carry."""
+    monkeypatch.setattr(settings, "force_follow_up_prompt", True)
+    assert _session(Q1, A1, NEW_TOPIC).earlier_questions(1) == [Q1[1]]
+    assert _session(Q1, A1, NEW_TOPIC).history(1) == [
+        {"role": "user", "content": follow_up_message([Q1[1]], NEW_TOPIC[1])}
+    ]
+
+
+def test_force_follow_up_prompt_still_carries_nothing_with_no_earlier_question(monkeypatch):
+    monkeypatch.setattr(settings, "force_follow_up_prompt", True)
+    assert Session("test").earlier_questions(1) == []
+    assert _session(Q1).earlier_questions(1) == []
+
+
+def test_force_follow_up_prompt_off_by_default():
+    assert settings.force_follow_up_prompt is False

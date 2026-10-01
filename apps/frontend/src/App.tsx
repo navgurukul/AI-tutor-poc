@@ -3,9 +3,18 @@ import type { SchoolClass, Subject } from "./types";
 import { TutorPage } from "./pages/TutorPage";
 import { SetupPage } from "./pages/SetupPage";
 
-// Class/subject selection is removed for now — using static values until it's needed again.
-const STATIC_CLASS: SchoolClass = { id: "class-6", name: "Class 6" };
-const STATIC_SUBJECT: Subject = { id: "math", name: "Mathematics" };
+// Class/subject selection is removed for now — using env-configured static
+// values until it's needed again. These MUST match a (grade, subject) pair
+// actually ingested into the library (see /api/library/status), or retrieval
+// silently returns zero textbook passages every turn.
+const STATIC_CLASS: SchoolClass = {
+  id: "class-9",
+  name: import.meta.env.VITE_DEFAULT_LEVEL ?? "Class 9",
+};
+const STATIC_SUBJECT: Subject = {
+  id: "science",
+  name: import.meta.env.VITE_DEFAULT_SUBJECT ?? "Science",
+};
 
 type View = "tutor" | "setup";
 

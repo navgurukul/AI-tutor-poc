@@ -103,6 +103,17 @@ class Settings(BaseSettings):
     # what it binds to. Raise this if chained follow-ups ("why does that work?"
     # after "how can we reduce it?") start losing the topic.
     history_questions: int = 1
+
+    # Testing override: when set, Session.history (sessions.py) always treats
+    # the current question as a follow-up -- always naming the last
+    # `history_questions` questions as background and spelling out the style
+    # rule's length again (tutor.FOLLOW_UP_PROMPT) -- instead of gating on
+    # rag.followup.is_context_dependent. Off by default, so production
+    # behaviour (follow-up shape only for a question that actually leans on an
+    # earlier turn) is unchanged; set FORCE_FOLLOW_UP_PROMPT=true to exercise
+    # the follow-up prompt on every turn for a test run.
+    force_follow_up_prompt: bool = True
+
     session_ttl_minutes: int = 180
     max_sessions: int = 500
 
@@ -288,6 +299,14 @@ class Settings(BaseSettings):
     # is spending its time. Shapes and durations only -- never question or
     # answer text, because these files get copied off classroom laptops.
     turn_log_enabled: bool = True
+
+    # --- Raw prompt logging -------------------------------------------------
+    # The exact messages array sent to Ollama for every /api/chat call, plus
+    # its reply -- for debugging what the model actually saw, not just how
+    # long it took. Unlike turn_log_enabled this DOES carry question and answer
+    # text, so it defaults off; a developer turns it on locally with
+    # PROMPT_LOG_ENABLED=true when they need to see a real prompt.
+    prompt_log_enabled: bool = True
 
     # --- Live groundedness ------------------------------------------------
     # A question asked word for word from the gold set gets its reply graded

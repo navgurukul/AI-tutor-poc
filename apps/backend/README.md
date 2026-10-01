@@ -1,7 +1,7 @@
 # AI Tutor POC — Offline LLM Backend
 
 FastAPI backend for an AI tutor that runs **entirely offline**. Every completion is
-generated locally by [Ollama](https://ollama.com) using `qwen2.5:1.5b` — no external
+generated locally by [Ollama](https://ollama.com) using `qwen3.5:2b-q4_K_M` — no external
 API calls, no internet needed at request time.
 
 Frontend developers: the full interactive API reference is at **http://localhost:8000/docs**
@@ -16,7 +16,7 @@ once the server is running, and the OpenAPI schema at `/openapi.json` can genera
 
 ```bash
 # 1. One-time: install the model (needs internet ONCE, ~1 GB)
-ollama pull qwen2.5:1.5b
+ollama pull qwen3.5:2b-q4_K_M
 
 # 2. Make sure the Ollama daemon is running
 ollama serve          # skip if it already runs as a service
@@ -236,7 +236,7 @@ Copy `.env.example` to `.env` to override any of these:
 | Variable | Default | Notes |
 |---|---|---|
 | `OLLAMA_HOST` | `http://localhost:11434` | |
-| `OLLAMA_MODEL` | `qwen2.5:1.5b` | Any model shown by `ollama list`. |
+| `OLLAMA_MODEL` | `qwen3.5:2b-q4_K_M` | Any model shown by `ollama list`. |
 | `TEMPERATURE` | `0.7` | |
 | `MAX_TOKENS` | `800` | Per-reply cap (`num_predict`). |
 | `NUM_CTX` | `4096` | Context window. Well under the model's 32k, for speed. |
