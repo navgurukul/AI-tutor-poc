@@ -217,6 +217,32 @@ def grade_from_profile(profile: Optional[TutorProfile]) -> Optional[int]:
 
 
 
+# AFE-Learning-App hard-codes its persona in prompts.ts (PATIENT_TUTOR_INSTRUCTIONS):
+# "Patient tutor for a Class 9 student. Subject: Science." It does not read the
+# student's class or subject, and since stage 2 of the golden comparison neither
+# does this app's prompt (retrieval still scopes by the profile's grade).
+PERSONA = TutorProfile(level="Class 9", subject="Science", language="English", style="socratic")
+
+
+def build_tutor_messages(
+    question: str, previous_question: Optional[str], context: Optional[str]
+) -> List[Dict[str, str]]:
+    """The two messages sent each turn, as AFE sends them: system (persona,
+    preamble, excerpts) and one user turn. From the second question of a session
+    the user turn names the previous one (AFE's buildPatientTutorUserContent),
+    whether or not the new question leans on it -- unlike Session.history, which
+    wraps only a question with a dangling pronoun."""
+    user = question
+    if previous_question:
+        user = FOLLOW_UP_PROMPT.format(
+            earlier=previous_question, question=question, rule=FOLLOW_UP_RULES["socratic"]
+        )
+    return [
+        {"role": "system", "content": build_system_prompt(PERSONA, context)},
+        {"role": "user", "content": user},
+    ]
+
+
 def build_chat_messages(
     history: List[Dict[str, str]],
     profile: Optional[TutorProfile],

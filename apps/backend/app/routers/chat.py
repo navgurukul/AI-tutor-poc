@@ -13,19 +13,11 @@ from fastapi.responses import StreamingResponse
 from app.config import settings
 from app.schemas import ChatRequest, ChatResponse, Source, Usage
 from app.services.ollama_client import OllamaError, build_usage, client
-from app.services import groundedness, turnlog
+from app.services import groundedness, turndetail, turnlog
 from app.services.sessions import store
-from app.services.rag import service as library
-from app.services.rag.retrieval import (
-    citations,
-    format_excerpts,
-    prompt_hits,
-    retrieval_query,
-    retrieve,
-)
+from app.services.rag import hybrid
 from app.services.tutor import (
-    build_chat_messages,
-    grade_from_profile,
+    build_tutor_messages,
     needs_socratic_retry,
     socratic_retry_messages,
 )
@@ -45,46 +37,30 @@ def _sse(payload: Dict[str, Any]) -> str:
     return "data: {}\n\n".format(json.dumps(payload, ensure_ascii=False))
 
 
-async def _retrieve_context(
-    message: str,
-    profile,
-    previous_question: Optional[str] = None,
-    budget: Optional[int] = None,
-    reuse: Optional[Dict[int, str]] = None,
-) -> tuple:
-    """Textbook excerpts for this question, as (prompt block, citations, sent).
+async def _retrieve_context(message: str) -> tuple:
+    """Textbook excerpts for this question, as (prompt block, citations, detail).
 
-    Scoped to the session's grade and subject so a Class 6 question cannot be
-    answered out of a Class 11 chapter. `previous_question` is only used when
-    this one leans on it ("how can we reduce it?") -- see rag.followup.
-
-    Passages are shortened to the text searched for, except any in `reuse`,
-    which go out exactly as the last turn sent them. `sent` is this turn's
-    version of that map, for the session to hand back next turn.
+    AFE-Learning-App's retrieval (rag.hybrid) since stage 3 of the golden
+    comparison: the question exactly as typed, no grade or subject scoping, no
+    follow-up carry and no passage shortening. `detail` is the turn-log view of
+    the passages that went into the prompt.
     """
-    hits = await retrieve(
-        library.store,
-        message,
-        grade=grade_from_profile(profile),
-        subject=(profile.subject if profile else None),
-        previous_question=previous_question,
-    )
-    shown = prompt_hits(
-        hits, retrieval_query(message, previous_question), budget, reuse
-    )
-    sent = {hit.chunk_id: hit.text for hit in shown}
-    # Cite only what the model actually read. Citations used to be built from
-    # the untrimmed hits, so a passage the budget dropped was still shown to the
-    # student as a source with no excerpt behind it -- 13 of 28 citations in the
-    # multi-book run (docs/groundedness/causes-and-improvements-2026-09-28.md).
-    # That told the student the tutor had read a page it never saw, and made
-    # every manual audit of a turn misleading. `sources` in the turn log now
-    # counts passages read rather than passages retrieved; the library preview
-    # endpoint still reports every hit, which is where retrieval is inspected.
-    cited = citations(shown)
-    for citation, hit in zip(cited, shown):
-        citation["excerpt"] = hit.text
-    return format_excerpts(shown), cited, sent
+    chunks = await hybrid.query(message)
+    cited = [
+        {
+            "title": hybrid.source_name(c),
+            "heading": hybrid.breadcrumb(c),
+            # AFE's chunks carry no page numbers; 0 means "unknown".
+            "page_start": 0,
+            "page_end": 0,
+            "grade": None,
+            "subject": None,
+            "distance": round(c.distance, 4) if c.distance is not None else 0.0,
+            "excerpt": c.text,
+        }
+        for c in chunks
+    ]
+    return hybrid.build_context_block(chunks), cited, turndetail.hybrid_chunks(chunks)
 
 
 def _new_turn_id() -> str:
@@ -99,18 +75,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
     session = await store.get_or_create(request.session_id, request.profile)
     session.add("user", request.message)
 
-    context, sources, session.excerpts = await _retrieve_context(
-        request.message,
-        session.profile,
-        session.previous_question(),
-        budget=request.context_max_chars,
-        reuse=session.excerpts,
-    )
-    messages = build_chat_messages(
-        session.history(settings.history_questions),
-        session.profile,
-        context,
-    )
+    context, sources, _ = await _retrieve_context(request.message)
+    messages = build_tutor_messages(request.message, session.previous_question(), context)
     try:
         response = await client.chat(
             messages,
@@ -184,19 +150,15 @@ async def _stream_events(
 
     chunks = []
     ttft_ms = 0
+    first_token_at = 0.0
     context = ""
     sources = []
     retrieval_ms = 0
+    retrieved = []
     previous_question = session.previous_question()
     try:
         retrieval_started = time.perf_counter()
-        context, sources, session.excerpts = await _retrieve_context(
-            message,
-            session.profile,
-            previous_question,
-            budget=context_max_chars,
-            reuse=session.excerpts,
-        )
+        context, sources, retrieved = await _retrieve_context(message)
         retrieval_ms = int((time.perf_counter() - retrieval_started) * 1000)
         if sources:
             # Emitted before the first token so the UI can show what the answer
@@ -209,24 +171,19 @@ async def _stream_events(
                 # against this.
                 frame["context"] = context
             yield _sse(frame)
-        messages = build_chat_messages(
-            session.history(settings.history_questions),
-            session.profile,
-            context,
-        )
-        # Counted here, not at the end: by the time the row is written the reply
-        # has been appended to the session, so reading the window back then
-        # reports a question that was never in this prompt. Earlier questions
-        # carried, not messages: the prompt is always one student message now,
-        # so 0 is a question that named its topic and 1 a follow-up.
-        history_sent = len(session.earlier_questions(settings.history_questions))
+        messages = build_tutor_messages(message, previous_question, context)
+        # Earlier questions carried into the prompt: 1 from the second question
+        # of a session on (the user turn names the previous one), else 0.
+        history_sent = int(bool(previous_question))
+        prompt_sent_at = time.perf_counter()
         async for chunk in client.chat_stream(
             messages, model=model, temperature=temperature, max_tokens=max_tokens
         ):
             token = (chunk.get("message") or {}).get("content", "")
             if token:
                 if not chunks:
-                    ttft_ms = int((time.perf_counter() - turn_start) * 1000)
+                    first_token_at = time.perf_counter()
+                    ttft_ms = int((first_token_at - turn_start) * 1000)
                 chunks.append(token)
                 yield _sse({"type": "token", "content": token})
             if chunk.get("done"):
@@ -251,6 +208,50 @@ async def _stream_events(
                         "tokens_per_second": usage.get("tokens_per_second", 0),
                         "load_ms": usage.get("load_duration_ms", 0),
                         "total_ms": int((time.perf_counter() - turn_start) * 1000),
+                        "answer_chars": len(reply),
+                    }
+                )
+                turndetail.record(
+                    {
+                        "ts_utc": turnlog.now_utc(),
+                        "turn_id": turn_id,
+                        "session_id": session.session_id,
+                        "question": message,
+                        "previous_question": previous_question,
+                        "followup": history_sent > 0,
+                        "retrieval": {
+                            "ms": retrieval_ms,
+                            "query": message,
+                            "mode": "hybrid",
+                            "budget": "{} tokens".format(settings.hybrid_max_context_tokens),
+                            "top_k": settings.hybrid_top_k,
+                            "context_chars": len(context),
+                            "chunks": retrieved,
+                        },
+                        "prompt": {
+                            "model": model or settings.ollama_model,
+                            "options": client.options(temperature, max_tokens),
+                            "messages": messages,
+                            "prompt_chars": sum(len(m["content"]) for m in messages),
+                        },
+                        "llm": {
+                            "prompt_tokens": usage.get("prompt_tokens", 0),
+                            "completion_tokens": usage.get("completion_tokens", 0),
+                            "prefill_ms": usage.get("prompt_eval_ms", 0),
+                            "decode_ms": usage.get("eval_ms", 0),
+                            "load_ms": usage.get("load_duration_ms", 0),
+                            "tokens_per_second": usage.get("tokens_per_second", 0),
+                            # From the start of the turn (includes retrieval),
+                            # and from the moment the request left for Ollama.
+                            "ttft_ms": ttft_ms,
+                            "ttft_after_retrieval_ms": max(
+                                0, int((first_token_at - prompt_sent_at) * 1000)
+                            )
+                            if first_token_at
+                            else 0,
+                            "total_ms": int((time.perf_counter() - turn_start) * 1000),
+                        },
+                        "answer": reply,
                         "answer_chars": len(reply),
                     }
                 )

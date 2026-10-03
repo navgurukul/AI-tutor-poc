@@ -15,6 +15,7 @@ from app.schemas import (
     OllamaStatus,
 )
 from app.services.ollama_client import OllamaError, client
+from app.services.rag import hybrid
 from app.services.rag import service as rag_service
 from app.services.sessions import store
 
@@ -54,6 +55,7 @@ async def health() -> HealthResponse:
         # Reported but deliberately excluded from `healthy`: a missing
         # textbook library degrades answers, it does not break the tutor.
         library=rag_service.status(),
+        index=hybrid.status(),
     )
 
 

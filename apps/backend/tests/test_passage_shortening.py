@@ -19,14 +19,12 @@ Two ways this goes wrong silently, both pinned here:
 The two passages are the Class 6 book's own text, PDF line wraps included.
 """
 
-import asyncio
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import settings  # noqa: E402
-from app.routers import chat  # noqa: E402
 from app.services.rag.retrieval import (  # noqa: E402
     build_context_block,
     prompt_hits,
@@ -197,25 +195,6 @@ def test_a_passage_the_last_turn_sent_goes_out_again_verbatim(monkeypatch):
     sent_before = "… exactly what the topic question was sent …"
     shown = prompt_hits([_hit(SHADOW, 7)], "How can we reduce it?", 800, {7: sent_before})
     assert shown[0].text == sent_before
-
-
-def test_a_follow_up_on_the_same_passage_repeats_the_excerpt_block(monkeypatch):
-    """The follow-up's prompt has to start with the topic turn's, excerpts and
-    all, for the cache to cover it."""
-    monkeypatch.setattr(settings, "rag_passage_max_chars", 600)
-
-    async def fake_retrieve(store, question, **kwargs):
-        return [_hit(SWEAT, 3)]
-
-    monkeypatch.setattr(chat, "retrieve", fake_retrieve)
-    session = Session("s1")
-    topic_block, _, session.excerpts = asyncio.run(chat._retrieve_context(
-        "Why does our skin sweat?", None, None, 800, session.excerpts))
-    follow_block, _, _ = asyncio.run(chat._retrieve_context(
-        "Does it do this in winter?", None, "Why does our skin sweat?", 800,
-        session.excerpts))
-    assert session.excerpts == {3: topic_block.split("\n", 1)[1]}
-    assert follow_block == topic_block
 
 
 def test_a_new_session_has_sent_nothing():

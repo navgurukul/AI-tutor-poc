@@ -1,0 +1,580 @@
+{
+  "version": 1,
+  "date": "2026-09-29",
+  "note": "Questions are typed exactly as written. points = one entry per fact the answer should contain; each entry lists accepted substrings (any one matches). Class 12 Physics needs Parts I and II ingested.",
+  "questions": [
+    {
+      "id": "S1",
+      "type": "short",
+      "class_": 8,
+      "subject": "Science",
+      "chapter": "Combustion and Flame",
+      "page": "5",
+      "question": "What is combustion?",
+      "answerShouldMention": "A substance reacts with oxygen and gives off heat; the substance is called a fuel",
+      "points": [
+        [
+          "oxygen"
+        ],
+        [
+          "heat"
+        ],
+        [
+          "fuel"
+        ]
+      ]
+    },
+    {
+      "id": "S2",
+      "type": "short",
+      "class_": 8,
+      "subject": "Science",
+      "chapter": "Force and Pressure",
+      "page": "142",
+      "question": "What is pressure?",
+      "answerShouldMention": "Force per unit area",
+      "points": [
+        [
+          "force"
+        ],
+        [
+          "unit area",
+          "area"
+        ]
+      ]
+    },
+    {
+      "id": "S3",
+      "type": "short",
+      "class_": 9,
+      "subject": "Science",
+      "chapter": "Force and Laws of Motion",
+      "page": "116",
+      "question": "What is inertia?",
+      "answerShouldMention": "Objects tend to stay at rest or keep moving with the same velocity; the first law is the law of inertia",
+      "points": [
+        [
+          "rest"
+        ],
+        [
+          "motion",
+          "moving",
+          "velocity"
+        ],
+        [
+          "first law",
+          "law of inertia"
+        ]
+      ]
+    },
+    {
+      "id": "F1",
+      "type": "follow-up",
+      "class_": 9,
+      "subject": "Science",
+      "chapter": "Force and Laws of Motion",
+      "page": "116-117",
+      "question": "Can you give me an example of it from daily life?",
+      "answerShouldMention": "Falling forward when a car brakes suddenly, falling back when a bus starts suddenly, or being thrown sideways on a sharp turn",
+      "points": [
+        [
+          "car",
+          "bus",
+          "train",
+          "vehicle"
+        ],
+        [
+          "brake",
+          "braking",
+          "starts",
+          "starting",
+          "turn"
+        ],
+        [
+          "forward",
+          "backward",
+          "back",
+          "sideways",
+          "jerk",
+          "fall"
+        ]
+      ],
+      "followUpOf": "S3"
+    },
+    {
+      "id": "S4",
+      "type": "short",
+      "class_": 9,
+      "subject": "Science",
+      "chapter": "Matter in Our Surroundings",
+      "page": "3",
+      "question": "What is diffusion?",
+      "answerShouldMention": "Particles of two kinds of matter intermix on their own; faster on heating",
+      "points": [
+        [
+          "particles",
+          "molecules"
+        ],
+        [
+          "intermix",
+          "mix",
+          "spread"
+        ],
+        [
+          "heat",
+          "heating",
+          "faster",
+          "temperature"
+        ]
+      ]
+    },
+    {
+      "id": "S5",
+      "type": "short",
+      "class_": 10,
+      "subject": "Science",
+      "chapter": "Electricity",
+      "page": "204",
+      "question": "What is Ohm's law?",
+      "answerShouldMention": "V is directly proportional to I, provided the temperature stays the same; V/I is constant",
+      "points": [
+        [
+          "proportional"
+        ],
+        [
+          "temperature"
+        ],
+        [
+          "resistance",
+          "v/i",
+          "constant"
+        ]
+      ]
+    },
+    {
+      "id": "F2",
+      "type": "follow-up",
+      "class_": 10,
+      "subject": "Science",
+      "chapter": "Electricity",
+      "page": "204",
+      "question": "So what happens if we double the voltage?",
+      "answerShouldMention": "The current doubles too, because V/I (the resistance) stays constant at the same temperature",
+      "points": [
+        [
+          "current"
+        ],
+        [
+          "double",
+          "twice",
+          "2 times",
+          "2x",
+          "2×"
+        ],
+        [
+          "resistance",
+          "constant"
+        ]
+      ],
+      "followUpOf": "S5"
+    },
+    {
+      "id": "S6",
+      "type": "short",
+      "class_": 10,
+      "subject": "Science",
+      "chapter": "Chemical Reactions and Equations",
+      "page": "13",
+      "question": "What is corrosion?",
+      "answerShouldMention": "A metal attacked by moisture, acids etc.; black coating on silver, green on copper, rusting of iron",
+      "points": [
+        [
+          "metal"
+        ],
+        [
+          "moisture",
+          "water",
+          "air",
+          "acid",
+          "oxygen"
+        ],
+        [
+          "rust",
+          "black",
+          "green"
+        ]
+      ]
+    },
+    {
+      "id": "S7",
+      "type": "short",
+      "class_": 12,
+      "subject": "Physics",
+      "chapter": "Electric Charges and Fields",
+      "page": "10",
+      "question": "What is Coulomb's law?",
+      "answerShouldMention": "Force between two point charges is proportional to the product of the charges and inversely proportional to the square of the distance; acts along the line joining them",
+      "points": [
+        [
+          "product"
+        ],
+        [
+          "square of the distance",
+          "inverse square",
+          "inversely proportional"
+        ],
+        [
+          "point charges",
+          "charges"
+        ],
+        [
+          "line joining",
+          "joining",
+          "straight line",
+          "along the line"
+        ]
+      ]
+    },
+    {
+      "id": "S8",
+      "type": "short",
+      "class_": 12,
+      "subject": "Physics",
+      "chapter": "Dual Nature of Radiation and Matter",
+      "page": "388",
+      "question": "What is the photoelectric effect?",
+      "answerShouldMention": "Light of suitable frequency falling on a metal makes it emit electrons (photoelectrons); discovered by Hertz in 1887",
+      "points": [
+        [
+          "electron"
+        ],
+        [
+          "metal"
+        ],
+        [
+          "frequency",
+          "light"
+        ],
+        [
+          "hertz",
+          "1887"
+        ]
+      ]
+    },
+    {
+      "id": "F3",
+      "type": "follow-up",
+      "class_": 12,
+      "subject": "Physics",
+      "chapter": "Dual Nature of Radiation and Matter",
+      "page": "392",
+      "question": "Why doesn't it happen with red light, even if the light is very bright?",
+      "answerShouldMention": "Below the threshold frequency there is no emission however intense the light; the threshold differs by metal; ultraviolet works on copper but green or red light does not",
+      "points": [
+        [
+          "threshold"
+        ],
+        [
+          "frequency"
+        ],
+        [
+          "intensity",
+          "brightness",
+          "bright"
+        ],
+        [
+          "no emission",
+          "not emit",
+          "no electrons",
+          "not eject",
+          "will not",
+          "does not",
+          "doesn't",
+          "cannot"
+        ]
+      ],
+      "followUpOf": "S8"
+    },
+    {
+      "id": "M1",
+      "type": "mid-size",
+      "class_": 8,
+      "subject": "Science",
+      "chapter": "Some Natural Phenomena",
+      "page": "188",
+      "question": "What causes lightning during a thunderstorm? Can you explain how it happens?",
+      "answerShouldMention": "Air currents move up and water droplets down, separating charges; positive charge collects at the top of the cloud, negative at the bottom; air stops resisting and charge discharges between clouds or cloud and earth",
+      "points": [
+        [
+          "charge"
+        ],
+        [
+          "positive"
+        ],
+        [
+          "negative"
+        ],
+        [
+          "discharge",
+          "spark",
+          "flows"
+        ],
+        [
+          "cloud"
+        ]
+      ]
+    },
+    {
+      "id": "M2",
+      "type": "mid-size",
+      "class_": 8,
+      "subject": "Science",
+      "chapter": "Microorganisms: Friend and Foe",
+      "page": "19-20",
+      "question": "How do tiny microbes help my mother make curd and soft, fluffy bread?",
+      "answerShouldMention": "Lactobacillus turns milk into curd; yeast gives off carbon dioxide, and the gas bubbles make the dough rise",
+      "points": [
+        [
+          "lactobacillus",
+          "bacteria"
+        ],
+        [
+          "milk"
+        ],
+        [
+          "yeast"
+        ],
+        [
+          "carbon dioxide",
+          "gas",
+          "bubbles"
+        ],
+        [
+          "rise",
+          "dough",
+          "fluffy"
+        ]
+      ]
+    },
+    {
+      "id": "M3",
+      "type": "mid-size",
+      "class_": 9,
+      "subject": "Science",
+      "chapter": "Sound",
+      "page": "168",
+      "question": "Why do we hear an echo in a big hall or near a mountain, but not in a small room?",
+      "answerShouldMention": "The sound stays in the brain for about 0.1 s; the reflecting surface must be at least 17.2 m away",
+      "points": [
+        [
+          "reflect"
+        ],
+        [
+          "0.1"
+        ],
+        [
+          "17"
+        ]
+      ]
+    },
+    {
+      "id": "M4",
+      "type": "mid-size",
+      "class_": 10,
+      "subject": "Science",
+      "chapter": "The Human Eye and the Colourful World",
+      "page": "188",
+      "question": "How does our eye manage to see both a far-away tree and the book in my hand clearly?",
+      "answerShouldMention": "Ciliary muscles relax (thin lens, longer focal length) for far objects and contract (thicker lens) for near ones; called accommodation",
+      "points": [
+        [
+          "ciliary"
+        ],
+        [
+          "lens"
+        ],
+        [
+          "focal length"
+        ],
+        [
+          "accommodation"
+        ],
+        [
+          "relax",
+          "contract"
+        ]
+      ]
+    },
+    {
+      "id": "M5",
+      "type": "mid-size",
+      "class_": 10,
+      "subject": "Science",
+      "chapter": "Life Processes",
+      "page": "101-102",
+      "question": "What is the difference between aerobic and anaerobic respiration, and which one gives more energy?",
+      "answerShouldMention": "Anaerobic happens without oxygen (yeast: ethanol and carbon dioxide); aerobic uses oxygen in the mitochondria (carbon dioxide and water); aerobic releases far more energy; muscles make lactic acid when short of oxygen",
+      "points": [
+        [
+          "without oxygen",
+          "absence of oxygen",
+          "no oxygen"
+        ],
+        [
+          "mitochondria"
+        ],
+        [
+          "lactic"
+        ],
+        [
+          "ethanol",
+          "alcohol",
+          "yeast"
+        ],
+        [
+          "more energy",
+          "greater",
+          "higher",
+          "much more",
+          "more atp"
+        ]
+      ]
+    },
+    {
+      "id": "M6",
+      "type": "mid-size",
+      "class_": 12,
+      "subject": "Physics",
+      "chapter": "Alternating Current",
+      "page": "259-261",
+      "question": "How does a transformer change a low voltage into a high voltage? Can you explain it simply?",
+      "answerShouldMention": "Works by mutual induction; primary and secondary coils on a soft-iron core; more turns on the secondary steps the voltage up while the current drops (220 V at 10 A becomes 440 V at 5 A)",
+      "points": [
+        [
+          "induction"
+        ],
+        [
+          "primary"
+        ],
+        [
+          "secondary"
+        ],
+        [
+          "turns"
+        ],
+        [
+          "iron",
+          "core"
+        ],
+        [
+          "current"
+        ]
+      ]
+    },
+    {
+      "id": "L1",
+      "type": "long",
+      "class_": 10,
+      "subject": "Science",
+      "chapter": "Electricity (p.218) and Magnetic Effects of Electric Current (p.238)",
+      "page": "218, 238",
+      "question": "My mother always says never to plug the heater, the iron and the geyser into the same socket together, because the wires will get hot and the fuse will blow. I don't really understand this. Why does a big current make a wire heat up, and how exactly does a fuse protect our house?",
+      "answerShouldMention": "The heating effect of current (Joule heating); too many appliances on one socket is overloading; the fuse is in series and its wire melts when the current is too high, breaking the circuit",
+      "points": [
+        [
+          "heating effect",
+          "joule",
+          "heat"
+        ],
+        [
+          "overload",
+          "too many",
+          "too much current",
+          "short circuit"
+        ],
+        [
+          "fuse"
+        ],
+        [
+          "series"
+        ],
+        [
+          "melt"
+        ],
+        [
+          "circuit"
+        ]
+      ]
+    },
+    {
+      "id": "L2",
+      "type": "long",
+      "class_": 8,
+      "subject": "Science",
+      "chapter": "Microorganisms: Friend and Foe",
+      "page": "20-23",
+      "question": "Last week my little brother had a cold and fever, and the doctor said it was a virus, so antibiotics would not help. But when I had a throat infection, antibiotics made me better quickly. Why do antibiotics work for some illnesses and not for others? And how do the vaccines we get as babies protect us?",
+      "answerShouldMention": "Antibiotics kill or stop the growth of disease-causing microorganisms and are made from bacteria and fungi; they don't work on cold and flu, which viruses cause; a vaccine puts dead or weakened microbes into the body, which makes antibodies and remembers the microbe",
+      "points": [
+        [
+          "bacteria"
+        ],
+        [
+          "virus"
+        ],
+        [
+          "antibiotic"
+        ],
+        [
+          "antibod"
+        ],
+        [
+          "vaccine"
+        ],
+        [
+          "weak",
+          "dead",
+          "inactive",
+          "harmless"
+        ],
+        [
+          "remember",
+          "memory"
+        ]
+      ]
+    },
+    {
+      "id": "L3",
+      "type": "long",
+      "class_": 12,
+      "subject": "Physics",
+      "chapter": "Ray Optics and Optical Instruments",
+      "page": "320-323",
+      "question": "My uncle says the internet comes to our city through thin glass fibres under the sea, carried as light. I thought light only travels in straight lines, so how can it go through a bent fibre without leaking out? And my aunt says diamonds sparkle for the same reason. Is that true?",
+      "answerShouldMention": "Total internal reflection when light goes from a denser to a rarer medium above the critical angle; a fibre's core has a higher refractive index than its cladding, so light reflects repeatedly and still travels when the fibre is bent; diamond's critical angle is very small (about 24.4 degrees), and cutting it well makes light reflect many times inside",
+      "points": [
+        [
+          "total internal reflection"
+        ],
+        [
+          "critical angle"
+        ],
+        [
+          "refractive index",
+          "denser",
+          "rarer"
+        ],
+        [
+          "core",
+          "cladding"
+        ],
+        [
+          "diamond"
+        ],
+        [
+          "24"
+        ]
+      ]
+    }
+  ]
+}

@@ -13,17 +13,6 @@ dist-ssr
 *.local
 .env
 
-# Large downloaded assets (fetched by `npx react-sts-setup` / placed manually)
-public/piper-wasm/
-public/models/*.onnx
-public/models/*.json
-
-# onnxruntime-web runtime, required by the Piper worker but not shipped by
-# react-sts-hooks itself — copied from node_modules, see public/README-ort.md
-public/ort.min.js
-public/ort-wasm-simd-threaded.jsep.mjs
-public/ort-wasm-simd-threaded.jsep.wasm
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

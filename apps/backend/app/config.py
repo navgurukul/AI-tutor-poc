@@ -6,7 +6,7 @@ without touching code.
 """
 
 from functools import lru_cache
-from typing import List
+from typing import List, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -45,12 +45,19 @@ class Settings(BaseSettings):
     # evidence, and a tutor should give its most likely reading every time.
     # Sampling costs nothing measurable, so this is not a latency setting.
     temperature: float = 0.3
-    # Caps the tail of a slow turn. The persona already asks for under 200
-    # words (~260 tokens); 800 only ever bought a runaway answer, and on a CPU
-    # at ~9 chars/s the difference is minutes.
-    max_tokens: int = 400
+    # Caps the tail of a slow turn. 512 since stage 2 of the golden comparison,
+    # to match AFE-Learning-App (CHAT_NUM_PREDICT); was 400. The persona asks for
+    # ~100 words (~130 tokens), so the cap only bites on a runaway answer.
+    max_tokens: int = 512
     # Kept well under the model's 32k window; keeps replies fast on CPU.
     num_ctx: int = 4096
+    # Further sampling options, AFE-Learning-App's SAMPLING_OPTIONS since stage 2
+    # of the golden comparison (before it, none were sent). repeat_last_n 256
+    # (Ollama's default is 64) is AFE's guard against a 2B model looping.
+    llm_top_k: Optional[int] = 20
+    llm_top_p: Optional[float] = 0.8
+    llm_repeat_penalty: Optional[float] = 1.05
+    llm_repeat_last_n: Optional[int] = 256
 
     # --- Conversation memory ---------------------------------------------
     # What the model re-reads of the conversation. NOT what the student sees:
@@ -283,11 +290,67 @@ class Settings(BaseSettings):
     # Upload ceiling for a single PDF.
     rag_max_upload_mb: int = 80
 
+    # --- Hybrid retrieval (AFE-Learning-App's) -------------------------------
+    # What the chat turn retrieves with since stage 3 of the golden comparison
+    # (app.services.rag.hybrid): dense + BM25 fused by rank, neighbouring chunks
+    # merged, a whole-section shortcut and a word-count budget, over AFE's own
+    # chunks embedded with rag_embedding_model. The question is searched as typed:
+    # no grade/subject scoping, no follow-up carry, no passage shortening.
+    # Built by scripts/eval/ingest_afe_corpus.py. The settings above (rag_db_path,
+    # rag_top_k, ...) now only drive the Library page's search and ingestion.
+    hybrid_index_path: str = "data/afe-index.db"
+    # AFE's query options (getRetrievedContext) and engine defaults. Tokens are
+    # AFE's estimate: words / 0.75.
+    hybrid_top_k: int = 3
+    hybrid_max_context_tokens: int = 800
+    hybrid_max_section_tokens: int = 6000
+    hybrid_candidate_k: int = 30
+    hybrid_max_chunk_tokens: int = 450
+
+    # --- Offline speech-to-text -------------------------------------------
+    # Speech runs on the backend through sherpa-onnx, fully offline (no browser
+    # Web Speech, which streams to Google unless Chrome has the on-device pack):
+    #   English         -> Whisper base.en (int8, ~145 MB) - solid on
+    #     Indian-accented English. The folder auto-detects Whisper vs Moonshine
+    #     by its files, so pointing STT_ENGLISH_DIR at a Moonshine folder works.
+    #   Hindi / Marathi -> AI4Bharat IndicConformer-600M (CTC), fp32 (int8
+    #     roughly doubles the WER, Hindi ~0.16 -> ~0.30).
+    # Relative paths resolve against apps/backend/. Missing files -> /api/stt
+    # reports that language "not ready" instead of breaking the app.
+    stt_indic_dir: str = "models/indicconformer"
+    stt_indic_file: str = "model.onnx"
+    stt_english_dir: str = "models/stt/sherpa-onnx-whisper-base.en"
+    # Decode is CPU-bound and nothing else runs during it (the LLM turn hasn't
+    # started yet), so give it more threads. Lower it if the box has <4 cores.
+    stt_num_threads: int = 4
+
+    # --- Offline text-to-speech -------------------------------------------
+    # sherpa-onnx + one Piper VITS voice per language. Under tts_model_dir each
+    # language has a folder named after it (english/, hindi/, marathi/) holding
+    # <voice>.onnx + tokens.txt, beside one shared espeak-ng-data/.
+    # Which language's speech models to load at boot; the others load on first
+    # use. Set empty to warm nothing.
+    warm_language: str = "English"
+    tts_model_dir: str = "models/tts"
+    # Synthesis runs while the model is still generating the rest of the answer,
+    # so it stays below stt_num_threads -- STT decodes while Ollama is idle.
+    tts_num_threads: int = 2
+    # Playback speed multiplier. 1.0 = the voice's natural pace.
+    tts_speed: float = 1.0
+
     # --- Latency logging --------------------------------------------------
     # Per-turn CSVs in the log directory, for working out where a slow device
     # is spending its time. Shapes and durations only -- never question or
     # answer text, because these files get copied off classroom laptops.
     turn_log_enabled: bool = True
+    # Full per-turn record in logs/turns.jsonl: the question, every retrieved
+    # passage with its distance and whether the budget cut it, the exact
+    # messages and options sent to Ollama, Ollama's own timings, and the answer.
+    # This is what the golden-set runner and the frontend "Timing & retrieval"
+    # panel read. Unlike the CSVs above it DOES carry question and answer text,
+    # so it is off in a packaged build unless TURN_DETAIL_LOG=true.
+    # None = on for a developer run, off when `packaged`.
+    turn_detail_log: Optional[bool] = None
 
     # --- Live groundedness ------------------------------------------------
     # A question asked word for word from the gold set gets its reply graded
@@ -324,6 +387,12 @@ class Settings(BaseSettings):
     # --- CORS -------------------------------------------------------------
     # Comma-separated list. "*" is fine for a local POC.
     cors_origins: str = "*"
+
+    @property
+    def turn_detail_enabled(self) -> bool:
+        if self.turn_detail_log is not None:
+            return self.turn_detail_log
+        return not self.packaged
 
     @property
     def cors_origin_list(self) -> List[str]:

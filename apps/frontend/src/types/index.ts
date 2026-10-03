@@ -83,6 +83,8 @@ export interface ChatMessage {
   metrics?: TurnMetrics;
   /** Gold-set questions only: "pending" while the judge runs. */
   groundedness?: Groundedness | "pending" | "failed";
+  /** Joins the reply to its record in /api/eval/turns/{turnId}. */
+  turnId?: string;
 }
 
 export type TeachingStyle = "socratic" | "direct" | "exam_prep";
@@ -106,4 +108,85 @@ export interface AskTutorResponse {
   answer: string;
   /** The question is in the gold set and the reply is waiting to be graded. */
   groundednessPending?: boolean;
+}
+
+/** One retrieved passage in a turn record (backend services/turndetail.py). */
+export interface RetrievedChunk {
+  rank: number;
+  chunk_id: number;
+  title: string;
+  heading: string;
+  page_start: number;
+  page_end: number;
+  grade: number | null;
+  subject: string | null;
+  /** Cosine distance; smaller is closer. Null when the dense search did not return it. */
+  distance: number | null;
+  /** Fused RRF score (AFE retrieval only); higher is better. */
+  score?: number;
+  /** Which searches found it: dense, lexical, section (AFE retrieval only). */
+  matched_via?: string[];
+  chars_retrieved: number;
+  chars_sent: number;
+  /** False = retrieved, but the character budget cut it before the prompt. */
+  sent: boolean;
+  /** The text as it went into the prompt; null when not sent. */
+  excerpt: string | null;
+}
+
+/**
+ * Everything about one turn: retrieval, the prompt sent, Ollama's timings and
+ * the answer. Mirrors the backend record, so field names stay snake_case.
+ */
+export interface TurnDetail {
+  ts_utc: string;
+  turn_id: string;
+  session_id: string;
+  question: string;
+  previous_question: string | null;
+  followup: boolean;
+  retrieval: {
+    ms: number;
+    query: string;
+    mode?: "afe" | "legacy";
+    /** "800 tokens" (AFE) or "1000 chars" (legacy). */
+    budget: string;
+    top_k: number;
+    context_chars: number;
+    chunks: RetrievedChunk[];
+  };
+  prompt: {
+    model: string;
+    options: Record<string, number>;
+    messages: Array<{ role: string; content: string }>;
+    prompt_chars: number;
+  };
+  llm: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    prefill_ms: number;
+    decode_ms: number;
+    load_ms: number;
+    tokens_per_second: number;
+    /** From the start of the turn, so it includes retrieval. */
+    ttft_ms: number;
+    ttft_after_retrieval_ms: number;
+    total_ms: number;
+  };
+  answer: string;
+  answer_chars: number;
+}
+
+/** A question from docs/groundedness/afe-golden.json. */
+export interface GoldenQuestion {
+  id: string;
+  type: "short" | "mid-size" | "long" | "follow-up";
+  class_: number;
+  subject: string;
+  chapter: string;
+  question: string;
+  answerShouldMention: string;
+  /** One entry per fact; each lists accepted substrings, any one matches. */
+  points: string[][];
+  followUpOf?: string;
 }

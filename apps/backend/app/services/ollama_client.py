@@ -148,6 +148,26 @@ class OllamaClient:
         return vectors
 
     # -- chat --------------------------------------------------------------
+    @staticmethod
+    def options(
+        temperature: Optional[float] = None, max_tokens: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """The Ollama `options` block a chat request carries.
+
+        One function so the turn log can record exactly what was sent. The extra
+        sampling settings are included only when configured.
+        """
+        options: Dict[str, Any] = {
+            "temperature": settings.temperature if temperature is None else temperature,
+            "num_predict": settings.max_tokens if max_tokens is None else max_tokens,
+            "num_ctx": settings.num_ctx,
+        }
+        for name in ("top_k", "top_p", "repeat_penalty", "repeat_last_n"):
+            value = getattr(settings, "llm_" + name)
+            if value is not None:
+                options[name] = value
+        return options
+
     def _payload(
         self,
         messages: List[Dict[str, str]],
@@ -169,13 +189,7 @@ class OllamaClient:
             # Without this Ollama unloads the model after 5 idle minutes and the
             # next question pays a ~2s reload.
             "keep_alive": _keep_alive(),
-            "options": {
-                "temperature": (
-                    settings.temperature if temperature is None else temperature
-                ),
-                "num_predict": settings.max_tokens if max_tokens is None else max_tokens,
-                "num_ctx": settings.num_ctx,
-            },
+            "options": self.options(temperature, max_tokens),
         }
         if response_format is not None:
             # Ollama constrains decoding to this JSON schema -- essential for

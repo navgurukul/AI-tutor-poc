@@ -23,6 +23,7 @@ child asked. Only shapes and durations.
 from __future__ import annotations
 
 import csv
+import json
 import logging
 import os
 import threading
@@ -114,3 +115,24 @@ def log_backend_turn(row: Dict[str, Any]) -> None:
 
 def log_frontend_turn(row: Dict[str, Any]) -> None:
     _append("turns-frontend.csv", FRONTEND_FIELDS, row)
+
+
+def log_event(event: str, **fields: Any) -> None:
+    """Append one JSON line to logs/{event}.jsonl: {"ts", "event", **fields}.
+
+    The speech services' log (stt.jsonl), which -- unlike the CSVs above --
+    carries the transcript, so it follows turn_log_enabled like they do and is
+    meant for a development or evaluation machine. Never raises: a failure here
+    costs one missing line, not a broken turn.
+    """
+    if not settings.turn_log_enabled:
+        return
+    payload = {"ts": datetime.now(timezone.utc).isoformat(), "event": event, **fields}
+    try:
+        directory = _logs_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        with _lock:
+            with (directory / "{}.jsonl".format(event)).open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+    except OSError as exc:
+        logger.warning("Could not write %s.jsonl: %s", event, exc)

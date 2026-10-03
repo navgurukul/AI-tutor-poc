@@ -16,10 +16,14 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.guards import LocalOnlyMiddleware
-from app.routers import chat, groundedness, health, library, sessions, telemetry, tutor
+from app.routers import chat, eval as eval_router, groundedness, health, library, sessions, stt, telemetry, tts, tutor
 from app.web import SpaFiles, resolve_web_dir
 from app.services.ollama_client import OllamaError, client
+from app.services import stt as stt_service
+from app.services import tts as tts_service
+from app.services.rag import hybrid
 from app.services.rag import service as rag_service
+from app.services.rag.embeddings import embed_query
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s"
@@ -47,6 +51,10 @@ async def _warm_model() -> None:
             settings.ollama_keep_alive,
             settings.num_ctx,
         )
+        if hybrid.store.is_open:
+            # The embedding model is a second resident model; without this the
+            # first question's retrieval pays its load.
+            await embed_query("warmup")
     except OllamaError as exc:
         # Same reasoning as startup: a cold model is a slow first answer, not a
         # broken server.
@@ -55,12 +63,30 @@ async def _warm_model() -> None:
         logger.exception("Unexpected failure warming the model")
 
 
+async def _warm_speech() -> None:
+    """Load settings.warm_language's STT model and Piper voice at boot, and run
+    one throwaway decode/synthesis through each, so the first question pays
+    neither the load nor onnxruntime's first-inference cost. Blocking (sherpa),
+    so off the loop; best-effort -- warm() returns False when files are missing."""
+    lang = settings.warm_language.strip()
+    if not lang:
+        logger.info("Speech warm-up skipped (warm_language is empty).")
+        return
+    for name, service in (("STT", stt_service), ("TTS", tts_service)):
+        started = time.monotonic()
+        if await asyncio.to_thread(service.warm, lang):
+            logger.info("%s %s warm-up done in %.1fs.", lang, name, time.monotonic() - started)
+        else:
+            logger.info("%s %s warm-up skipped (model not installed).", lang, name)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await client.startup()
     # Opening the library never raises: an unavailable corpus degrades the
     # tutor to model-only answers, and /health explains why.
     rag_service.open_store()
+    hybrid.open_store()
     logger.info("Ollama host: %s | default model: %s", settings.ollama_host, settings.ollama_model)
     try:
         version = await client.version()
@@ -80,9 +106,14 @@ async def lifespan(app: FastAPI):
     warm_task: Optional[asyncio.Task] = None
     if settings.warm_model_on_startup:
         warm_task = asyncio.create_task(_warm_model())
+    speech_task = asyncio.create_task(_warm_speech())
 
     yield
 
+    if not speech_task.done():
+        speech_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await speech_task
     # Stop the warm-up before closing the HTTP client it is using.
     if warm_task is not None and not warm_task.done():
         warm_task.cancel()
@@ -90,6 +121,7 @@ async def lifespan(app: FastAPI):
             await warm_task
     await client.shutdown()
     rag_service.close_store()
+    hybrid.close_store()
 
 
 app = FastAPI(
@@ -140,6 +172,9 @@ app.include_router(tutor.router)
 app.include_router(library.router)
 app.include_router(telemetry.router)
 app.include_router(groundedness.router)
+app.include_router(eval_router.router)
+app.include_router(stt.router)
+app.include_router(tts.router)
 
 
 @app.get("/api/index", tags=["health"], summary="API index")

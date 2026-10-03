@@ -13,6 +13,8 @@ interface TutorPageProps {
   subject: Subject;
   /** Opens the textbook library. Omitted, the button is hidden. */
   onOpenSetup?: () => void;
+  /** Opens the golden-set runner. Omitted, the button is hidden. */
+  onOpenGolden?: () => void;
 }
 
 const STAGE_CAPTION: Record<string, string> = {
@@ -23,7 +25,7 @@ const STAGE_CAPTION: Record<string, string> = {
   error: "Tap the mic and ask a question",
 };
 
-export function TutorPage({ schoolClass, subject, onOpenSetup }: TutorPageProps) {
+export function TutorPage({ schoolClass, subject, onOpenSetup, onOpenGolden }: TutorPageProps) {
   const {
     messages,
     stage,
@@ -62,12 +64,12 @@ export function TutorPage({ schoolClass, subject, onOpenSetup }: TutorPageProps)
       : null;
 
   // Voice model first, then the LLM warm-up.
-  const prepLabel = !isVoiceReady ? "Preparing voice model" : "Warming up the tutor model";
+  const prepLabel = !isVoiceReady ? "Loading the speech model" : "Warming up the tutor model";
   const showDeterminate = !isVoiceReady && progressPct !== null;
 
   let voiceStatus: { label: string; tone: "ready" | "loading" | "error" };
   if (!browserSupportsSpeechRecognition) {
-    voiceStatus = { label: "Mic unsupported", tone: "error" };
+    voiceStatus = { label: "Speech unavailable", tone: "error" };
   } else if (isReady) {
     voiceStatus = { label: "Ready", tone: "ready" };
   } else {
@@ -95,6 +97,11 @@ export function TutorPage({ schoolClass, subject, onOpenSetup }: TutorPageProps)
               Library
             </button>
           )}
+          {onOpenGolden && (
+            <button className="appbar__setup" type="button" onClick={onOpenGolden}>
+              Golden set
+            </button>
+          )}
           <VoiceToggle enabled={isVoiceEnabled} onToggle={toggleVoice} />
           <span className={`status-pill status-pill--${voiceStatus.tone}`}>
             <span className="status-dot" aria-hidden="true" />
@@ -105,7 +112,7 @@ export function TutorPage({ schoolClass, subject, onOpenSetup }: TutorPageProps)
 
       <main className="screen tutor-screen">
         {!browserSupportsSpeechRecognition && (
-          <ErrorBanner message="This browser doesn't support speech recognition. Try Chrome or Edge." />
+          <ErrorBanner message="Speech recognition is unavailable: the backend's speech model isn't ready, or the microphone was blocked." />
         )}
 
         {!isReady && browserSupportsSpeechRecognition && (

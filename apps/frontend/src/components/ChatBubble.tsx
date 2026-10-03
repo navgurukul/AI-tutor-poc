@@ -1,5 +1,6 @@
 import type { ChatMessage, Citation, Groundedness, TurnMetrics } from "../types";
 import { secs } from "../utils/secs";
+import { TurnDetailPanel } from "./TurnDetailPanel";
 
 /**
  * What the turn cost, on the same row as the citations.
@@ -94,6 +95,8 @@ function readable(text: string): string {
 
 /** "p. 63" for a single page, "pp. 63-64" for a passage that spans a break. */
 function pageLabel({ page_start, page_end }: Citation): string {
+  // The chat turn's chunks (rag.hybrid) carry no page numbers; 0 means unknown.
+  if (!page_start) return "–";
   return page_start === page_end
     ? `p. ${page_start}`
     : `pp. ${page_start}-${page_end}`;
@@ -108,7 +111,7 @@ function pageLabel({ page_start, page_end }: Citation): string {
  * or a teacher checking it -- needs to see the page it came from. Their absence
  * is meaningful too, and says the reply came from the model alone.
  */
-export function ChatBubble({ role, text, sources, metrics, groundedness }: ChatMessage) {
+export function ChatBubble({ role, text, sources, metrics, groundedness, turnId }: ChatMessage) {
   const hasSources = !!sources && sources.length > 0;
   return (
     <div className={`chat-bubble chat-bubble--${role}`}>
@@ -153,6 +156,7 @@ export function ChatBubble({ role, text, sources, metrics, groundedness }: ChatM
           </ol>
         </details>
       )}
+      {role === "tutor" && metrics && turnId && <TurnDetailPanel turnId={turnId} />}
     </div>
   );
 }

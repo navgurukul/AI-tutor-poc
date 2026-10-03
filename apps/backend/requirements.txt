@@ -7,6 +7,12 @@ pydantic==2.10.4
 pydantic-settings==2.7.0
 python-dotenv==1.0.1
 
+# --- Speech ------------------------------------------------------------
+# Offline speech-to-text (Whisper base.en; IndicConformer for Hindi/Marathi) and
+# text-to-speech (Piper VITS voices), both through sherpa-onnx. Prebuilt wheel,
+# no compiler. Models live in apps/backend/models/ (not in git).
+sherpa-onnx==1.13.6
+
 # --- Retrieval (RAG) ---------------------------------------------------
 # pypdf is pure Python, so there is no wheel to miss on any target machine.
 pypdf==6.16.2

@@ -24,7 +24,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import settings  # noqa: E402
-from app.routers import chat  # noqa: E402
 from app.services.rag import retrieval  # noqa: E402
 from app.services.rag.followup import (  # noqa: E402
     embedding_text,
@@ -202,21 +201,6 @@ def test_retrieve_embeds_a_new_topic_as_typed(monkeypatch):
     assert _embedded_text(monkeypatch, "What is a lever?", "Why do we need it?") == [
         "What is a lever?"
     ]
-
-
-def test_the_chat_turn_hands_its_previous_question_to_retrieval(monkeypatch):
-    captured = {}
-
-    async def fake_retrieve(store, question, **kwargs):
-        captured.update(kwargs, question=question)
-        return []
-
-    monkeypatch.setattr(chat, "retrieve", fake_retrieve)
-    asyncio.run(chat._retrieve_context(
-        "How can we reduce it?", None, "What is frictional force?"
-    ))
-    assert captured["question"] == "How can we reduce it?"
-    assert captured["previous_question"] == "What is frictional force?"
 
 
 # -- where the previous question comes from --------------------------------

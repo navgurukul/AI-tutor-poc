@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import type { SchoolClass, Subject } from "./types";
 import { TutorPage } from "./pages/TutorPage";
 import { SetupPage } from "./pages/SetupPage";
+import { GoldenPage } from "./pages/GoldenPage";
 
 // Class/subject selection is removed for now — using static values until it's needed again.
 const STATIC_CLASS: SchoolClass = { id: "class-6", name: "Class 6" };
 const STATIC_SUBJECT: Subject = { id: "math", name: "Mathematics" };
 
-type View = "tutor" | "setup";
+type View = "tutor" | "setup" | "golden";
 
 /**
  * The view lives in the URL hash rather than in state alone.
@@ -18,7 +19,9 @@ type View = "tutor" | "setup";
  * the setup page be opened directly at #setup.
  */
 function currentView(): View {
-  return window.location.hash === "#setup" ? "setup" : "tutor";
+  if (window.location.hash === "#setup") return "setup";
+  if (window.location.hash === "#golden") return "golden";
+  return "tutor";
 }
 
 function App() {
@@ -34,11 +37,16 @@ function App() {
     return <SetupPage onBack={() => { window.location.hash = ""; }} />;
   }
 
+  if (view === "golden") {
+    return <GoldenPage onBack={() => { window.location.hash = ""; }} />;
+  }
+
   return (
     <TutorPage
       schoolClass={STATIC_CLASS}
       subject={STATIC_SUBJECT}
       onOpenSetup={() => { window.location.hash = "setup"; }}
+      onOpenGolden={() => { window.location.hash = "golden"; }}
     />
   );
 }

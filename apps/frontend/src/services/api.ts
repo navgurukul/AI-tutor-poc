@@ -3,10 +3,12 @@ import type {
   AskTutorResponse,
   Citation,
   Groundedness,
+  GoldenQuestion,
+  TurnDetail,
 } from "../types";
 import { mockAnswerFor } from "./mockData";
 
-const API_BASE_URL =
+export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API === "true";
 const MOCK_DELAY_MS = 400;
@@ -361,4 +363,24 @@ export function reportTurnTimings(row: {
     body: JSON.stringify(row),
     keepalive: true,
   }).catch(() => {});
+}
+
+/**
+ * GET /api/eval/turns/{turnId} - retrieval, the exact prompt, timings and the
+ * answer for one turn. Null when detail logging is off (packaged build) or the
+ * turn has left the backend's recent window.
+ */
+export async function fetchTurnDetail(turnId: string): Promise<TurnDetail | null> {
+  if (USE_MOCK_API) return null;
+  try {
+    return await request<TurnDetail>(`/api/eval/turns/${encodeURIComponent(turnId)}`);
+  } catch {
+    return null;
+  }
+}
+
+/** GET /api/eval/golden - the golden question set. Throws if it is unavailable. */
+export async function fetchGolden(): Promise<GoldenQuestion[]> {
+  const data = await request<{ questions: GoldenQuestion[] }>("/api/eval/golden");
+  return data.questions;
 }

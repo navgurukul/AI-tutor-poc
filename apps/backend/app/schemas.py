@@ -236,6 +236,9 @@ class HealthResponse(BaseModel):
     active_sessions: int
     # Free-form: the shape differs between "available" and "why it isn't".
     library: Dict[str, Any] = Field(default_factory=dict)
+    # The index the chat turn retrieves from (rag.hybrid); `library` is the
+    # Library page's store.
+    index: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ModelInfo(BaseModel):

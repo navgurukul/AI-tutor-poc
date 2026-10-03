@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePiper } from "react-sts-hooks";
-// Not react-sts-hooks' useSpeechToText: it never sets processLocally, so Chrome
-// streams every utterance to Google and speech dies the moment a device is
-// offline -- which is the one condition this product is built for.
-import { useOfflineSpeechToText } from "./stt/useOfflineSpeechToText";
+// Speech runs on the backend through sherpa-onnx, fully offline: /api/stt
+// (Whisper base.en) and /api/tts (a Piper voice). The browser records the mic
+// and plays the WAVs it gets back; it downloads no models and never touches the
+// Web Speech API, which streams to Google unless Chrome has its on-device pack.
+import { useTutorSpeechToText } from "./stt/useTutorSpeechToText";
+import { useTutorTts } from "./tts/useTutorTts";
+import { DEFAULT_LANGUAGE } from "../config/languages";
 import { askTutorStream, fetchGroundedness, warmupTutor,
   reportTurnTimings,
 } from "../services/api";
-import { VOICE_MODEL_URL, VOICE_CONFIG_URL } from "../config/voice";
-import { allowSpeech, installSpeechInterceptor, stopSpeech } from "../utils/stopSpeech";
 import type { ChatMessage, Citation, TurnMetrics } from "../types";
 
 export type TutorStage = "idle" | "listening" | "thinking" | "speaking" | "error";
@@ -16,10 +16,7 @@ export type TutorStage = "idle" | "listening" | "thinking" | "speaking" | "error
 interface UseTutorSessionArgs {
   subjectName: string;
   level: string;
-  lang?: string;
 }
-
-installSpeechInterceptor();
 
 // Unique per message and stable across HMR reloads. A module-level counter
 // resets on hot-reload while the `messages` state survives, so ids collide and a
@@ -32,8 +29,8 @@ const nextId = (): string =>
 // and can gather doubles where an interim tail is appended.
 const collapseSpaces = (s: string) => s.replace(/\s+/g, " ").trim();
 
-// Piper synthesizes each speak() call as one WASM pass before any of it plays,
-// so the reply is handed over one sentence at a time as the backend streams
+// The backend synthesizes each speak() call as one Piper pass before any of it
+// plays, so the reply is handed over one sentence at a time as the backend streams
 // tokens: the first sentence starts playing while the model is still decoding
 // the rest. Fragments shorter than this are merged into the sentence that
 // follows so they aren't their own synthesis pass.
@@ -93,7 +90,7 @@ function takeFirstFragment(
   return { fragment: match[0].trim(), rest: buffer.slice(match[0].length) };
 }
 
-export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutorSessionArgs) {
+export function useTutorSession({ subjectName, level }: UseTutorSessionArgs) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stage, setStage] = useState<TutorStage>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +99,6 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
   // attempt failed and the first question pays the cold start as it used to.
   const [isModelWarm, setIsModelWarm] = useState(false);
   const voiceEnabledRef = useRef(true);
-  const didWarmVoiceRef = useRef(false);
   const wasListening = useRef(false);
   // finishTurn (the mic's "Send") owns the outcome of a listening session, so the
   // silence-timeout effect must stay out of it; the timeout path leaves this
@@ -141,28 +137,25 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
   const {
     startListening,
     stopListening,
+    resetTranscript,
     transcript,
     interimTranscript,
     isListening,
-    resetTranscript,
-    browserSupportsSpeechRecognition,
+    isTranscribing,
+    supported: sttSupported,
+    isLoading: sttLoading,
+    progress: sttProgress,
     error: sttError,
-    onDeviceStatus: sttOnDeviceStatus,
-    isOnDevice: sttIsOnDevice,
-  } = useOfflineSpeechToText({ lang, continuous: true, silenceTimeout: 1000 });
+  } = useTutorSpeechToText(DEFAULT_LANGUAGE);
 
   const {
     speak,
-    resetTTS,
+    endTurn: endSpeech,
+    cancel: cancelSpeech,
     isReady: isVoiceReady,
-    isLoading: isVoiceLoading,
-    isPlaying,
-    downloadProgress,
-    error: ttsError,
-  } = usePiper({
-    voiceModelUrl: VOICE_MODEL_URL,
-    voiceConfigUrl: VOICE_CONFIG_URL,
-  });
+    isSpeaking: isPlaying,
+    voiceError,
+  } = useTutorTts(DEFAULT_LANGUAGE);
 
   // The id of the tutor bubble for the turn in flight, so the streaming update
   // always targets the right message.
@@ -180,9 +173,23 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     setMessages((prev) => {
       const index = prev.findIndex((m) => m.id === id);
       if (index === -1)
-        return [...prev, { id, role: "tutor", text, sources: pendingSourcesRef.current }];
+        return [
+          ...prev,
+          {
+            id,
+            role: "tutor",
+            text,
+            sources: pendingSourcesRef.current,
+            turnId: turnIdRef.current ?? undefined,
+          },
+        ];
       const next = [...prev];
-      next[index] = { ...next[index], text, sources: pendingSourcesRef.current };
+      next[index] = {
+        ...next[index],
+        text,
+        sources: pendingSourcesRef.current,
+        turnId: turnIdRef.current ?? undefined,
+      };
       return next;
     });
   }, []);
@@ -236,19 +243,6 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     };
   }, [subjectName, level]);
 
-  // Piper's *first* real speak() after load still spends several seconds warming
-  // its ONNX inference graph. Push one sentence through the moment the voice is
-  // ready — suppressed via stopSpeech() so it's silent — so the graph is hot by
-  // the time the student finishes tapping the mic and speaking. Best-effort
-  // background heating, not a gate; a real turn re-arms playback via allowSpeech().
-  useEffect(() => {
-    if (!isVoiceReady || didWarmVoiceRef.current) return;
-    didWarmVoiceRef.current = true;
-    console.log("[timing] voice warm-up: synthesis kicked off");
-    stopSpeech();
-    void speak("Let's get started with today's lesson.");
-  }, [isVoiceReady, speak]);
-
   const askAndSpeak = useCallback(
     async (question: string) => {
       const turnStart = performance.now();
@@ -260,10 +254,8 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
       speechStoppedRef.current = false;
       pendingSourcesRef.current = undefined;
 
-      // Clear anything still queued in Piper and silence a sentence still
-      // playing from a previous turn; suppress until this turn starts speaking.
-      resetTTS();
-      stopSpeech();
+      // Drop anything still queued or playing from a previous turn.
+      cancelSpeech();
 
       setStage("thinking");
       setMessages((prev) => [...prev, { id: nextId(), role: "user", text: question }]);
@@ -277,10 +269,6 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
       let unspoken = "";
       let firstTokenAt: number | null = null;
       let groundednessPending = false;
-      // speak() resolves when the phrase is queued, not when it finishes
-      // playing; chaining keeps sentences in order without blocking the reader.
-      let speechChain: Promise<unknown> = Promise.resolve();
-
       const enqueueSpeech = (text: string) => {
         if (!voiceEnabledRef.current || speechStoppedRef.current) return;
         if (speakQueueStartRef.current === null) {
@@ -289,15 +277,13 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
           clientTimingRef.current.firstSentence = Math.round(
             speakQueueStartRef.current - (turnStartRef.current ?? speakQueueStartRef.current),
           );
-          // Re-arm playback only once the first sentence is actually ready, so a
-          // previous turn's Stop stays in force right up to this moment.
-          allowSpeech();
           console.log(
             `[timing] voice -> first sentence queued: ${(speakQueueStartRef.current - turnStart).toFixed(0)}ms ` +
               `(${text.length} chars: "${text.slice(0, 60)}${text.length > 60 ? "…" : ""}")`,
           );
         }
-        speechChain = speechChain.then(() => speak(text)).catch(() => undefined);
+        // Queued in order by the TTS hook, which fetches and plays them back to back.
+        speak(text);
       };
 
       try {
@@ -404,6 +390,8 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
         // is always still sitting in the tail here.
         const tail = unspoken.trim();
         if (tail) enqueueSpeech(tail);
+        // Nothing more is coming this turn: let the player release its prebuffer.
+        endSpeech();
 
         allChunksQueuedRef.current = true;
         setStage("idle");
@@ -424,7 +412,7 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
         submittingRef.current = false;
       }
     },
-    [subjectName, level, speak, resetTTS, setReplyText, setReplyGroundedness],
+    [subjectName, level, speak, cancelSpeech, endSpeech, setReplyText, setReplyMetrics, setReplyGroundedness],
   );
 
   // The single path from a captured question to a turn. Guarded so the mic's
@@ -440,7 +428,7 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
   );
 
   // Logs time-to-first-audio and total voice->fully-spoken duration by watching
-  // Piper's isPlaying flag, since speak() resolves as soon as the phrase is
+  // the player's isPlaying flag, since speak() returns as soon as the phrase is
   // queued rather than when audio actually starts/stops.
   useEffect(() => {
     const turnStart = turnStartRef.current;
@@ -482,20 +470,35 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     }
   }, [isPlaying]);
 
-  // Auto-send once the mic goes quiet for silenceTimeout and stops on its own.
-  // A manual "Send" (finishTurn) sets listeningHandledRef and submits there.
+  // Auto-send once the mic closes -- on the silence timeout or the mic's "Send"
+  // (finishTurn). The backend decodes the whole clip after the mic closes, so
+  // the transcript is only ready once `isTranscribing` clears; hold off until
+  // then. A cancelled turn (cancelTurn) sets listeningHandledRef and is dropped.
   useEffect(() => {
-    if (wasListening.current && !isListening && !listeningHandledRef.current) {
+    if (isTranscribing) return;
+    if (wasListening.current && !isListening) {
+      wasListening.current = false;
+      if (listeningHandledRef.current) return;
       const question = collapseSpaces(`${transcript} ${interimTranscript}`);
       if (question) submitQuestion(question);
+      else setStage("idle");
+      return;
     }
     wasListening.current = isListening;
-  }, [isListening, transcript, interimTranscript, submitQuestion]);
+  }, [isListening, isTranscribing, transcript, interimTranscript, submitQuestion]);
+
+  // The clip is being decoded: show "thinking" rather than "listening".
+  useEffect(() => {
+    if (isTranscribing && !listeningHandledRef.current) setStage("thinking");
+  }, [isTranscribing]);
 
   useEffect(() => {
     if (sttError) setError(sttError);
-    if (ttsError) setError(ttsError);
-  }, [sttError, ttsError]);
+  }, [sttError]);
+
+  useEffect(() => {
+    if (voiceError) setError("The tutor's voice is unavailable; answers will be shown but not read aloud.");
+  }, [voiceError]);
 
   useEffect(() => {
     if (isListening) setStage("listening");
@@ -517,30 +520,20 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
   }, [stopListening, resetTranscript]);
 
   /**
-   * The mic's "Send": stop capturing and submit whatever was said *now*, instead
-   * of waiting out the silence timeout. With nothing said yet it just goes idle,
-   * so an accidental tap still cancels cleanly.
+   * The mic's "Send": stop capturing now instead of waiting out the silence
+   * timeout. The auto-send effect submits once the backend has decoded the clip;
+   * with nothing said it just goes idle, so an accidental tap cancels cleanly.
    */
   const finishTurn = useCallback(() => {
-    const question = collapseSpaces(`${transcript} ${interimTranscript}`);
-    listeningHandledRef.current = true;
     stopListening();
-    if (question) {
-      submitQuestion(question);
-    } else {
-      resetTranscript();
-      setStage("idle");
-    }
-  }, [transcript, interimTranscript, stopListening, resetTranscript, submitQuestion]);
+  }, [stopListening]);
 
-  // resetTTS() clears what is queued; stopSpeech() silences the sentence already
-  // playing and blocks any chunk still mid-synthesis. Both are needed to stop.
+  // Clears what is queued and silences the sentence already playing.
   const silenceSpeech = useCallback(() => {
-    resetTTS();
-    stopSpeech();
+    cancelSpeech();
     // Drop the pending timing measurement — this turn never finished speaking.
     turnStartRef.current = null;
-  }, [resetTTS]);
+  }, [cancelSpeech]);
 
   /**
    * "Stop audio": silences the voice for the rest of this answer and blocks any
@@ -574,15 +567,12 @@ export function useTutorSession({ subjectName, level, lang = "en-US" }: UseTutor
     transcript,
     interimTranscript,
     isPlaying,
-    isVoiceReady,
-    isVoiceLoading,
-    voiceDownloadProgress: downloadProgress,
+    // Ready once the backend's speech-to-text model answers; the voice itself is
+    // warmed by the backend at boot and never gates the mic.
+    isVoiceReady: isVoiceReady && !sttLoading,
+    voiceDownloadProgress: sttProgress,
     isModelWarm,
-    browserSupportsSpeechRecognition,
-    // Surfaced so the UI can tell a student that speech needs the internet on
-    // this machine, instead of failing mutely the first time the Wi-Fi drops.
-    sttOnDeviceStatus,
-    sttIsOnDevice,
+    browserSupportsSpeechRecognition: sttSupported,
     isVoiceEnabled,
     startTurn,
     cancelTurn,
